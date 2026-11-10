@@ -1,0 +1,36 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/order/order",
+    "pages/member/member",
+    "pages/pay/pay"
+  ],
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#0f172a",
+    "navigationBarTitleText": "海马智慧门店",
+    "navigationBarTextStyle": "white"
+  },
+  "tabBar": {
+    "color": "#94a3b8",
+    "selectedColor": "#38bdf8",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "门店首页"
+      },
+      {
+        "pagePath": "pages/order/order",
+        "text": "在场点单"
+      },
+      {
+        "pagePath": "pages/member/member",
+        "text": "海马会员"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

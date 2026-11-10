@@ -1,0 +1,61 @@
+<view class="container">
+  <!-- 会员专属卡片 -->
+  <view class="member-card">
+    <view class="mc-top">
+      <view class="mc-user">
+        <view class="mc-avatar">林</view>
+        <view class="mc-info">
+          <view class="mc-name">林清雅 <text class="mc-level-badge">钻石会员</text></view>
+          <view class="mc-no">HM880001 · 138****8001</view>
+        </view>
+      </view>
+      <view class="mc-slogan">海马会员 · 记住每位好客</view>
+    </view>
+
+    <!-- 双轨储值总览 -->
+    <view class="mc-balance-grid">
+      <view class="bg-item">
+        <text class="bg-label">储值总额</text>
+        <text class="bg-val">￥{{ (profile.dualBalance.principalBalance || 1800) + (profile.dualBalance.giftBalance || 350) }}</text>
+      </view>
+      <view class="bg-item">
+        <text class="bg-label">本金余额</text>
+        <text class="bg-val">￥{{ profile.dualBalance.principalBalance || 1800 }}</text>
+      </view>
+      <view class="bg-item">
+        <text class="bg-label">赠送金</text>
+        <text class="bg-val text-amber">￥{{ profile.dualBalance.giftBalance || 350 }}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 海马体记忆画像特色卡片 -->
+  <view class="card hippocampus-card">
+    <view class="sec-title">🧠 我的“海马体”记忆偏好</view>
+    <view class="sec-sub">系统已为您牢记以下个性化服务喜好与习惯：</view>
+
+    <view class="pref-container">
+      <view class="pref-badge-row">
+        <text class="pref-pill">细软自然卷发质</text>
+        <text class="pref-pill">偏爱轻盈自然蓬松</text>
+        <text class="pref-pill">指定托尼老师</text>
+        <text class="pref-pill">微辣免葱蒜</text>
+        <text class="pref-pill">奔驰C260L专属档案</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 计次卡资产 -->
+  <view class="card">
+    <view class="sec-title">🎟️ 可用计次卡包</view>
+    <view class="tc-item" wx:for="{{ profile.timeCards }}" wx:key="id">
+      <view class="tc-left">
+        <view class="tc-title">{{ item.skuName }}</view>
+        <view class="tc-date">有效期至: {{ item.expireDate }}</view>
+      </view>
+      <view class="tc-right">
+        <text class="tc-remain">剩余 {{ item.remainingTimes }} 次</text>
+      </view>
+    </view>
+  </view>
+</view>

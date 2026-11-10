@@ -1,0 +1,57 @@
+<view class="container">
+  <!-- 品牌顶部横幅 -->
+  <view class="hero-banner">
+    <view class="brand-badge">🌊 海马智慧门店</view>
+    <view class="brand-slogan">“海马会员，记住每位好客。”</view>
+    <view class="store-meta">{{ storeInfo.storeName || '旗舰体验中心' }}</view>
+  </view>
+
+  <!-- 扫码开单与快速进入 -->
+  <view class="card scan-card" bindtap="handleScanTable">
+    <view class="scan-icon">📷</view>
+    <view class="scan-text">
+      <view class="scan-title">扫码在场点单 / 追加项目</view>
+      <view class="scan-sub">扫描工位、桌台或镜台二维码即刻联动</view>
+    </view>
+    <view class="scan-arrow">➔</view>
+  </view>
+
+  <!-- 当前空间看板状态 -->
+  <view class="card">
+    <view class="section-header">
+      <text class="sec-title">🏪 当前在场服务工位/桌台看板</text>
+      <text class="sec-refresh" bindtap="loadSpaces">刷新</text>
+    </view>
+
+    <view class="space-list">
+      <block wx:for="{{ spaces }}" wx:key="id">
+        <view class="space-item {{ item.status === 'OCCUPIED' ? 'item-occupied' : 'item-idle' }}" bindtap="handleSelectSpace" data-item="{{ item }}">
+          <view class="item-name">{{ item.spaceName }}</view>
+          <view class="item-status">{{ item.status === 'OCCUPIED' ? '服务履约中' : '空闲可扫码' }}</view>
+        </view>
+      </block>
+    </view>
+  </view>
+
+  <!-- 热门服务项目与推荐 -->
+  <view class="card">
+    <view class="section-header">
+      <text class="sec-title">✨ 招牌特色服务与项目</text>
+    </view>
+
+    <view class="product-list">
+      <block wx:for="{{ hotProducts }}" wx:key="id">
+        <view class="product-row">
+          <view class="p-info">
+            <view class="p-name">{{ item.name }}</view>
+            <view class="p-desc">{{ item.description || '品质服务保障' }}</view>
+          </view>
+          <view class="p-right">
+            <text class="price-text">￥{{ item.price }}</text>
+            <button class="order-mini-btn" bindtap="handleDirectOrder" data-id="{{ item.id }}">点单</button>
+          </view>
+        </view>
+      </block>
+    </view>
+  </view>
+</view>

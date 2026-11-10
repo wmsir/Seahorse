@@ -1,0 +1,65 @@
+# ==============================================================================
+# 海马智慧门店 (Seahorse Smart Store) - Docker Compose 一键容器化微服务编排
+# ==============================================================================
+version: '3.8'
+
+services:
+  # MySQL 8.0 独立数据库服务 (若使用本地轻量容器数据库，取消注释挂载即可)
+  seahorse-mysql:
+    image: mysql:8.0 # 官方 MySQL 8.0 基础镜像
+    container_name: seahorse-mysql # 数据库容器实例名称
+    restart: always # 容器异常退出时自动恢复重启
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456 # 本地容器数据库超级管理员密码
+      MYSQL_DATABASE: seahorse_store # 默认预创建数据库实例名称
+      TZ: Asia/Shanghai # 设置容器系统时区为东八区北京时间
+    ports:
+      - "3306:3306" # 映射宿主机物理端口 3306
+    volumes:
+      - mysql_data:/var/lib/mysql # MySQL 数据目录命名持久化卷
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql # 容器首次初始化执行全量建表DDL
+      - ./sql/init_data.sql:/docker-entrypoint-initdb.d/02_init_data.sql # 容器首次初始化执行演示种子数据DML
+    networks:
+      - seahorse-network # 加入海马系统专属内部桥接网络
+
+  # 海马智慧门店后端 Spring Boot 3 服务
+  seahorse-back:
+    build:
+      context: ./seahorse_back # 后端源码构建上下文根路径
+      dockerfile: Dockerfile # 对应的容器构建 Dockerfile 文件
+    container_name: seahorse-back # 后端业务服务容器名称
+    restart: always # 自动重启策略
+    environment:
+      SPRING_PROFILES_ACTIVE: prod # 默认指定生产环境运行配置
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://127.0.0.1:3306/seahorse_store?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-seahorse_prod}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}
+    ports:
+      - "8082:8082" # 映射宿主机后端 API 接口访问端口 8082
+    depends_on:
+      - seahorse-mysql # 依赖数据库基础组件
+    networks:
+      - seahorse-network # 加入海马系统专属内部桥接网络
+
+  # 海马智慧门店前端 Vue 3 + Vite + Element-Plus 管理台服务
+  seahorse-web-front:
+    build:
+      context: ./seahorse_web_front # 前端源码构建上下文根路径
+      dockerfile: Dockerfile # 前端 Nginx 部署容器构建 Dockerfile
+    container_name: seahorse-web-front # 前端服务容器名称
+    restart: always # 自动重启策略
+    ports:
+      - "3000:80" # 映射宿主机 Web 页面访问端口 3000 (内部映射 Nginx 80)
+    depends_on:
+      - seahorse-back # 依赖后端业务服务就绪
+    networks:
+      - seahorse-network # 加入海马系统专属内部桥接网络
+
+# 内部私有网络拓扑定义
+networks:
+  seahorse-network:
+    driver: bridge # 采用 Docker 标准桥接网卡模式
+
+# 持久化存储数据卷
+volumes:
+  mysql_data: # 本地数据库物理文件挂载卷

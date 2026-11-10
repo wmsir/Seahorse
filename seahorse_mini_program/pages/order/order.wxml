@@ -1,0 +1,39 @@
+<view class="container">
+  <!-- 当前在场工位绑定条 -->
+  <view class="session-bar">
+    <view class="bar-left">
+      <text class="bar-space">当前工位: 1号精剪镜台 (M01)</text>
+      <text class="bar-hint">在场履约中 · 支持多次动态追加</text>
+    </view>
+    <view class="bar-right" bindtap="loadProducts">
+      <text class="bar-status">进行中</text>
+    </view>
+  </view>
+
+  <!-- 点单菜单列表 -->
+  <view class="menu-container">
+    <view class="product-item" wx:for="{{ products }}" wx:key="id">
+      <view class="p-details">
+        <view class="p-title">{{ item.name }}</view>
+        <view class="p-sub">{{ item.description || '品质推荐' }}</view>
+        <view class="p-price">￥{{ item.price }}</view>
+      </view>
+
+      <view class="p-actions">
+        <button class="add-cart-btn" bindtap="handleAddItem" data-item="{{ item }}">+ 追加</button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部购物车与提交追加栏 -->
+  <view class="bottom-bar">
+    <view class="cart-info">
+      <view class="cart-count">已选 {{ cart.length }} 项</view>
+      <view class="cart-total">合计: <text class="price-text">￥{{ totalAmount }}</text></view>
+    </view>
+
+    <button class="primary-btn submit-btn" bindtap="handleSubmitAppend" disabled="{{ cart.length === 0 }}">
+      提交追加并下单
+    </button>
+  </view>
+</view>

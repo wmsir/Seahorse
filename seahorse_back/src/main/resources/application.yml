@@ -1,0 +1,72 @@
+# ==============================================================================
+# 海马智慧门店 (Seahorse Smart Store) - 全局核心主配置文件 (application.yml)
+# Slogan: “海马会员，记住每位好客。”
+# ==============================================================================
+
+# 服务端网络与端口配置
+server:
+  port: 8082 # 后端服务运行端口 (默认: 8082)
+
+# Spring 框架核心配置
+spring:
+  application:
+    name: seahorse-store # 系统应用标识名称
+  profiles:
+    active: dev # 默认激活的运行环境Profile (dev: 开发环境 / prod: 生产环境)
+
+  # 数据库连接池配置 (阿里云 RDS MySQL 云数据库实例)
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://127.0.0.1:3306/seahorse_store?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true} # 数据库连接JDBC URL (UTF-8, 禁用SSL, UTC时区)
+    username: root # 数据库登录账号
+    password: ${SPRING_DATASOURCE_PASSWORD} # 数据库密码（环境变量注入，禁止硬编码）
+    driver-class-name: com.mysql.cj.jdbc.Driver # MySQL官方 8.x JDBC 驱动类
+
+  # JPA / Hibernate ORM 持久层框架配置
+  jpa:
+    open-in-view: false # 禁用 OpenSessionInView，防止在视图渲染阶段引发额外数据库查询，提升吞吐量
+    hibernate:
+      ddl-auto: update # 实体模型与数据库表结构自动同步比对并增量更新
+    show-sql: ${JPA_SHOW_SQL:false} # 是否在控制台打印执行的SQL语句，便于开发与调试
+    properties:
+      hibernate:
+        format_sql: true # 格式化输出SQL语句，增强排查可读性
+        dialect: org.hibernate.dialect.MySQL8Dialect # 指定 Hibernate 针对 MySQL 8 的标准 SQL 方言
+
+# 海马智慧门店核心领域业务配置
+seahorse:
+  app-name: "海马智慧门店" # 平台系统对外展示名称
+  slogan: "海马会员，记住每位好客。" # 品牌宣传标语
+  industry: BEAUTY # 默认业务模态: RESTAURANT (餐饮) | BEAUTY (美业) | AUTO (汽修) | RETAIL (零售)
+  default-tenant-id: "T001" # 系统默认商户/租户ID
+  default-store-id: "S001" # 系统默认门店ID
+
+  # JWT 身份认证与安全鉴权配置
+  security:
+    jwt-secret: "seahorse-smart-store-secret-key-2026-super-secure-key-jwt-token-hash" # JWT 令牌签名密钥 (防篡改高强度密钥)
+    access-token-expiration-minutes: 1440 # 访问令牌有效时长 (分钟)，默认1440分钟 (24小时)
+    refresh-token-expiration-days: 7 # 刷新令牌有效时长 (天)，默认7天
+
+  # 支付网关联动配置
+  pay:
+    mock-enabled: true # 是否开启Mock模拟支付开关 (开发/测试环境一键开箱即用，无需真实微信商户号)
+    wechat:
+      app-id: "wx_mock_seahorse_app" # 微信公众平台/小程序 AppID
+      mch-id: "1900000001" # 微信支付分配的商户号 MchID
+
+  # 会员双轨储值金扣减模式配置
+  dual-balance:
+    deduct-mode: "PROPORTIONAL" # 默认扣减策略: PROPORTIONAL (按本金/赠金比例双轨扣减) | PRINCIPAL_FIRST (优先本金扣减)
+
+  # 硬件与前台收银设备联动配置
+  device:
+    cash-drawer-pulse-enabled: true # 组合结账成功后是否自动触发钱箱电平脉冲开箱
+    receipt-printer-enabled: true # 组合结账成功后是否自动下发小票打印任务
+
+# OpenAPI 3.0 与 Swagger 接口文档配置
+springdoc:
+  api-docs:
+    path: /v3/api-docs # OpenAPI v3 契约元数据 JSON 路径
+  swagger-ui:
+    path: /swagger-ui.html # Swagger UI 交互式文档界面访问入口
+    tags-sorter: alpha # 控制器标签按字母升序排序
+    operations-sorter: alpha # 接口动作按字母升序排序

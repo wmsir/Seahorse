@@ -1,0 +1,14 @@
+{
+  "miniprogramRoot": "./",
+  "projectname": "seahorse_mini_program",
+  "description": "海马智慧门店顾客端小程序",
+  "appid": "wx_mock_seahorse_app",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "preloadBackgroundData": false,
+    "minified": true
+  }
+}

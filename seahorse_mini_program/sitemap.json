@@ -1,0 +1,7 @@
+{
+  "desc": "About page check rules",
+  "rules": [{
+    "action": "allow",
+    "page": "*"
+  }]
+}

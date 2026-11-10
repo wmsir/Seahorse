@@ -1,0 +1,11 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "Seahorse Store Entry Ability",
+  "main": "",
+  "author": "Seahorse",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@ohos/flutter_ohos": "file:../har/flutter.har"
+  }
+}

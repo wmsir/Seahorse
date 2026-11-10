@@ -1,0 +1,30 @@
+page {
+  background-color: #f1f5f9;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #1e293b;
+  box-sizing: border-box;
+}
+
+.container {
+  padding: 24rpx;
+}
+
+.card {
+  background-color: #ffffff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 24rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04);
+}
+
+.primary-btn {
+  background-color: #0284c7;
+  color: #ffffff;
+  font-weight: 600;
+  border-radius: 40rpx;
+}
+
+.price-text {
+  color: #ef4444;
+  font-weight: 700;
+}

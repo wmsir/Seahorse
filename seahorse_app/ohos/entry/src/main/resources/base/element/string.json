@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "海马智慧门店商户移动端"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "海马智慧门店商户移动端主入口"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "海马智慧门店"
+    }
+  ]
+}
