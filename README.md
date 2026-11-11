@@ -57,7 +57,7 @@
 8. **🖨️ 隔离式硬件热敏打印沙箱与招聘入职闭环**：
    - 58mm/80mm 矢量热敏小票独立沙箱无界面透印；岗位描述二维码直通应聘，面试短信自动通知，面试通过一键办理入职秒开工作台账号。
 
-> 📖 **详尽架构与领域建模规格**：详见 [智慧会员与全场景门店履约系统领域驱动设计(DDD)详尽规格说明书](file:///c:/project/fwpt/seahorse/docs/%E6%99%BA%E6%85%A7%E4%BC%9A%E5%91%98%E4%B8%8E%E5%85%A8%E5%9C%BA%E6%99%AF%E9%97%A8%E5%BA%97%E5%B1%A5%E7%BA%A6%E7%B3%BB%E7%BB%9F%E9%A2%86%E5%9F%9F%E9%A9%B1%E5%8A%A8%E8%AE%BE%E8%AE%A1%28DDD%29%E8%AF%A6%E5%B0%BD%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6.md)。
+> 📖 **详尽架构与领域建模规格**：详见 [智慧会员与全场景门店履约系统领域驱动设计(DDD)详尽规格说明书](docs/%E6%99%BA%E6%85%A7%E4%BC%9A%E5%91%98%E4%B8%8E%E5%85%A8%E5%9C%BA%E6%99%AF%E9%97%A8%E5%BA%97%E5%B1%A5%E7%BA%A6%E7%B3%BB%E7%BB%9F%E9%A2%86%E5%9F%9F%E9%A9%B1%E5%8A%A8%E8%AE%BE%E8%AE%A1%28DDD%29%E8%AF%A6%E5%B0%BD%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6.md)。
 
 ---
 
@@ -82,12 +82,16 @@ seahorse/
 │   │   ├── api/              # Axios 接口层
 │   │   └── stores/           # Pinia 状态管理
 │   └── package.json
+├── seahorse_app/              # 跨平台移动端 APP (Flutter 3.x: HarmonyOS / Android / iOS)
 ├── seahorse_mini_program/     # 顾客端微信小程序 (扫码在场点单、动态加项、会员海马记忆档案)
 │   ├── pages/index/          # 门店首页与在场看板
 │   ├── pages/order/          # 在场点单与动态加项
 │   ├── pages/member/         # 会员中心与双轨储值总览
 │   └── pages/pay/            # 在线自助结账
-├── sql/                       # 数据库脚本 (schema.sql 全量结构, init_data.sql 演示数据)
+├── ops/                       # 本地启停与远程 Docker 部署套件 (01_本地开发运行 / 02_远程Docker部署)
+├── scripts/                   # 运维与数据库演示数据初始化脚本
+├── sql/                       # 数据库脚本 (schema.sql, init_data.sql)
+│   └── migrations/           # 版本化增量数据库迁移与回滚脚本
 ├── docker-compose.yml         # 生产环境一键容器编排
 ├── DEPLOY.md                  # 部署与运维指南
 └── docs/                      # 需求 PRD 与 DDD 规格说明书归档

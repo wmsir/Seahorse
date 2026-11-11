@@ -18,7 +18,6 @@ import '../appointments/appointments_view.dart';
 import '../members/member_create_dialog.dart';
 import '../members/members_view.dart';
 import '../cashier/cashier_view.dart';
-import '../../games/views/party_game_hall_view.dart';
 
 class DashboardView extends StatefulWidget {
   final Function(int)? onNavigateTab;
@@ -239,80 +238,6 @@ class _DashboardViewState extends State<DashboardView> {
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 18),
-
-              // 聚会娱乐桌游专属卡片 (牛头王 / 大话骰)
-              GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PartyGameHallView(
-                        storeName: store.currentStore?.storeName ?? '门店空间',
-                        currentTableNo: spaceProv.spaces.isNotEmpty ? spaceProv.spaces.first.spaceName : 'A01',
-                      ),
-                    ),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.amber.withOpacity(0.4)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.amber.withOpacity(0.15),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.casino, color: Colors.amber, size: 26),
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Text(
-                                  '🎲 聚会桌游对战大厅',
-                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                                ),
-                                SizedBox(width: 6),
-                                Text(
-                                  'Clean Arch',
-                                  style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.w600),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 2),
-                            Text(
-                              '谁是牛头王 · 大话骰 · 门店联机与独立单机双外壳',
-                              style: TextStyle(color: Colors.white60, fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.arrow_forward_ios, color: Colors.amber, size: 14),
-                    ],
-                  ),
-                ),
               ),
               const SizedBox(height: 22),
 

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,6 +14,7 @@ import java.util.Optional;
 public interface SubscriptionBillingRecordRepository extends JpaRepository<SubscriptionBillingRecord, Long> {
     Optional<SubscriptionBillingRecord> findByRecordNo(String recordNo);
     List<SubscriptionBillingRecord> findByTenantIdOrderByPayTimeDesc(String tenantId);
+    List<SubscriptionBillingRecord> findByTenantIdInOrderByPayTimeDesc(Collection<String> tenantIds);
     List<SubscriptionBillingRecord> findByBillingTypeOrderByPayTimeDesc(SubscriptionBillingType billingType);
     List<SubscriptionBillingRecord> findByPayTimeBetweenOrderByPayTimeDesc(LocalDateTime start, LocalDateTime end);
     List<SubscriptionBillingRecord> findAllByOrderByPayTimeDesc();

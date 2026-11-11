@@ -138,9 +138,13 @@ public class LeaveApplicationController {
             entities = new ArrayList<>(leaveApplicationRepository.findByTenantIdOrderByCreatedAtDesc(effTenantId));
             // 补充关联当前租户门店的单据（保证跨端多门店同步）
             List<Store> stores = storeRepository.findByTenantId(effTenantId);
-            Set<String> ids = entities.stream().map(LeaveApplication::getId).collect(Collectors.toSet());
-            for (Store s : stores) {
-                List<LeaveApplication> storeLeaves = leaveApplicationRepository.findByStoreIdOrderByCreatedAtDesc(s.getStoreId());
+            Set<String> storeIds = stores.stream()
+                    .map(Store::getStoreId)
+                    .filter(sid -> sid != null && !sid.trim().isEmpty())
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            if (!storeIds.isEmpty()) {
+                Set<String> ids = entities.stream().map(LeaveApplication::getId).collect(Collectors.toSet());
+                List<LeaveApplication> storeLeaves = leaveApplicationRepository.findByStoreIdInOrderByCreatedAtDesc(storeIds);
                 for (LeaveApplication sl : storeLeaves) {
                     if (!ids.contains(sl.getId())) {
                         entities.add(sl);

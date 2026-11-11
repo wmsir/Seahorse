@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * 系统开发商运营管理后台控制器
@@ -192,8 +193,20 @@ public class VendorManagementController {
 
         // 1. 根据店铺联系电话检索
         List<com.seahorse.store.domain.iam.model.Store> storesByPhone = storeRepository.findByPhoneContaining(clean);
+        Set<String> storeTenantIds = storesByPhone.stream()
+                .map(com.seahorse.store.domain.iam.model.Store::getTenantId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, com.seahorse.store.domain.iam.model.Tenant> tenantMap = new HashMap<>();
+        if (!storeTenantIds.isEmpty()) {
+            for (com.seahorse.store.domain.iam.model.Tenant t : tenantRepository.findByTenantIdIn(storeTenantIds)) {
+                if (t != null && t.getTenantId() != null) {
+                    tenantMap.put(t.getTenantId(), t);
+                }
+            }
+        }
         for (com.seahorse.store.domain.iam.model.Store s : storesByPhone) {
-            com.seahorse.store.domain.iam.model.Tenant t = tenantRepository.findByTenantId(s.getTenantId()).orElse(null);
+            com.seahorse.store.domain.iam.model.Tenant t = tenantMap.get(s.getTenantId());
             String tName = t != null ? t.getTenantName() : "智慧商户";
             String managerName = t != null && t.getContactName() != null ? t.getContactName() : "店长";
             String key = s.getTenantId() + "_" + s.getStoreId();
@@ -213,7 +226,24 @@ public class VendorManagementController {
         // 2. 根据租户联系电话检索旗下所有门店
         List<com.seahorse.store.domain.iam.model.Tenant> tenants = tenantRepository.findByContactPhoneContaining(clean);
         for (com.seahorse.store.domain.iam.model.Tenant t : tenants) {
-            List<com.seahorse.store.domain.iam.model.Store> tStores = storeRepository.findByTenantId(t.getTenantId());
+            if (t != null && t.getTenantId() != null) {
+                tenantMap.putIfAbsent(t.getTenantId(), t);
+            }
+        }
+        Set<String> contactTenantIds = tenants.stream()
+                .map(com.seahorse.store.domain.iam.model.Tenant::getTenantId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, List<com.seahorse.store.domain.iam.model.Store>> storesByTenantMap = new HashMap<>();
+        if (!contactTenantIds.isEmpty()) {
+            for (com.seahorse.store.domain.iam.model.Store st : storeRepository.findByTenantIdIn(contactTenantIds)) {
+                if (st != null && st.getTenantId() != null) {
+                    storesByTenantMap.computeIfAbsent(st.getTenantId(), k -> new ArrayList<>()).add(st);
+                }
+            }
+        }
+        for (com.seahorse.store.domain.iam.model.Tenant t : tenants) {
+            List<com.seahorse.store.domain.iam.model.Store> tStores = storesByTenantMap.getOrDefault(t.getTenantId(), Collections.emptyList());
             for (com.seahorse.store.domain.iam.model.Store s : tStores) {
                 String key = s.getTenantId() + "_" + s.getStoreId();
                 if (!resultMap.containsKey(key)) {
@@ -234,13 +264,37 @@ public class VendorManagementController {
 
         // 3. 根据员工/老板手机号检索关联门店
         List<com.seahorse.store.domain.iam.model.Employee> employees = employeeRepository.findByPhone(clean);
+        Set<String> empTenantIds = employees.stream()
+                .map(com.seahorse.store.domain.iam.model.Employee::getTenantId)
+                .filter(tid -> tid != null && !"PLATFORM".equalsIgnoreCase(tid))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> missingStoreTenantIds = empTenantIds.stream()
+                .filter(tid -> !storesByTenantMap.containsKey(tid))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (!missingStoreTenantIds.isEmpty()) {
+            for (com.seahorse.store.domain.iam.model.Store st : storeRepository.findByTenantIdIn(missingStoreTenantIds)) {
+                if (st != null && st.getTenantId() != null) {
+                    storesByTenantMap.computeIfAbsent(st.getTenantId(), k -> new ArrayList<>()).add(st);
+                }
+            }
+        }
+        Set<String> missingTenantIds = empTenantIds.stream()
+                .filter(tid -> !tenantMap.containsKey(tid))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (!missingTenantIds.isEmpty()) {
+            for (com.seahorse.store.domain.iam.model.Tenant t : tenantRepository.findByTenantIdIn(missingTenantIds)) {
+                if (t != null && t.getTenantId() != null) {
+                    tenantMap.put(t.getTenantId(), t);
+                }
+            }
+        }
         for (com.seahorse.store.domain.iam.model.Employee e : employees) {
             if (e.getTenantId() != null && !"PLATFORM".equalsIgnoreCase(e.getTenantId())) {
-                List<com.seahorse.store.domain.iam.model.Store> eStores = storeRepository.findByTenantId(e.getTenantId());
+                List<com.seahorse.store.domain.iam.model.Store> eStores = storesByTenantMap.getOrDefault(e.getTenantId(), Collections.emptyList());
                 for (com.seahorse.store.domain.iam.model.Store s : eStores) {
                     String key = s.getTenantId() + "_" + s.getStoreId();
                     if (!resultMap.containsKey(key)) {
-                        com.seahorse.store.domain.iam.model.Tenant t = tenantRepository.findByTenantId(s.getTenantId()).orElse(null);
+                        com.seahorse.store.domain.iam.model.Tenant t = tenantMap.get(s.getTenantId());
                         String tName = t != null ? t.getTenantName() : "智慧商户";
                         String managerName = e.getRealName() != null ? e.getRealName() : (t != null && t.getContactName() != null ? t.getContactName() : "负责人");
                         Map<String, Object> map = new LinkedHashMap<>();

@@ -47,6 +47,36 @@ public class DomainEventListener {
         Store store = storeRepository.findByStoreId(event.getSession().getStoreId()).orElse(null);
         String industry = store != null ? store.getIndustry().name() : "BEAUTY";
 
+        java.util.Map<Long, List<ProductBom>> bomsByServiceId = new java.util.HashMap<>();
+        java.util.Map<Long, Product> materialMap = new java.util.HashMap<>();
+        if (!"RESTAURANT".equals(industry) && event.getLineItems() != null && !event.getLineItems().isEmpty()) {
+            java.util.Set<Long> serviceProductIds = new java.util.LinkedHashSet<>();
+            for (SessionLineItem item : event.getLineItems()) {
+                if (item.getProductId() != null) {
+                    serviceProductIds.add(item.getProductId());
+                }
+            }
+            if (!serviceProductIds.isEmpty()) {
+                List<ProductBom> allBoms = productBomRepository.findByServiceProductIdIn(serviceProductIds);
+                java.util.Set<Long> materialIds = new java.util.LinkedHashSet<>();
+                for (ProductBom bom : allBoms) {
+                    if (bom != null && bom.getServiceProductId() != null) {
+                        bomsByServiceId.computeIfAbsent(bom.getServiceProductId(), k -> new ArrayList<>()).add(bom);
+                        if (bom.getMaterialProductId() != null) {
+                            materialIds.add(bom.getMaterialProductId());
+                        }
+                    }
+                }
+                if (!materialIds.isEmpty()) {
+                    for (Product mat : productRepository.findAllById(materialIds)) {
+                        if (mat != null && mat.getId() != null) {
+                            materialMap.put(mat.getId(), mat);
+                        }
+                    }
+                }
+            }
+        }
+
         for (SessionLineItem item : event.getLineItems()) {
             if ("RESTAURANT".equals(industry)) {
                 // 餐饮档口小票机打印模拟
@@ -54,9 +84,9 @@ public class DomainEventListener {
                         event.getSession().getSpaceName(), item.getProductName(), item.getQuantity(), item.getModifiers());
             } else {
                 // 美业或汽修：联动 BOM 原料配方自动扣减库房耗材
-                List<ProductBom> boms = productBomRepository.findByServiceProductId(item.getProductId());
+                List<ProductBom> boms = bomsByServiceId.getOrDefault(item.getProductId(), java.util.Collections.emptyList());
                 for (ProductBom bom : boms) {
-                    Product mat = productRepository.findById(bom.getMaterialProductId()).orElse(null);
+                    Product mat = materialMap.get(bom.getMaterialProductId());
                     if (mat != null) {
                         int deductTotal = bom.getConsumeQuantity().multiply(BigDecimal.valueOf(item.getQuantity())).intValue();
                         mat.deductStock(deductTotal);

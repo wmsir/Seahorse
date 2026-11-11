@@ -126,7 +126,7 @@ seahorse_app/
 ## 四、网络连接与离线双引擎说明
 
 1. **后端 Spring Boot 联动**：
-   - 默认配置连接 `http://localhost:8080/api`（局域网调试真机时，可在 `lib/core/network/api_client.dart` 中调整为服务器局域网 IP，如 `http://192.168.x.x:8080/api`）；
+   - 默认配置连接 `http://localhost:8082/api`（局域网调试真机时，可在 `lib/core/network/api_client.dart` 中调整为服务器局域网 IP，如 `http://192.168.x.x:8082/api`）；
    - 请求头自动附加 `Authorization: Bearer <token>` 与 `X-Store-Id: <storeId>`，权限与多租户严格隔离。
 2. **离线自洽体验模式**：
    - 内置完整的 `MockData` 引擎，支持断网离线单机闭环演示所有业务流程。

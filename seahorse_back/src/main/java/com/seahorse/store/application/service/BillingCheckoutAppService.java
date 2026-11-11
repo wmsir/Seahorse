@@ -413,29 +413,95 @@ public class BillingCheckoutAppService {
                 return;
             }
 
+            java.util.Set<Long> itemProductIds = new java.util.LinkedHashSet<>();
             for (CheckoutCommand.CheckoutItem item : itemsToDeduct) {
-                int qty = (item.getQuantity() != null && item.getQuantity() > 0) ? item.getQuantity() : 1;
-                Product product = null;
-                // 1. 优先通过 productId 查询
                 if (item.getProductId() != null && item.getProductId() > 0) {
-                    product = productRepository.findById(item.getProductId()).orElse(null);
+                    itemProductIds.add(item.getProductId());
+                }
+            }
+            java.util.Map<Long, Product> productByIdMap = new java.util.HashMap<>();
+            if (!itemProductIds.isEmpty()) {
+                for (Product p : productRepository.findAllById(itemProductIds)) {
+                    if (p != null && p.getId() != null) {
+                        productByIdMap.put(p.getId(), p);
+                    }
+                }
+            }
+
+            List<Product> tenantProductsCache = null;
+            List<Product> resolvedProducts = new ArrayList<>(itemsToDeduct.size());
+            java.util.Set<Long> serviceProductIds = new java.util.LinkedHashSet<>();
+
+            for (CheckoutCommand.CheckoutItem item : itemsToDeduct) {
+                Product product = null;
+                // 1. 优先通过 productId 批量缓存查找
+                if (item.getProductId() != null && item.getProductId() > 0) {
+                    product = productByIdMap.get(item.getProductId());
                 }
                 // 2. 其次通过 productCode 查询
                 if (product == null && item.getProductCode() != null && !item.getProductCode().trim().isEmpty()) {
                     String code = item.getProductCode().trim();
-                    product = productRepository.findByStoreIdAndProductCode(order.getStoreId(), code)
-                            .orElseGet(() -> productRepository.findByProductCode(code).orElse(null));
+                    if (tenantProductsCache == null) {
+                        tenantProductsCache = productRepository.findByTenantId(order.getTenantId());
+                    }
+                    for (Product p : tenantProductsCache) {
+                        if (order.getStoreId() != null && order.getStoreId().equals(p.getStoreId()) && code.equals(p.getProductCode())) {
+                            product = p;
+                            break;
+                        }
+                    }
+                    if (product == null) {
+                        product = productRepository.findByStoreIdAndProductCode(order.getStoreId(), code)
+                                .orElseGet(() -> productRepository.findByProductCode(code).orElse(null));
+                    }
                 }
                 // 3. 再次通过商品名称在租户下匹配
                 if (product == null && item.getProductName() != null && !item.getProductName().trim().isEmpty()) {
-                    List<Product> matches = productRepository.findByTenantId(order.getTenantId());
-                    for (Product p : matches) {
+                    if (tenantProductsCache == null) {
+                        tenantProductsCache = productRepository.findByTenantId(order.getTenantId());
+                    }
+                    for (Product p : tenantProductsCache) {
                         if (item.getProductName().trim().equalsIgnoreCase(p.getName())) {
                             product = p;
                             break;
                         }
                     }
                 }
+                if (product != null && product.getId() != null) {
+                    productByIdMap.putIfAbsent(product.getId(), product);
+                    product = productByIdMap.get(product.getId());
+                    if (product.getProductType() == ProductType.SERVICE) {
+                        serviceProductIds.add(product.getId());
+                    }
+                }
+                resolvedProducts.add(product);
+            }
+
+            java.util.Map<Long, List<ProductBom>> bomsByServiceId = new java.util.HashMap<>();
+            if (!serviceProductIds.isEmpty()) {
+                List<ProductBom> allBoms = bomRepository.findByServiceProductIdIn(serviceProductIds);
+                java.util.Set<Long> missingMaterialIds = new java.util.LinkedHashSet<>();
+                for (ProductBom bom : allBoms) {
+                    if (bom != null && bom.getServiceProductId() != null) {
+                        bomsByServiceId.computeIfAbsent(bom.getServiceProductId(), k -> new ArrayList<>()).add(bom);
+                        if (bom.getMaterialProductId() != null && !productByIdMap.containsKey(bom.getMaterialProductId())) {
+                            missingMaterialIds.add(bom.getMaterialProductId());
+                        }
+                    }
+                }
+                if (!missingMaterialIds.isEmpty()) {
+                    for (Product mat : productRepository.findAllById(missingMaterialIds)) {
+                        if (mat != null && mat.getId() != null) {
+                            productByIdMap.put(mat.getId(), mat);
+                        }
+                    }
+                }
+            }
+
+            for (int idx = 0; idx < itemsToDeduct.size(); idx++) {
+                CheckoutCommand.CheckoutItem item = itemsToDeduct.get(idx);
+                int qty = (item.getQuantity() != null && item.getQuantity() > 0) ? item.getQuantity() : 1;
+                Product product = resolvedProducts.get(idx);
 
                 if (product != null) {
                     if (product.getProductType() != ProductType.SERVICE) {
@@ -446,11 +512,11 @@ public class BillingCheckoutAppService {
                                 order.getOrderNo(), product.getId(), product.getName(), qty, product.getStock());
                     } else {
                         // 服务项目：查询其配置关联的 BOM 耗材配方进行联动消耗扣减
-                        List<ProductBom> boms = bomRepository.findByServiceProductId(product.getId());
+                        List<ProductBom> boms = bomsByServiceId.get(product.getId());
                         if (boms != null && !boms.isEmpty()) {
                             for (ProductBom bom : boms) {
                                 if (bom.getMaterialProductId() != null) {
-                                    Product material = productRepository.findById(bom.getMaterialProductId()).orElse(null);
+                                    Product material = productByIdMap.get(bom.getMaterialProductId());
                                     if (material != null) {
                                         BigDecimal consume = bom.getConsumeQuantity() != null
                                                 ? bom.getConsumeQuantity().multiply(BigDecimal.valueOf(qty))

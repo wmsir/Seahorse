@@ -31,9 +31,9 @@ services:
     restart: always # 自动重启策略
     environment:
       SPRING_PROFILES_ACTIVE: prod # 默认指定生产环境运行配置
-      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://127.0.0.1:3306/seahorse_store?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
-      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-seahorse_prod}
-      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://seahorse-mysql:3306/seahorse_store?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-root123456}
     ports:
       - "8082:8082" # 映射宿主机后端 API 接口访问端口 8082
     depends_on:

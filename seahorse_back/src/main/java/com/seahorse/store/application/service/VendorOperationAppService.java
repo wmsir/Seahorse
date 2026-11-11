@@ -56,6 +56,7 @@ public class VendorOperationAppService {
         List<Tenant> tenants = tenantRepository.findAll();
         List<VendorSubscriptionVO> result = new ArrayList<>();
 
+        List<Tenant> matchedTenants = new ArrayList<>();
         for (Tenant tenant : tenants) {
             if ("PLATFORM".equalsIgnoreCase(tenant.getTenantId())) {
                 continue;
@@ -73,11 +74,53 @@ public class VendorOperationAppService {
                     continue;
                 }
             }
+            matchedTenants.add(tenant);
+        }
 
-            TenantSubscription sub = subscriptionRepository.findByTenantId(tenant.getTenantId())
-                    .orElseGet(() -> createDefaultSubscription(tenant.getTenantId()));
+        if (matchedTenants.isEmpty()) {
+            return result;
+        }
 
-            List<Store> stores = storeRepository.findByTenantId(tenant.getTenantId());
+        Set<String> tenantIds = matchedTenants.stream()
+                .map(Tenant::getTenantId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Map<String, TenantSubscription> subMap = new HashMap<>();
+        Map<String, List<Store>> storesByTenant = new HashMap<>();
+        Map<String, List<SubscriptionBillingRecord>> billingsByTenant = new HashMap<>();
+        Map<String, Integer> memberCountByTenant = new HashMap<>();
+
+        if (!tenantIds.isEmpty()) {
+            for (TenantSubscription s : subscriptionRepository.findByTenantIdIn(tenantIds)) {
+                if (s != null && s.getTenantId() != null) {
+                    subMap.put(s.getTenantId(), s);
+                }
+            }
+            for (Store st : storeRepository.findByTenantIdIn(tenantIds)) {
+                if (st != null && st.getTenantId() != null) {
+                    storesByTenant.computeIfAbsent(st.getTenantId(), k -> new ArrayList<>()).add(st);
+                }
+            }
+            for (SubscriptionBillingRecord br : billingRecordRepository.findByTenantIdInOrderByPayTimeDesc(tenantIds)) {
+                if (br != null && br.getTenantId() != null) {
+                    billingsByTenant.computeIfAbsent(br.getTenantId(), k -> new ArrayList<>()).add(br);
+                }
+            }
+            for (Object[] row : memberRepository.countGroupByTenantIdIn(tenantIds)) {
+                if (row != null && row.length >= 2 && row[0] != null && row[1] instanceof Number cnt) {
+                    memberCountByTenant.put(row[0].toString(), cnt.intValue());
+                }
+            }
+        }
+
+        for (Tenant tenant : matchedTenants) {
+            TenantSubscription sub = subMap.get(tenant.getTenantId());
+            if (sub == null) {
+                sub = createDefaultSubscription(tenant.getTenantId());
+            }
+
+            List<Store> stores = storesByTenant.getOrDefault(tenant.getTenantId(), Collections.emptyList());
             List<VendorSubscriptionVO.StoreSummaryVO> storeVos = stores.stream()
                     .map(s -> VendorSubscriptionVO.StoreSummaryVO.builder()
                             .storeId(s.getStoreId())
@@ -104,7 +147,7 @@ public class VendorOperationAppService {
             }
 
             // 统计该商户缴纳的套餐费与存储费
-            List<SubscriptionBillingRecord> billings = billingRecordRepository.findByTenantIdOrderByPayTimeDesc(tenant.getTenantId());
+            List<SubscriptionBillingRecord> billings = billingsByTenant.getOrDefault(tenant.getTenantId(), Collections.emptyList());
             BigDecimal subFee = BigDecimal.ZERO;
             BigDecimal storageFee = BigDecimal.ZERO;
             for (SubscriptionBillingRecord b : billings) {
@@ -122,7 +165,7 @@ public class VendorOperationAppService {
                 long daysBetween = java.time.temporal.ChronoUnit.DAYS.between(sub.getStartDate(), sub.getExpireDate());
                 durationMonths = Math.max(1, (int) Math.round(daysBetween / 30.0));
             }
-            int tenantMemberCount = (int) memberRepository.countByTenantId(tenant.getTenantId());
+            int tenantMemberCount = memberCountByTenant.getOrDefault(tenant.getTenantId(), 0);
 
             BigDecimal effectiveTotalPaid = subFee.add(storageFee);
             if (sub.getFeePaid() != null && sub.getFeePaid().compareTo(effectiveTotalPaid) > 0) {

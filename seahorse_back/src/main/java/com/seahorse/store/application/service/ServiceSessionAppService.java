@@ -159,9 +159,24 @@ public class ServiceSessionAppService {
         List<SessionLineItem> createdItems = new ArrayList<>();
         BigDecimal batchTotal = BigDecimal.ZERO;
 
+        Set<Long> productIds = cmd.getItems() == null ? Collections.emptySet() : cmd.getItems().stream()
+                .map(AppendItemsCommand.AppendItemParam::getProductId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, Product> productMap = new HashMap<>();
+        if (!productIds.isEmpty()) {
+            for (Product p : productRepository.findAllById(productIds)) {
+                if (p != null && p.getId() != null) {
+                    productMap.put(p.getId(), p);
+                }
+            }
+        }
+
         for (AppendItemsCommand.AppendItemParam itemParam : cmd.getItems()) {
-            Product product = productRepository.findById(itemParam.getProductId())
-                    .orElseThrow(() -> new ServiceException("商品/服务不存在: ID=" + itemParam.getProductId()));
+            Product product = itemParam.getProductId() != null ? productMap.get(itemParam.getProductId()) : null;
+            if (product == null) {
+                throw new ServiceException("商品/服务不存在: ID=" + itemParam.getProductId());
+            }
 
             int qty = itemParam.getQuantity() != null && itemParam.getQuantity() > 0 ? itemParam.getQuantity() : 1;
             BigDecimal subtotal = product.getPrice().multiply(BigDecimal.valueOf(qty));

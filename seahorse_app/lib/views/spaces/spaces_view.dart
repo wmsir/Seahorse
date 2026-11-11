@@ -8,7 +8,6 @@ import '../../widgets/room_card.dart';
 import '../../widgets/empty_state.dart';
 import 'open_space_sheet.dart';
 import 'space_detail_dialog.dart';
-import '../../games/views/party_game_hall_view.dart';
 
 class SpacesView extends StatefulWidget {
   const SpacesView({Key? key}) : super(key: key);
@@ -69,21 +68,6 @@ class _SpacesViewState extends State<SpacesView> {
       appBar: AppBar(
         title: Text('${store.spaceAlias}动态看板'),
         actions: [
-          TextButton.icon(
-            icon: const Icon(Icons.casino, color: Colors.amber, size: 18),
-            label: const Text('聚会桌游', style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => PartyGameHallView(
-                    storeName: store.currentStore?.storeName ?? '门店空间',
-                    currentTableNo: spaceProv.spaces.isNotEmpty ? spaceProv.spaces.first.spaceName : 'A01',
-                  ),
-                ),
-              );
-            },
-          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () => spaceProv.loadSpaces(store.currentStoreId),

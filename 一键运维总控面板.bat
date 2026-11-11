@@ -1,34 +1,36 @@
 @echo off
-title º£ÂíÖÇ»ÛÉÌÒµÆ½Ì¨ - Ò»¼üÔËÎ¬×Ü¿ØÃæ°å
+chcp 65001 >nul
+title æµ·é©¬æ™ºæ…§å•†ä¸šå¹³å° - ä¸€é”®è¿ç»´æ€»æ§é¢æ¿
 :MENU
 cls
 echo ===============================================================================
-echo                º£ÂíÖÇ»ÛÉÌÒµÆ½Ì¨ - Ò»¼üÔËÎ¬×Ü¿ØÃæ°å
-echo                Slogan: º£Âí»áÔ±£¬¼Ç×¡Ã¿Î»ºÃ¿Í¡£
-echo                ÔÆ¶ËÖ÷»ú: 39.97.158.22  [·şÎñÔËĞĞ¶Ë¿Ú: 80 / 8080]
+echo                æµ·é©¬æ™ºæ…§å•†ä¸šå¹³å° - ä¸€é”®è¿ç»´æ€»æ§é¢æ¿
+echo                Slogan: æµ·é©¬ä¼šå‘˜ï¼Œè®°ä½æ¯ä½å¥½å®¢ã€‚
+echo                äº‘ç«¯ä¸»æœº: 39.97.158.22  [æœåŠ¡è¿è¡Œç«¯å£: 80 / 8082]
 echo ===============================================================================
 echo.
-echo   ¡¾±¾µØ¿ª·¢Óëµ÷ÊÔ¡¿
-echo     [1] Ò»¼üÆô¶¯±¾µØÈ«²¿·şÎñ (Spring Boot + Vite + ×Ô¶¯´ò¿ªä¯ÀÀÆ÷)
-echo     [2] Ò»¼üÖØÆô±¾µØÈ«²¿·şÎñ
-echo     [3] Ò»¼ü°²È«Í£Ö¹±¾µØÈ«²¿·şÎñ
+echo   ã€æœ¬åœ°å¼€å‘ä¸è°ƒè¯•ã€‘
+echo     [1] ä¸€é”®å¯åŠ¨æœ¬åœ°å…¨éƒ¨æœåŠ¡ (Spring Boot + Vite + è‡ªåŠ¨æ‰“å¼€æµè§ˆå™¨)
+echo     [2] ä¸€é”®é‡å¯æœ¬åœ°å…¨éƒ¨æœåŠ¡
+echo     [3] ä¸€é”®å®‰å…¨åœæ­¢æœ¬åœ°å…¨éƒ¨æœåŠ¡
 echo.
-echo   ¡¾ÔÆ¶Ë Docker ´ò°üÓë·¢²¼¡¿
-echo     [4] Ò»¼üÈ«Á¿·¢²¼ (±àÒë·¢²¼Ç°ºó¶ËÖÁÔÆ¶Ë + ±¾µØ´ò×îĞÂAPK£¬²»ÉÏ´«ÔÆ¶Ë)
-echo     [5] ½ö´ò°ü·¢²¼ Web Ç°¶Ë¹¤³Ì (Vue 3 Éú²ú¹¹½¨ÖÁÔÆ¶Ë Nginx)
-echo     [6] ½ö´ò°ü·¢²¼ Java ºó¶ËÎ¢·şÎñ (Spring Boot ÈİÆ÷ÈÈÖØÔØÖÁÔÆ¶Ë)
-echo     [7] ½öÔÚ±¾µØ´ò°ü×îĞÂ Release APK (Flutter APK ±¾µØÖ±½Ó°²×°£¬ÎŞĞèÉÏ´«)
-echo     [8] Ö´ĞĞÔÆ¶ËÈ«ÏµÍ³Á´Â·½¡¿µÑ²¼ì (HTTP ×´Ì¬Âë + Ô¤Ô¼Êı¾İ´¿¾»¶È)
+echo   ã€äº‘ç«¯ Docker æ‰“åŒ…ä¸å‘å¸ƒã€‘
+echo     [4] ä¸€é”®å…¨é‡å‘å¸ƒ (ç¼–è¯‘å‘å¸ƒå‰åç«¯è‡³äº‘ç«¯ + æœ¬åœ°æ‰“æœ€æ–°APKï¼Œä¸ä¸Šä¼ äº‘ç«¯)
+echo     [5] ä»…æ‰“åŒ…å‘å¸ƒ Web å‰ç«¯å·¥ç¨‹ (Vue 3 ç”Ÿäº§æ„å»ºè‡³äº‘ç«¯ Nginx)
+echo     [6] ä»…æ‰“åŒ…å‘å¸ƒ Java åç«¯å¾®æœåŠ¡ (Spring Boot å®¹å™¨çƒ­é‡è½½è‡³äº‘ç«¯)
+echo     [7] ä»…åœ¨æœ¬åœ°æ‰“åŒ…æœ€æ–° Release APK (Flutter APK æœ¬åœ°ç›´æ¥å®‰è£…ï¼Œæ— éœ€ä¸Šä¼ )
+echo     [8] æ‰§è¡Œäº‘ç«¯å…¨ç³»ç»Ÿé“¾è·¯å¥åº·å·¡æ£€ (HTTP çŠ¶æ€ç  + é¢„çº¦æ•°æ®çº¯å‡€åº¦)
 echo.
-echo   ¡¾ÍË³ö¡¿
-echo     [0] ÍË³ö¿ØÖÆÌ¨
+echo   ã€é€€å‡ºã€‘
+echo     [0] é€€å‡ºæ§åˆ¶å°
 echo.
 echo ===============================================================================
 set "choice="
-set /p "choice=ÇëÊäÈë²Ù×÷±àºÅ²¢°´»Ø³µ (0-8): "
+set /p "choice=è¯·è¾“å…¥æ“ä½œç¼–å·å¹¶æŒ‰å›è½¦ (0-8): "
 
 if "%choice%"=="" exit /b 0
 if "%choice%"=="0" exit /b 0
+if "%choice%"=="1" goto LOCAL_START
 if "%choice%"=="2" goto LOCAL_RESTART
 if "%choice%"=="3" goto LOCAL_STOP
 if "%choice%"=="4" goto DEPLOY_ALL
@@ -36,39 +38,38 @@ if "%choice%"=="5" goto DEPLOY_FRONT
 if "%choice%"=="6" goto DEPLOY_BACK
 if "%choice%"=="7" goto DEPLOY_APK
 if "%choice%"=="8" goto HEALTH_CHECK
-if "%choice%"=="0" exit /b 0
-echo ÊäÈëÎŞĞ§£¬ÇëÖØĞÂÊäÈë...
+echo è¾“å…¥æ— æ•ˆï¼Œè¯·é‡æ–°è¾“å…¥...
 timeout /t 2 >nul
 goto MENU
 
 :LOCAL_START
-call "%~dp0ops\01_±¾µØ¿ª·¢ÔËĞĞ\start.bat"
+call "%~dp0ops\01_æœ¬åœ°å¼€å‘è¿è¡Œ\start.bat"
 goto MENU
 
 :LOCAL_RESTART
-call "%~dp0ops\01_±¾µØ¿ª·¢ÔËĞĞ\restart.bat"
+call "%~dp0ops\01_æœ¬åœ°å¼€å‘è¿è¡Œ\restart.bat"
 goto MENU
 
 :LOCAL_STOP
-call "%~dp0ops\01_±¾µØ¿ª·¢ÔËĞĞ\stop.bat"
+call "%~dp0ops\01_æœ¬åœ°å¼€å‘è¿è¡Œ\stop.bat"
 goto MENU
 
 :DEPLOY_ALL
-call "%~dp0ops\02_Ô¶³ÌDocker²¿Êğ\deploy_all.bat"
+call "%~dp0ops\02_è¿œç¨‹Dockeréƒ¨ç½²\deploy_all.bat"
 goto MENU
 
 :DEPLOY_FRONT
-call "%~dp0ops\02_Ô¶³ÌDocker²¿Êğ\deploy_frontend_only.bat"
+call "%~dp0ops\02_è¿œç¨‹Dockeréƒ¨ç½²\deploy_frontend_only.bat"
 goto MENU
 
 :DEPLOY_BACK
-call "%~dp0ops\02_Ô¶³ÌDocker²¿Êğ\deploy_backend_only.bat"
+call "%~dp0ops\02_è¿œç¨‹Dockeréƒ¨ç½²\deploy_backend_only.bat"
 goto MENU
 
 :DEPLOY_APK
-call "%~dp0ops\02_Ô¶³ÌDocker²¿Êğ\deploy_app_apk.bat"
+call "%~dp0ops\02_è¿œç¨‹Dockeréƒ¨ç½²\deploy_app_apk.bat"
 goto MENU
 
 :HEALTH_CHECK
-call "%~dp0ops\02_Ô¶³ÌDocker²¿Êğ\health_check.bat"
+call "%~dp0ops\02_è¿œç¨‹Dockeréƒ¨ç½²\health_check.bat"
 goto MENU

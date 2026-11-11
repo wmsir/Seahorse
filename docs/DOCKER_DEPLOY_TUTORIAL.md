@@ -30,7 +30,7 @@ flowchart TD
     subgraph Remote["☁️ 远程云服务器 (39.97.158.22)"]
         subgraph DockerNet["Docker Compose 容器网络 (seahorse-network)"]
             NginxBox["🐳 seahorse-web-front (Nginx:Alpine, 端口: 80)\n- 托管 Web 前端静态站点\n- 托管 APK 移动端安装包下载\n- 反向代理 /api/ 至后端容器"]
-            SpringBox["🐳 seahorse-back (OpenJDK:17, 端口: 8080)\n- /app/app.jar\n- 门店、预约、空间、收银、会员业务微服务"]
+            SpringBox["🐳 seahorse-back (OpenJDK:17, 端口: 8082)\n- /app/app.jar\n- 门店、预约、空间、收银、会员业务微服务"]
         end
         CloudMaven["云端原生 Maven 编译环境 (原生 Linux JDK17)"]
     end
@@ -78,9 +78,9 @@ flowchart TD
 ### 4. 自动化全链路健康巡检机制
 发布完成后，部署引擎会自动发起 4 路连续 HTTP 探针校验：
 1. **Web 前端页面探针**：`http://39.97.158.22/` -> 确认返回 HTTP 200。
-2. **后端核心服务探针**：`http://39.97.158.22:8080/api/dashboard/stats` -> 确认 Spring Boot 微服务正常响应大盘数据。
-3. **空间展位探针**：`http://39.97.158.22:8080/api/space/list?storeId=S001` -> 确认包厢/工位数据完整。
-4. **数据纯净度探针**：`http://39.97.158.22:8080/api/appointment/list?storeId=S001` -> 确认预约数据处于真实无垃圾数据的纯净状态。
+2. **后端核心服务探针**：`http://39.97.158.22:8082/api/dashboard/stats` -> 确认 Spring Boot 微服务正常响应大盘数据。
+3. **空间展位探针**：`http://39.97.158.22:8082/api/space/list?storeId=S001` -> 确认包厢/工位数据完整。
+4. **数据纯净度探针**：`http://39.97.158.22:8082/api/appointment/list?storeId=S001` -> 确认预约数据处于真实无垃圾数据的纯净状态。
 
 ---
 
@@ -172,5 +172,5 @@ C:\project\fwpt\seahorse\
 | **重启前端 Web 容器** | `docker restart seahorse-web-front` |
 | **查看云端 Maven 编译产物** | `ls -lh /opt/seahorse/seahorse_back/target/` |
 | **查看 Nginx 托管的静态资源文件** | `ls -lh /usr/share/nginx/html/` |
-| **测试云端本机访问微服务** | `curl http://127.0.0.1:8080/api/dashboard/stats` |
+| **测试云端本机访问微服务** | `curl http://127.0.0.1:8082/api/dashboard/stats` |
 | **查看服务器系统资源占用** | `top` 或 `free -h` |

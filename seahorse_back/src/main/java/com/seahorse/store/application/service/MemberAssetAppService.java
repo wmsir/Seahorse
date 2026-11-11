@@ -396,24 +396,59 @@ public class MemberAssetAppService {
         // 检查归属当前租户门店的充值记录，自动找回并修复由于跨租户或公开扫码建档导致的会员归属偏差
         if (!"PLATFORM".equalsIgnoreCase(tenantId) && !"ALL".equalsIgnoreCase(tenantId)) {
             List<com.seahorse.store.domain.iam.model.Store> stores = storeRepository.findByTenantId(tenantId);
-            for (com.seahorse.store.domain.iam.model.Store s : stores) {
-                List<com.seahorse.store.domain.member.model.MemberRechargeRecord> records = memberRechargeRecordRepository.findByStoreIdOrderByCreatedAtDesc(s.getStoreId());
-                java.util.Set<Long> existingIds = list.stream().map(Member::getId).collect(java.util.stream.Collectors.toSet());
+            java.util.Set<String> storeIds = stores.stream()
+                    .map(com.seahorse.store.domain.iam.model.Store::getStoreId)
+                    .filter(sid -> sid != null && !sid.trim().isEmpty())
+                    .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+            if (!storeIds.isEmpty()) {
+                List<com.seahorse.store.domain.member.model.MemberRechargeRecord> records =
+                        memberRechargeRecordRepository.findByStoreIdInOrderByCreatedAtDesc(storeIds);
+                java.util.Set<Long> existingIds = list.stream()
+                        .map(Member::getId)
+                        .filter(java.util.Objects::nonNull)
+                        .collect(java.util.stream.Collectors.toSet());
+                java.util.Set<Long> orphanMemberIds = new java.util.LinkedHashSet<>();
                 for (com.seahorse.store.domain.member.model.MemberRechargeRecord rc : records) {
                     if (rc.getMemberId() != null && !existingIds.contains(rc.getMemberId())) {
-                        memberRepository.findById(rc.getMemberId()).ifPresent(orphan -> {
+                        orphanMemberIds.add(rc.getMemberId());
+                    }
+                }
+                if (!orphanMemberIds.isEmpty()) {
+                    java.util.Map<Long, Member> orphanMap = new java.util.HashMap<>();
+                    for (Member orphan : memberRepository.findAllById(orphanMemberIds)) {
+                        if (orphan != null && orphan.getId() != null) {
+                            orphanMap.put(orphan.getId(), orphan);
+                        }
+                    }
+                    for (Long orphanId : orphanMemberIds) {
+                        Member orphan = orphanMap.get(orphanId);
+                        if (orphan != null && existingIds.add(orphan.getId())) {
                             list.add(orphan);
-                            existingIds.add(orphan.getId());
-                        });
+                        }
                     }
                 }
             }
         }
 
-        for (Member m : list) {
-            dualBalanceAccountRepository.findByMemberId(m.getId()).ifPresent(acc -> {
-                m.setBalance(acc.getTotalBalance());
-            });
+        if (!list.isEmpty()) {
+            java.util.Set<Long> memberIds = list.stream()
+                    .map(Member::getId)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(java.util.stream.Collectors.toSet());
+            if (!memberIds.isEmpty()) {
+                java.util.Map<Long, DualBalanceAccount> accountMap = new java.util.HashMap<>();
+                for (DualBalanceAccount acc : dualBalanceAccountRepository.findByMemberIdIn(memberIds)) {
+                    if (acc != null && acc.getMemberId() != null) {
+                        accountMap.put(acc.getMemberId(), acc);
+                    }
+                }
+                for (Member m : list) {
+                    DualBalanceAccount acc = accountMap.get(m.getId());
+                    if (acc != null) {
+                        m.setBalance(acc.getTotalBalance());
+                    }
+                }
+            }
         }
         return list;
     }

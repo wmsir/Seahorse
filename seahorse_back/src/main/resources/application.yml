@@ -18,7 +18,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://127.0.0.1:3306/seahorse_store?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true} # 数据库连接JDBC URL (UTF-8, 禁用SSL, UTC时区)
     username: root # 数据库登录账号
-    password: ${SPRING_DATASOURCE_PASSWORD} # 数据库密码（环境变量注入，禁止硬编码）
+    password: ${SPRING_DATASOURCE_PASSWORD:root123456} # 数据库密码（环境变量注入，提供本地开发安全兜底值）
     driver-class-name: com.mysql.cj.jdbc.Driver # MySQL官方 8.x JDBC 驱动类
 
   # JPA / Hibernate ORM 持久层框架配置
@@ -30,7 +30,7 @@ spring:
     properties:
       hibernate:
         format_sql: true # 格式化输出SQL语句，增强排查可读性
-        dialect: org.hibernate.dialect.MySQL8Dialect # 指定 Hibernate 针对 MySQL 8 的标准 SQL 方言
+        dialect: org.hibernate.dialect.MySQLDialect # 指定 Hibernate MySQL 标准 SQL 方言
 
 # 海马智慧门店核心领域业务配置
 seahorse:
