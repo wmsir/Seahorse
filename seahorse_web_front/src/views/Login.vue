@@ -325,6 +325,16 @@
                 />
               </el-form-item>
 
+              <el-form-item label="确认登录密码" required>
+                <el-input
+                  v-model="regForm.confirmPassword"
+                  type="password"
+                  placeholder="请再次输入登录密码以确认"
+                  prefix-icon="Lock"
+                  show-password
+                />
+              </el-form-item>
+
               <div class="trial-perk-box">
                 🎉 注册成功即享 <strong>3天体验版套餐全功能免费试用</strong>，行业与门店信息可在登录后随时自由配置！
               </div>
@@ -645,7 +655,8 @@ const regForm = ref({
   verifyCode: '',
   username: '',
   nickname: '',
-  password: ''
+  password: '',
+  confirmPassword: ''
 })
 
 const handleEmailBlur = () => {
@@ -1234,6 +1245,11 @@ const handleRegister = async () => {
   }
   if (!password || password.length < 6) {
     ElMessage.warning('请设置至少 6 位长度的账户登录密码')
+    return
+  }
+  const confirmPassword = (regForm.value.confirmPassword || '').trim()
+  if (password !== confirmPassword) {
+    ElMessage.warning('两次输入的登录密码不一致，请重新核对')
     return
   }
 
