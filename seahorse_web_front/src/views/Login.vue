@@ -463,6 +463,15 @@
             show-password
           />
         </el-form-item>
+        <el-form-item label="确认新密码" required>
+          <el-input
+            v-model="resetForm.confirmPassword"
+            type="password"
+            placeholder="请再次输入新密码以确认"
+            prefix-icon="Lock"
+            show-password
+          />
+        </el-form-item>
         <el-button
           type="primary"
           class="login-submit-btn"
@@ -662,13 +671,15 @@ const resetCountDown = ref(0)
 const resetForm = ref({
   target: '',
   code: '',
-  newPassword: ''
+  newPassword: '',
+  confirmPassword: ''
 })
 
 const openResetPasswordModal = () => {
   resetForm.value.target = loginForm.value.username || ''
   resetForm.value.code = ''
   resetForm.value.newPassword = ''
+  resetForm.value.confirmPassword = ''
   resetDialogVisible.value = true
 }
 
@@ -782,6 +793,7 @@ const handleConfirmReset = async () => {
   const target = (resetForm.value.target || '').trim()
   const code = (resetForm.value.code || '').trim()
   const newPassword = (resetForm.value.newPassword || '').trim()
+  const confirmPassword = (resetForm.value.confirmPassword || '').trim()
 
   if (!target) {
     ElMessage.warning('请输入绑定的电子邮箱或手机号')
@@ -797,6 +809,10 @@ const handleConfirmReset = async () => {
   }
   if (!newPassword || newPassword.length < 6) {
     ElMessage.warning('请输入至少 6 位新密码')
+    return
+  }
+  if (newPassword !== confirmPassword) {
+    ElMessage.warning('两次输入的新密码不一致，请重新核对')
     return
   }
 

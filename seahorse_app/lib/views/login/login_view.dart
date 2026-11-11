@@ -591,6 +591,7 @@ class _LoginViewState extends State<LoginView> {
     final targetCtrl = TextEditingController(text: _usernameController.text.trim());
     final codeCtrl = TextEditingController();
     final newPwdCtrl = TextEditingController();
+    final confirmPwdCtrl = TextEditingController();
     String? sentServerCode;
     bool isSending = false;
     bool isSubmitting = false;
@@ -689,6 +690,16 @@ class _LoginViewState extends State<LoginView> {
                         isDense: true,
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirmPwdCtrl,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: '确认新密码 (再次输入)',
+                        prefixIcon: Icon(Icons.lock_outline),
+                        isDense: true,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -701,9 +712,16 @@ class _LoginViewState extends State<LoginView> {
                           final target = targetCtrl.text.trim();
                           final code = codeCtrl.text.trim();
                           final newPwd = newPwdCtrl.text.trim();
+                          final confirmPwd = confirmPwdCtrl.text.trim();
                           if (target.isEmpty || code.length < 4 || newPwd.length < 6) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('请完整填写账号、验证码及至少6位新密码'), backgroundColor: AppColors.error),
+                            );
+                            return;
+                          }
+                          if (newPwd != confirmPwd) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('两次输入的新密码不一致，请重新核对'), backgroundColor: AppColors.error),
                             );
                             return;
                           }
