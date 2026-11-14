@@ -8,6 +8,7 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await LocalStorage.init();
+    ApiClient().updateBaseUrl(ServerConfig.defaultRemoteUrl);
   });
 
   test('ServerConfig falls back to defaultRemoteUrl when storage is empty', () {

@@ -1,0 +1,9 @@
+# Rust / Tauri build artifacts
+src-tauri/target/
+src-tauri/WixTools/
+src-tauri/gen/schemas/
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+*.log

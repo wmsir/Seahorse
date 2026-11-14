@@ -123,7 +123,8 @@ export const getActiveBaseUrl = (config?: SystemDomainConfig): string => {
       url = cfg.officialDomain
     }
   }
-  return url.replace(/\/+$/, '')
+  const cleaned = url.replace(/\/+$/, '')
+  return cleaned.endsWith('/seahorse') ? cleaned : `${cleaned}/seahorse`
 }
 
 // 读取推荐活动规则配置
@@ -157,7 +158,7 @@ export const getReferralRecords = (): ReferralRecord[] => {
   } catch (e) {
     console.warn('Load referral records error:', e)
   }
-  return []
+  return [...DEFAULT_REFERRAL_RECORDS]
 }
 
 // 保存推荐记录
@@ -227,4 +228,190 @@ export const acknowledgeRewardNotification = (recordId: string): void => {
     target.acknowledgedByTenant = true
     saveReferralRecords(records)
   }
+}
+
+// ============================================================================
+// Tauri v2 桌面客户端运行环境与多服务器 API Base URL 动态路由配置
+// ============================================================================
+
+export const DESKTOP_API_STORAGE_KEY = 'seahorse_desktop_api_base'
+export const DEFAULT_DESKTOP_API_BASE = 'https://fwpt.cn/api'
+const LEGACY_DESKTOP_API_BASE = 'https://fwpt.cn/seahorse/api'
+export const LOCAL_DEV_API_BASE = 'http://127.0.0.1:8082/api'
+
+export interface DesktopConfigPayload {
+  apiBaseUrl: string
+  configPath?: string
+  updatedAt?: number
+}
+
+export interface DesktopProbeResult {
+  reachable: boolean
+  statusCode: number | null
+  latencyMs: number
+  target: string
+  message: string
+}
+
+export const isDesktopTauriEnv = (): boolean => {
+  if (import.meta.env.MODE === 'desktop') return true
+  if (typeof window !== 'undefined') {
+    const w = window as any
+    if ('__TAURI_INTERNALS__' in w || '__TAURI__' in w) return true
+  }
+  return false
+}
+
+export const normalizeApiBaseUrl = (raw?: string | null): string => {
+  const trimmed = (raw || '').trim().replace(/\/+$/, '')
+  if (!trimmed) return DEFAULT_DESKTOP_API_BASE
+  if (trimmed === '/api') return '/api'
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  if (withScheme.toLowerCase() === LEGACY_DESKTOP_API_BASE) {
+    return DEFAULT_DESKTOP_API_BASE
+  }
+  return withScheme
+}
+
+export const getApiBaseUrl = (): string => {
+  if (!isDesktopTauriEnv()) {
+    return '/api'
+  }
+  try {
+    const saved = localStorage.getItem(DESKTOP_API_STORAGE_KEY)
+    if (saved && saved.trim()) {
+      const cleanedSaved = saved.trim().replace(/\/+$/, '')
+      if (cleanedSaved === LEGACY_DESKTOP_API_BASE || cleanedSaved.toLowerCase() === LEGACY_DESKTOP_API_BASE) {
+        localStorage.setItem(DESKTOP_API_STORAGE_KEY, DEFAULT_DESKTOP_API_BASE)
+        return DEFAULT_DESKTOP_API_BASE
+      }
+      return normalizeApiBaseUrl(saved)
+    }
+  } catch (_e) {}
+  return DEFAULT_DESKTOP_API_BASE
+}
+
+export const resolveApiUrl = (path: string): string => {
+  if (!path) return getApiBaseUrl()
+  if (/^https?:\/\//i.test(path)) return path
+  const base = getApiBaseUrl()
+  if (base === '/api') {
+    return path.startsWith('/') ? path : `/${path}`
+  }
+  const cleanSubPath = path.replace(/^\/api(?=\/|$)/, '')
+  if (!cleanSubPath) return base
+  return `${base}${cleanSubPath.startsWith('/') ? cleanSubPath : `/${cleanSubPath}`}`
+}
+
+const invokeTauriCommand = async <T = any>(cmd: string, args?: Record<string, any>): Promise<T | null> => {
+  if (typeof window === 'undefined') return null
+  const w = window as any
+  const invokeFn = w.__TAURI__?.core?.invoke || w.__TAURI_INTERNALS__?.invoke
+  if (typeof invokeFn !== 'function') return null
+  try {
+    return await invokeFn(cmd, args)
+  } catch (err) {
+    console.warn(`[DesktopIPC] ${cmd} failed:`, err)
+    return null
+  }
+}
+
+export const initDesktopApiConfig = async (): Promise<string> => {
+  if (!isDesktopTauriEnv()) return '/api'
+  try {
+    const cached = localStorage.getItem(DESKTOP_API_STORAGE_KEY)
+    if (cached && cached.trim().replace(/\/+$/, '').toLowerCase() === LEGACY_DESKTOP_API_BASE) {
+      localStorage.setItem(DESKTOP_API_STORAGE_KEY, DEFAULT_DESKTOP_API_BASE)
+    }
+  } catch (_e) {}
+  const cfg = await invokeTauriCommand<DesktopConfigPayload>('get_desktop_config')
+  if (cfg && cfg.apiBaseUrl) {
+    const normalized = normalizeApiBaseUrl(cfg.apiBaseUrl)
+    if (cfg.apiBaseUrl.trim().replace(/\/+$/, '').toLowerCase() === LEGACY_DESKTOP_API_BASE) {
+      await invokeTauriCommand<DesktopConfigPayload>('save_desktop_config', { apiBaseUrl: DEFAULT_DESKTOP_API_BASE })
+    }
+    try {
+      localStorage.setItem(DESKTOP_API_STORAGE_KEY, normalized)
+    } catch (_e) {}
+    return normalized
+  }
+  return getApiBaseUrl()
+}
+
+export const saveDesktopApiBaseUrl = async (apiBaseUrl: string): Promise<string> => {
+  const normalized = normalizeApiBaseUrl(apiBaseUrl)
+  try {
+    localStorage.setItem(DESKTOP_API_STORAGE_KEY, normalized)
+  } catch (_e) {}
+  await invokeTauriCommand<DesktopConfigPayload>('save_desktop_config', { apiBaseUrl: normalized })
+  return normalized
+}
+
+export const probeDesktopBackend = async (apiBaseUrl: string, timeoutMs = 3000): Promise<DesktopProbeResult> => {
+  const normalized = normalizeApiBaseUrl(apiBaseUrl)
+  const ipcRes = await invokeTauriCommand<DesktopProbeResult>('probe_backend_server', {
+    apiBaseUrl: normalized,
+    timeoutMs
+  })
+  if (ipcRes && typeof ipcRes.reachable === 'boolean') {
+    return ipcRes
+  }
+  const start = Date.now()
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null
+  const probeUrl = `${normalized}/auth/plans`
+  try {
+    const res = await fetch(probeUrl, { method: 'GET', signal: controller?.signal })
+    return {
+      reachable: res.status < 500,
+      statusCode: res.status,
+      latencyMs: Date.now() - start,
+      target: probeUrl,
+      message: res.ok ? '服务端响应正常' : `HTTP ${res.status}`
+    }
+  } catch (err: any) {
+    return {
+      reachable: false,
+      statusCode: null,
+      latencyMs: Date.now() - start,
+      target: probeUrl,
+      message: err?.message || '无法连接目标服务器'
+    }
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+// ============================================================================
+// 统一角色权限标准化辅助函数 (对齐后端 EmployeeRole 枚举)
+// ============================================================================
+
+export const isPlatformAdminRole = (role?: string | null, username?: string | null): boolean => {
+  const r = (role || '').toUpperCase().trim()
+  const u = (username || '').toLowerCase().trim()
+  return (
+    u === 'admin' ||
+    r === 'PLATFORM_DEVELOPER' ||
+    r === 'PLATFORM_ADMIN' ||
+    r === 'PLATFORM_SUPER_ADMIN'
+  )
+}
+
+export const isTenantBossRole = (role?: string | null): boolean => {
+  const r = (role || '').toUpperCase().trim()
+  return (
+    r === 'SUPER_ADMIN' ||
+    r === 'TENANT_ADMIN' ||
+    r === 'MERCHANT_ADMIN' ||
+    r === 'STORE_OWNER'
+  )
+}
+
+export const isManagerOrAboveRole = (role?: string | null, username?: string | null): boolean => {
+  const r = (role || '').toUpperCase().trim()
+  return (
+    isPlatformAdminRole(r, username) ||
+    isTenantBossRole(r) ||
+    r === 'STORE_MANAGER'
+  )
 }

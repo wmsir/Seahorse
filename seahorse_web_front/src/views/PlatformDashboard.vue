@@ -424,7 +424,7 @@
             <div class="panel-tags">
               <el-tag size="small" type="danger">👑 门店老板 (全量豁免)</el-tag>
               <el-tag size="small" type="warning">🏬 店长 (多店协同/考勤/制度)</el-tag>
-              <el-tag size="small" type="primary">💳 收银员 (开单买单/交班盘点)</el-tag>
+              <el-tag size="small" type="primary">💳 收银员 (开单买单/储值核销)</el-tag>
               <el-tag size="small" type="success">✂️ 技师 (预约排班/业绩提成)</el-tag>
             </div>
           </div>
@@ -618,6 +618,7 @@ import {
   getSubscriptionPlansApi,
   updateTrialDaysApi
 } from '@/api'
+import { resolveApiUrl } from '@/utils/systemConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Money,
@@ -716,11 +717,11 @@ const handleSaveTrialDays = async () => {
   }
 }
 
-// 🗺️ 全平台高德地图（AMap）与考勤定位配置
+// 🗺️ 全平台高德地图（AMap）与考勤定位配置 (密钥从服务端配置或环境变量读取，禁止硬编码密钥)
 const amapForm = ref({
-  webApiKey: '216aceb246ab68fbd8abb38f6cb24582',
-  jsApiKey: '216aceb246ab68fbd8abb38f6cb24582',
-  securityCode: 'a959cdbdf4b90d3ce9d3552521c0d0b9',
+  webApiKey: import.meta.env.VITE_AMAP_WEB_KEY || '',
+  jsApiKey: import.meta.env.VITE_AMAP_JS_KEY || '',
+  securityCode: import.meta.env.VITE_AMAP_SECURITY_CODE || '',
   allowedRadiusMeters: 500,
   storeLongitude: 108.953400,
   storeLatitude: 34.265500,
@@ -730,9 +731,18 @@ const amapForm = ref({
 const savingAmap = ref(false)
 const testingAmap = ref(false)
 
+const buildAuthFetchHeaders = (extra?: Record<string, string>) => {
+  const headers: Record<string, string> = { ...(extra || {}) }
+  const token = localStorage.getItem('seahorse_token')
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  headers['X-Tenant-Id'] = localStorage.getItem('seahorse_tenant_id') || 'T001'
+  headers['X-Store-Id'] = localStorage.getItem('seahorse_store_id') || 'S001'
+  return headers
+}
+
 const loadAmapConfig = async () => {
   try {
-    const res = await fetch('/api/config/amap')
+    const res = await fetch(resolveApiUrl('/api/config/amap'), { headers: buildAuthFetchHeaders() })
     if (res.ok) {
       const data = await res.json()
       if (data.code === 200 && data.data) {
@@ -747,9 +757,9 @@ const loadAmapConfig = async () => {
 const handleSaveAmapConfig = async () => {
   savingAmap.value = true
   try {
-    const res = await fetch('/api/config/amap', {
+    const res = await fetch(resolveApiUrl('/api/config/amap'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthFetchHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(amapForm.value),
     })
     const data = await res.json()
@@ -772,7 +782,9 @@ const handleTestAmapApiKey = async () => {
   }
   testingAmap.value = true
   try {
-    const res = await fetch(`/api/config/amap/test?key=${encodeURIComponent(amapForm.value.webApiKey)}`)
+    const res = await fetch(resolveApiUrl(`/api/config/amap/test?key=${encodeURIComponent(amapForm.value.webApiKey)}`), {
+      headers: buildAuthFetchHeaders()
+    })
     const data = await res.json()
     if (data.code === 200) {
       ElMessageBox.alert(

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { allIndustryPackages, beautyPackage, type CardTemplateEntity } from './industryPresets'
+import { allIndustryPackages, beautyPackage, type CardTemplateEntity, type IndustryCode } from './industryPresets'
 import {
   initTenantDemoDataApi,
   clearTenantDataApi,
@@ -10,6 +10,8 @@ import {
   getProductsApi,
   searchMembersApi,
   getCardTemplatesApi,
+  saveCardTemplateApi,
+  deleteCardTemplateApi,
   getMerchantStaffListApi
 } from '../api'
 export type { CardTemplateEntity }
@@ -25,15 +27,21 @@ export interface StoreEntity {
   managerName: string
   phone: string
   isHeadquarter: boolean
-  businessStatus: 'OPEN' | 'REST' | 'DECORATION'
+  businessStatus: 'OPEN' | 'REST' | 'DECORATION' | 'CLOSED'
   totalSpaces: number
   openTime: string
+  name?: string
+  slogan?: string
+  industry?: string
+  industryDesc?: string
+  industryCategoryName?: string
 }
 
 export interface StaffEntity {
   id: number
   storeId: string
   realName: string
+  nickname?: string
   phone: string
   postName: string
   role: string
@@ -52,6 +60,7 @@ export interface StaffEntity {
   accountStatus?: 'ENABLED' | 'DISABLED' | 'PENDING_REVIEW' | 'REJECTED' // 账号状态
   allowedStoreIds?: string[]           // 授权可进入的多店铺列表 (支持一人在多家店铺任职)
   allowedMenuPaths?: string[]          // 授权可见和可使用的页签列表
+  canCrossStore?: boolean              // 是否允许跨店漫游排班与业绩协同
   // 二维码扫码自主入职申请与审批扩展
   isSelfApplied?: boolean              // 是否为员工通过二维码扫码自主申请
   auditStatus?: 'PENDING' | 'APPROVED' | 'REJECTED' // 审批状态：待审核、已通过、已驳回
@@ -179,10 +188,11 @@ export interface PlatformFeedbackEntity {
   content: string         // 详细描述与场景期望
   urgency: 'LOW' | 'NORMAL' | 'HIGH' // 期望紧急度
   createdAt: string       // 提交时间
-  status: 'PENDING' | 'EVALUATING' | 'SCHEDULED' | 'IMPLEMENTED' | 'REJECTED' // 待受理、方案评估中、已排期入版本、已上线交付、暂不考虑
+  status: 'PENDING' | 'EVALUATING' | 'SCHEDULED' | 'IMPLEMENTED' | 'REJECTED' | 'PROCESSING' | 'ACCEPTED' | 'RESOLVED' // 待受理、方案评估中、已排期入版本、已上线交付、暂不考虑
   devReply?: string       // 研发团队官方答复
   devReplier?: string     // 研发受理人员
   replyTime?: string      // 答复时间
+  replyAt?: string        // 答复时间兼容字段
   targetVersion?: string  // 规划上线版本号，如 "V2.4"
 }
 
@@ -227,7 +237,9 @@ export interface TenantDaytimeUsageStat {
 export interface BomItem {
   materialId: string
   materialName: string
-  unitUsage: number
+  unitUsage?: number
+  dosage?: number
+  consumeQuantity?: number
   unit: string
   costPerUnit: number
 }
@@ -324,6 +336,13 @@ export interface MemberEntity {
   }>
   notes?: string
   tenantId?: string
+  totalSpent?: number
+  visitCount?: number
+  consumeCount?: number
+  daysSinceLastVisit?: number
+  points?: number
+  principalBalance?: number
+  giftBalance?: number
 }
 
 export interface CouponItem {
@@ -382,13 +401,15 @@ export interface ConsumeOrder {
   cardDeductGift: number // 划扣储值赠送金
   timeCardDeductTimes?: number // 划扣次卡次数
   cashierPaidAmount: number // 现金/微信/支付宝实付差价
-  paymentMethod: 'WECHAT' | 'ALIPAY' | 'OFFLINE' | 'DUAL_CARD' | 'TIME_CARD'
+  paymentMethod: 'WECHAT' | 'ALIPAY' | 'OFFLINE' | 'DUAL_CARD' | 'TIME_CARD' | 'CASH' | 'STORED_VALUE' | 'MIXED'
   pointsEarned: number
   pointsBurned: number
   createTime: string
-  status: 'COMPLETED' | 'SERVING'
+  status: 'COMPLETED' | 'SERVING' | 'REFUNDED' | 'PAID'
   sessionId?: number
   spaceName?: string
+  type?: string
+  payAmount?: number
 }
 
 export interface PointsLog {
@@ -421,10 +442,12 @@ export interface TimeCardItem {
   usedTimes: number
   unitPrice: number
   expireDate: string
+  remainingTimes?: number
 }
 
 export interface ExpenseRecord {
   id: number
+  expenseNo?: string
   storeId: string
   category: 'RENT' | 'SUPPLY' | 'SALARY' | 'MARKETING' | 'OTHER'
   categoryName: string
@@ -584,18 +607,18 @@ export interface AttendanceRecordEntity {
   checkOutStatus: 'NORMAL' | 'EARLY' | 'NOT_CHECKED'
   workHours: number
   checkInLocation: string
-  platformSource: 'WECHAT_WORK' | 'DINGTALK' | 'ATTENDANCE_MACHINE'
+  platformSource: 'WECHAT_WORK' | 'DINGTALK' | 'ATTENDANCE_MACHINE' | 'APP_MOBILE'
   notes?: string
 }
 
 export interface LeaveApplicationEntity {
   id: string
-  staffId: number
+  staffId: number | string
   staffName: string
   phone: string
   postName: string
   department: string
-  leaveType: 'PERSONAL' | 'SICK' | 'ANNUAL' | 'COMPENSATORY' | 'MARRIAGE' | 'MATERNITY'
+  leaveType: 'PERSONAL' | 'SICK' | 'ANNUAL' | 'COMPENSATORY' | 'MARRIAGE' | 'MATERNITY' | string
   leaveTypeName: string
   startTime: string
   endTime: string
@@ -2281,8 +2304,8 @@ export const initialMallOrdersMap: Record<'BEAUTY' | 'RESTAURANT' | 'AUTO' | 'RE
 // ==============================================================================
 
 export const useSystemDataStore = defineStore('systemDataStore', () => {
-  const initialIndustryKey = ((localStorage.getItem('seahorse_industry') as any) || 'BEAUTY') as 'BEAUTY' | 'RESTAURANT' | 'AUTO' | 'RETAIL'
-  const currentIndustry = ref<'BEAUTY' | 'RESTAURANT' | 'AUTO' | 'RETAIL'>(initialIndustryKey)
+  const initialIndustryKey = ((localStorage.getItem('seahorse_industry') as any) || 'BEAUTY') as IndustryCode
+  const currentIndustry = ref<IndustryCode>(initialIndustryKey)
   const defaultPkg = allIndustryPackages[initialIndustryKey] || beautyPackage
 
   // 区分系统演示环境与新注册租户专属纯净空间
@@ -2393,9 +2416,20 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
       localStorage.setItem('seahorse_members_data', JSON.stringify(members.value))
     } catch (e) {}
   }
-  const cardTemplates = ref<CardTemplateEntity[]>(
-    isNewTenantStored ? [] : JSON.parse(JSON.stringify(defaultPkg.cardTemplates))
-  )
+  const cachedCardTemplates = localStorage.getItem('seahorse_card_templates_data')
+  let initialCardTemplates: CardTemplateEntity[]
+  try {
+    initialCardTemplates = isNewTenantStored ? [] : (cachedCardTemplates ? JSON.parse(cachedCardTemplates) : JSON.parse(JSON.stringify(defaultPkg.cardTemplates)))
+  } catch {
+    initialCardTemplates = isNewTenantStored ? [] : JSON.parse(JSON.stringify(defaultPkg.cardTemplates))
+  }
+  const cardTemplates = ref<CardTemplateEntity[]>(initialCardTemplates)
+
+  const persistCardTemplates = () => {
+    try {
+      localStorage.setItem('seahorse_card_templates_data', JSON.stringify(cardTemplates.value))
+    } catch (e) {}
+  }
 
   // 线上微商城在售商品货架状态 (支持全行业与持久化)
   const cachedMallGoods = localStorage.getItem(`seahorse_mall_goods_${initialIndustryKey}`)
@@ -2549,7 +2583,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
   }
 
   const loadIndustryCampaigns = (industryKey?: string) => {
-    const key = (industryKey || currentIndustry.value) as 'BEAUTY' | 'RESTAURANT' | 'AUTO' | 'RETAIL'
+    const key = (industryKey || currentIndustry.value) as IndustryCode
     const preset = initialIndustryCampaignsMap[key] || initialIndustryCampaignsMap.BEAUTY
     campaigns.value = JSON.parse(JSON.stringify(preset))
     persistCampaigns()
@@ -2770,20 +2804,25 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
   // =========================================================================
   const initialPlatformFeedbacks: PlatformFeedbackEntity[] = []
 
-  // 彻底清除历史残留的假日志缓存与假反馈缓存
+  // 彻底清除历史残留的假订阅与账单缓存（保留真实提交的建言反馈与租户活动日志）
   try {
-    localStorage.removeItem('seahorse_tenant_activity_logs')
-    localStorage.removeItem('seahorse_platform_feedbacks')
     localStorage.removeItem('seahorse_vendor_subscriptions')
     localStorage.removeItem('seahorse_vendor_billing_records')
   } catch (e) {}
 
-  const cachedPlatformFeedbacks = localStorage.getItem('seahorse_platform_feedbacks')
-  const platformFeedbacks = ref<PlatformFeedbackEntity[]>(
-    cachedPlatformFeedbacks ? JSON.parse(cachedPlatformFeedbacks) : []
-  )
+  let initialFeedbacksList: PlatformFeedbackEntity[] = []
+  try {
+    const cachedPlatformFeedbacks = localStorage.getItem('seahorse_platform_feedbacks')
+    if (cachedPlatformFeedbacks) initialFeedbacksList = JSON.parse(cachedPlatformFeedbacks)
+  } catch (e) {}
+  const platformFeedbacks = ref<PlatformFeedbackEntity[]>(initialFeedbacksList)
 
-  const tenantActivityLogs = ref<TenantActivityLog[]>([])
+  let initialTenantActivityLogs: TenantActivityLog[] = []
+  try {
+    const cachedActivityLogs = localStorage.getItem('seahorse_tenant_activity_logs')
+    if (cachedActivityLogs) initialTenantActivityLogs = JSON.parse(cachedActivityLogs)
+  } catch (e) {}
+  const tenantActivityLogs = ref<TenantActivityLog[]>(initialTenantActivityLogs)
   const tenantDaytimeUsageStats = ref<TenantDaytimeUsageStat[]>([])
 
   const persistPlatformFeedbacks = () => {
@@ -2816,6 +2855,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
       target.status = status
       target.devReplier = devReplier
       target.replyTime = new Date().toLocaleString()
+      target.replyAt = target.replyTime
       if (targetVersion) target.targetVersion = targetVersion
       persistPlatformFeedbacks()
     }
@@ -2961,6 +3001,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
 
       const principalBalance = Math.max(0, totalPrincipalRecharged - totalPrincipalDeducted)
       const giftBalance = Math.max(0, totalGiftRecharged - totalGiftDeducted)
+      const totalBalance = principalBalance + giftBalance
       const totalSpentFromConsumes = memberConsumes.reduce((sum, c) => {
         const val = Number(c.totalAmount) || (Number(c.cardDeductPrincipal || 0) + Number(c.cardDeductGift || 0) + Number(c.cashierPaidAmount || 0))
         return sum + val
@@ -3091,7 +3132,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
     consumeOrders.value.filter(c => c && c.status === 'COMPLETED').forEach(c => {
       const m = members.value.find(mem => mem.id === c.memberId)
       if (c.cashierPaidAmount > 0) {
-        const isRetail = c.type === 'RETAIL'
+        const isRetail = c.type === 'RETAIL' || (Array.isArray(c.items) && c.items.length > 0 && c.items.every(i => i.type === 'RETAIL'))
         const isExtra = c.cardDeductPrincipal > 0 || c.cardDeductGift > 0
         const itemNames = (c.items || []).map(i => i?.productName || '').filter(Boolean).join('、') || '消费服务'
         incomeList.push({
@@ -3291,6 +3332,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
       id: s.id,
       staffName: s.realName,
       post: s.postName,
+      department: s.department,
       serviceCount: s.serviceCount,
       serviceRevenue: s.serviceRevenue,
       cardSales: s.cardSales,
@@ -3783,17 +3825,22 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
       status: 'COMPLETED'
     }
     rechargeOrders.value.push(newOrder)
+    persistRechargeOrders()
 
+    const currentPoints = pointsLedger.value
+      .filter(p => p.memberId === data.memberId)
+      .reduce((sum, p) => sum + p.pointsDelta, 0)
     pointsLedger.value.push({
       id: pointsLedger.value.length + 1,
       memberId: data.memberId,
       type: 'RECHARGE_GIFT',
       typeName: '会员充值赠积分',
       pointsDelta: data.principal,
-      balanceAfter: data.principal,
+      balanceAfter: currentPoints + data.principal,
       operator: '系统自动',
       createTime: nowStr
     })
+    persistPointsLedger()
     return newOrder
   }
 
@@ -4094,7 +4141,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
       } else if (p && p.type === 'SERVICE' && p.boms && p.boms.length > 0) {
         // 服务项目履约：根据配方清单自动扣减对应物料耗材
         p.boms.forEach((bom: any) => {
-          const consume = (Number(bom.dosage) || 1) * q
+          const consume = (Number(bom.dosage ?? bom.unitUsage ?? bom.consumeQuantity) || 1) * q
           const mat = materials.value.find(m => m.name === bom.materialName)
           if (mat) {
             mat.initialStock = Math.max(0, (mat.initialStock || 0) - consume)
@@ -4441,7 +4488,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
       cardDeductPrincipal: Math.min(payload.storedValue, 500),
       cardDeductGift: Math.max(0, payload.storedValue - 500),
       cashierPaidAmount: payload.wechat + payload.alipay + payload.cash,
-      paymentMethod: payload.wechat > 0 ? 'WECHAT' : (payload.alipay > 0 ? 'ALIPAY' : (payload.storedValue > 0 ? 'STORED_VALUE' : 'CASH')),
+      paymentMethod: payload.wechat > 0 ? 'WECHAT' : (payload.alipay > 0 ? 'ALIPAY' : (payload.storedValue > 0 ? 'DUAL_CARD' : 'CASH')),
       pointsEarned: m ? Math.floor(payload.totalAmount) : 0,
       pointsBurned: 0,
       createTime: nowStr,
@@ -4451,18 +4498,23 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
 
     // 3. 会员积分与储值划扣
     if (m) {
+      const prevPoints = m.points !== undefined
+        ? m.points
+        : pointsLedger.value.filter(p => p.memberId === m.id).reduce((sum, p) => sum + p.pointsDelta, 0)
+      const earned = Math.floor(payload.totalAmount)
       pointsLedger.value.push({
         id: pointsLedger.value.length + 1,
         memberId: m.id,
         type: 'CONSUME_EARN',
         typeName: '收银买单赠送积分',
-        pointsDelta: Math.floor(payload.totalAmount),
-        balanceAfter: (m.points || 0) + Math.floor(payload.totalAmount),
+        pointsDelta: earned,
+        balanceAfter: prevPoints + earned,
         operator: '收银台自动',
         createTime: nowStr
       })
+      persistPointsLedger()
       if (m.points !== undefined) {
-        m.points += Math.floor(payload.totalAmount)
+        m.points += earned
       }
       if (payload.storedValue > 0) {
         const pDeduct = Math.min(m.principalBalance || 0, payload.storedValue)
@@ -4470,6 +4522,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
         m.principalBalance = Math.max(0, (m.principalBalance || 0) - pDeduct)
         m.giftBalance = Math.max(0, (m.giftBalance || 0) - gDeduct)
       }
+      persistMembers()
     }
 
     return newConsume
@@ -4601,7 +4654,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
   }
 
   // --------------------------------------------------------------------------
-  // I. 会员卡模板动作 (Card Template Actions)
+  // I. 会员卡模板动作 (Card Template Actions — 本地缓存 + 后端 /api/card-template 双写同步)
   // --------------------------------------------------------------------------
   const addCardTemplate = (data: Omit<CardTemplateEntity, 'id'>) => {
     const newId = cardTemplates.value.length > 0 ? Math.max(...cardTemplates.value.map(c => c.id)) + 1 : 1
@@ -4610,6 +4663,18 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
       id: newId
     }
     cardTemplates.value.unshift(newCard)
+    persistCardTemplates()
+    saveCardTemplateApi({ ...data }, true)
+      .then((saved: any) => {
+        if (saved && typeof saved.id === 'number') {
+          const target = cardTemplates.value.find(c => c.id === newId)
+          if (target) {
+            target.id = saved.id
+            persistCardTemplates()
+          }
+        }
+      })
+      .catch(() => {})
     return newCard
   }
 
@@ -4617,7 +4682,10 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
     const idx = cardTemplates.value.findIndex(c => c.id === id)
     if (idx !== -1) {
       cardTemplates.value[idx] = { ...cardTemplates.value[idx], ...data }
-      return cardTemplates.value[idx]
+      persistCardTemplates()
+      const updated = cardTemplates.value[idx]
+      saveCardTemplateApi({ ...updated }, true).catch(() => {})
+      return updated
     }
     return null
   }
@@ -4626,15 +4694,17 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
     const idx = cardTemplates.value.findIndex(c => c.id === id)
     if (idx !== -1) {
       cardTemplates.value.splice(idx, 1)
+      persistCardTemplates()
+      deleteCardTemplateApi(id, true).catch(() => {})
       return true
     }
     return false
   }
 
   // --------------------------------------------------------------------------
-  // J. 4 大行业一键切换与真实数据集装载 (Multi-Industry Dataset Switcher)
+  // J. 7 大行业一键切换与真实数据集装载 (Multi-Industry Dataset Switcher)
   // --------------------------------------------------------------------------
-  const switchIndustry = (key: 'BEAUTY' | 'RESTAURANT' | 'AUTO' | 'RETAIL') => {
+  const switchIndustry = (key: IndustryCode) => {
     const pkg = allIndustryPackages[key] || beautyPackage
     currentIndustry.value = key
     localStorage.setItem('seahorse_industry', key)
@@ -4701,6 +4771,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
     leaveApplications.value = []
     campaigns.value = []
     localStorage.removeItem('seahorse_campaigns')
+    localStorage.removeItem('seahorse_card_templates_data')
     localStorage.removeItem(`seahorse_mall_orders_${currentIndustry.value}`)
     localStorage.removeItem('seahorse_job_applications')
     localStorage.removeItem('seahorse_store_budgets')
@@ -4797,6 +4868,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
     leaveApplications.value = []
     campaigns.value = []
     localStorage.removeItem('seahorse_campaigns')
+    localStorage.removeItem('seahorse_card_templates_data')
     localStorage.removeItem(`seahorse_mall_orders_${currentIndustry.value}`)
 
     return res
@@ -4809,7 +4881,11 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
     stores.value = JSON.parse(JSON.stringify(pkg.stores))
     staff.value = JSON.parse(JSON.stringify(pkg.staff))
     spaces.value = JSON.parse(JSON.stringify(industrySpacesMap[currentIndustry.value] || []))
+    products.value = JSON.parse(JSON.stringify(pkg.products))
+    materials.value = JSON.parse(JSON.stringify(pkg.materials))
     members.value = JSON.parse(JSON.stringify(pkg.members))
+    cardTemplates.value = JSON.parse(JSON.stringify(pkg.cardTemplates))
+    mallGoods.value = JSON.parse(JSON.stringify(initialMallGoodsMap[currentIndustry.value] || initialMallGoodsMap.BEAUTY))
     liveSessions.value = JSON.parse(JSON.stringify(pkg.liveSessions))
     costItems.value = JSON.parse(JSON.stringify(pkg.baseCosts))
     rechargeOrders.value = JSON.parse(JSON.stringify(pkg.rechargeOrders))
@@ -4821,6 +4897,10 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
     appointments.value = JSON.parse(JSON.stringify(pkg.appointments))
     loadIndustryCampaigns(currentIndustry.value)
     mallOrders.value = JSON.parse(JSON.stringify(initialMallOrdersMap[currentIndustry.value] || initialMallOrdersMap.BEAUTY))
+    persistProducts()
+    persistMembers()
+    persistCardTemplates()
+    persistMallGoods()
     persistMallOrders()
   }
 
@@ -4847,6 +4927,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
     appointments.value = []
     campaigns.value = []
     localStorage.removeItem('seahorse_campaigns')
+    localStorage.removeItem('seahorse_card_templates_data')
     localStorage.removeItem(`seahorse_mall_orders_${currentIndustry.value}`)
   }
 
@@ -4899,8 +4980,14 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
     toggleProductStatus,
     deductProductStock,
     syncProductsFromServer,
+    persistProducts,
     registerMember,
+    addMember: registerMember,
+    persistMembers,
     rechargeMember,
+    persistRechargeOrders,
+    persistPointsLedger,
+    persistCardTemplates,
     addExpense,
     addCostItem,
     updateCostItem,
@@ -4912,6 +4999,7 @@ export const useSystemDataStore = defineStore('systemDataStore', () => {
     syncStores,
     syncStaff,
     fetchStaff,
+    persistStaff,
     addStaff,
     approveStaff,
     rejectStaff,

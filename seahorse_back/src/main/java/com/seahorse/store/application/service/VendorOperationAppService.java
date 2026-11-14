@@ -53,29 +53,9 @@ public class VendorOperationAppService {
      */
     @Transactional(rollbackFor = Exception.class)
     public List<VendorSubscriptionVO> getTenantSubscriptions(String query, String warningLevel) {
-        List<Tenant> tenants = tenantRepository.findAll();
+        String kw = (query != null && !query.trim().isEmpty()) ? query.trim() : null;
+        List<Tenant> matchedTenants = tenantRepository.searchActiveTenants(kw);
         List<VendorSubscriptionVO> result = new ArrayList<>();
-
-        List<Tenant> matchedTenants = new ArrayList<>();
-        for (Tenant tenant : tenants) {
-            if ("PLATFORM".equalsIgnoreCase(tenant.getTenantId())) {
-                continue;
-            }
-            if ("DELETED".equalsIgnoreCase(tenant.getStatus())) {
-                continue;
-            }
-            if (query != null && !query.trim().isEmpty()) {
-                String q = query.trim().toLowerCase();
-                boolean matches = (tenant.getTenantName() != null && tenant.getTenantName().toLowerCase().contains(q))
-                        || (tenant.getContactName() != null && tenant.getContactName().toLowerCase().contains(q))
-                        || (tenant.getContactPhone() != null && tenant.getContactPhone().contains(q))
-                        || tenant.getTenantId().toLowerCase().contains(q);
-                if (!matches) {
-                    continue;
-                }
-            }
-            matchedTenants.add(tenant);
-        }
 
         if (matchedTenants.isEmpty()) {
             return result;
@@ -389,20 +369,15 @@ public class VendorOperationAppService {
      */
     @Transactional(readOnly = true)
     public List<SubscriptionBillingRecord> getBillingRecords(String tenantId) {
-        java.util.Set<String> validTenantIds = tenantRepository.findAll().stream()
-                .filter(t -> !"DELETED".equalsIgnoreCase(t.getStatus()))
-                .map(Tenant::getTenantId)
-                .collect(java.util.stream.Collectors.toSet());
-
-        List<SubscriptionBillingRecord> list;
         if (tenantId != null && !tenantId.trim().isEmpty()) {
-            list = billingRecordRepository.findByTenantIdOrderByPayTimeDesc(tenantId.trim());
-        } else {
-            list = billingRecordRepository.findAllByOrderByPayTimeDesc();
+            String tid = tenantId.trim();
+            Optional<Tenant> tenantOpt = tenantRepository.findByTenantId(tid);
+            if (tenantOpt.isPresent() && "DELETED".equalsIgnoreCase(tenantOpt.get().getStatus())) {
+                return Collections.emptyList();
+            }
+            return billingRecordRepository.findByTenantIdOrderByPayTimeDesc(tid);
         }
-        return list.stream()
-                .filter(r -> validTenantIds.contains(r.getTenantId()))
-                .collect(java.util.stream.Collectors.toList());
+        return billingRecordRepository.findActiveBillingRecords(null);
     }
 
     /**
@@ -595,10 +570,8 @@ public class VendorOperationAppService {
      */
     @Transactional(readOnly = true)
     public VendorDashboardStatsVO getVendorDashboardStats() {
-        List<Tenant> tenants = tenantRepository.findAll();
-        List<TenantSubscription> subs = subscriptionRepository.findAll();
-        List<SubscriptionBillingRecord> billings = billingRecordRepository.findAll();
-        List<Store> stores = storeRepository.findAll();
+        long totalTenantsCount = tenantRepository.countNonDeletedTenants();
+        List<TenantSubscription> subs = subscriptionRepository.findActiveSubscriptions();
 
         long activeCount = 0;
         long expiringSoon = 0;
@@ -632,26 +605,34 @@ public class VendorOperationAppService {
         BigDecimal subRev = BigDecimal.ZERO;
         BigDecimal stgRev = BigDecimal.ZERO;
 
-        for (SubscriptionBillingRecord b : billings) {
-            if (b.getBillingType() == SubscriptionBillingType.PLAN_SUBSCRIPTION) {
-                subRev = subRev.add(b.getAmount());
-            } else if (b.getBillingType() == SubscriptionBillingType.STORAGE_SERVICE) {
-                stgRev = stgRev.add(b.getAmount());
+        for (Object[] row : billingRecordRepository.sumPaidAmountGroupByBillingType()) {
+            if (row != null && row.length >= 2 && row[0] instanceof SubscriptionBillingType bType && row[1] != null) {
+                BigDecimal sumAmt = row[1] instanceof BigDecimal bd ? bd : new BigDecimal(row[1].toString());
+                if (bType == SubscriptionBillingType.PLAN_SUBSCRIPTION) {
+                    subRev = subRev.add(sumAmt);
+                } else if (bType == SubscriptionBillingType.STORAGE_SERVICE) {
+                    stgRev = stgRev.add(sumAmt);
+                }
             }
         }
 
         Map<String, Long> industryDist = new HashMap<>();
-        for (Store s : stores) {
-            String ind = s.getIndustry() != null ? s.getIndustry().name() : "GENERAL";
-            industryDist.put(ind, industryDist.getOrDefault(ind, 0L) + 1);
+        long totalStoresCount = 0L;
+        for (Object[] row : storeRepository.countActiveGroupByIndustry()) {
+            if (row != null && row.length >= 2 && row[1] instanceof Number cnt) {
+                String ind = row[0] != null ? row[0].toString() : "GENERAL";
+                long c = cnt.longValue();
+                industryDist.put(ind, industryDist.getOrDefault(ind, 0L) + c);
+                totalStoresCount += c;
+            }
         }
 
         long totalMembersCount = memberRepository.count();
 
         return VendorDashboardStatsVO.builder()
-                .totalTenants((long) tenants.size())
+                .totalTenants(totalTenantsCount)
                 .totalMembers(totalMembersCount)
-                .totalStores((long) stores.size())
+                .totalStores(totalStoresCount)
                 .activeTenants(activeCount)
                 .trialTenantsCount(trialCount)
                 .expiringSoonCount(expiringSoon)

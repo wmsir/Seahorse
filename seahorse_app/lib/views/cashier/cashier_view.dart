@@ -34,7 +34,7 @@ class _CashierViewState extends State<CashierView> {
           final s = context.read<StoreProvider>();
           context.read<CashierProvider>().loadProducts(storeId: s.currentStoreId);
           context.read<CashierProvider>().loadCategories(
-            industry: s.currentStore?.industry.name,
+            industry: s.currentStore?.industry.code,
             storeId: s.currentStoreId,
             tenantId: s.currentStore?.tenantId,
           );
@@ -413,7 +413,14 @@ class _CashierViewState extends State<CashierView> {
           );
         },
       ),
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        nameCtrl.dispose();
+        priceCtrl.dispose();
+        costCtrl.dispose();
+        stockCtrl.dispose();
+      });
+    });
   }
 
   void _scanBarcodeToStockIn() async {
@@ -797,7 +804,18 @@ class _CashierViewState extends State<CashierView> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        nameCtrl.dispose();
+        priceCtrl.dispose();
+        costCtrl.dispose();
+        stockCtrl.dispose();
+        unitCtrl.dispose();
+        durationCtrl.dispose();
+        descCtrl.dispose();
+        codeCtrl.dispose();
+      });
+    });
   }
 
   void _confirmDeleteProduct(ProductModel product) async {

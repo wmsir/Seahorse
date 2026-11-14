@@ -42,8 +42,10 @@ export interface CardTemplateEntity {
   status: 'ACTIVE' | 'INACTIVE'
 }
 
+export type IndustryCode = 'BEAUTY' | 'RESTAURANT' | 'AUTO' | 'RETAIL' | 'FOOT_SPA' | 'TEA_HOUSE' | 'PET'
+
 export interface IndustryPackage {
-  industryCode: 'BEAUTY' | 'RESTAURANT' | 'AUTO' | 'RETAIL'
+  industryCode: IndustryCode
   industryName: string
   spaceAlias: string
   appendActionAlias: string
@@ -820,9 +822,174 @@ export const retailPackage: IndustryPackage = {
   ]
 }
 
+// ------------------------------------------------------------------------------
+// 5. 足疗养生/SPA会所 (FOOT_SPA)
+// ------------------------------------------------------------------------------
+export const footSpaPackage: IndustryPackage = {
+  industryCode: 'FOOT_SPA',
+  industryName: '足疗养生会所',
+  spaceAlias: '包厢',
+  appendActionAlias: '加钟/加茶水',
+  defaultFeeName: '一次性草本浴包费',
+  stores: [
+    {
+      storeId: 'F001',
+      storeName: '御境草本足道SPA (高新旗舰店)',
+      address: '西安市高新区科技二路软件园B座2层',
+      managerName: '周掌柜',
+      phone: '029-88336699',
+      isHeadquarter: true,
+      businessStatus: 'OPEN',
+      totalSpaces: 12,
+      openTime: '11:00 - 02:00'
+    }
+  ],
+  staff: [
+    { id: 51, storeId: 'F001', realName: '周掌柜', phone: '13800550001', postName: '会所运营店长', role: 'STORE_MANAGER', department: '运营管理部', baseSalary: 8500, serviceCommissionRate: 0.08, cardCommissionRate: 0.06, retailCommissionRate: 0.10, gender: 'MALE', status: 'ACTIVE', entryDate: '2025-03-01' },
+    { id: 52, storeId: 'F001', realName: '苏婉儿 (88号)', phone: '13800550002', postName: '金牌足道调理师', role: 'TECHNICIAN', department: '康养理疗部', baseSalary: 4500, serviceCommissionRate: 0.35, cardCommissionRate: 0.10, retailCommissionRate: 0.12, gender: 'FEMALE', status: 'ACTIVE', entryDate: '2025-04-10' },
+    { id: 53, storeId: 'F001', realName: '陈静 (01号)', phone: '13800550003', postName: '大堂迎宾收银', role: 'CASHIER', department: '前厅客服部', baseSalary: 4500, serviceCommissionRate: 0.05, cardCommissionRate: 0.05, retailCommissionRate: 0.08, gender: 'FEMALE', status: 'ACTIVE', entryDate: '2025-05-15' }
+  ],
+  products: [
+    { id: 51, code: 'FSP-001', name: '古法瑶浴草本足道 70分钟', type: 'SERVICE', category: 'FOOT_MASSAGE', categoryName: '足道调理', price: 198, cost: 26, durationMinutes: 70, unit: '次' },
+    { id: 52, code: 'FSP-002', name: '肩颈经络深度舒压SPA 60分钟', type: 'SERVICE', category: 'BODY_SPA', categoryName: '经络推拿', price: 238, cost: 32, durationMinutes: 60, unit: '次' },
+    { id: 53, code: 'FSP-003', name: '有机陈皮老白茶壶泡礼盒', type: 'RETAIL', category: 'HEALTH_GIFT', categoryName: '养生茶饮零售', price: 128, cost: 48, unit: '盒', spec: '150g 礼盒装' }
+  ],
+  materials: [
+    { id: 'MAT-F01', code: 'MAT-HERB-01', name: '苗家艾草瑶浴浓缩汤包', category: 'RAW', unit: '袋', costPrice: 6.5, initialStock: 300, safeStock: 50, supplier: '黔东南本草供应链' }
+  ],
+  members: [
+    { id: 51, memberNo: 'HM880501', name: '赵明轩', phone: '13800559901', gender: 'MALE', level: 'GOLD', levelName: '黑金康养会员', registeredStoreId: 'F001', registerTime: '2026-09-01 20:10:00' }
+  ],
+  cardTemplates: [
+    { id: 51, cardType: 'STORED_VALUE', cardTypeName: '储值卡', cardName: '康养尊享充2000送400储值卡', price: 2000, originalPrice: 2400, contentDescription: '本金2000元+赠送400元，全场足道与SPA项目享8.8折', validityDays: 730, themeColor: 'gold', discountRate: 0.88, principalAmount: 2000, giftAmount: 400, status: 'ACTIVE' },
+    { id: 52, cardType: 'TIME_CARD', cardTypeName: '次卡', cardName: '古法草本足道 10次养生卡', price: 1580, originalPrice: 1980, contentDescription: '含70分钟古法瑶浴足道10次，周末节假日通用', validityDays: 365, themeColor: 'emerald', totalTimes: 10, serviceSkuName: '古法瑶浴草本足道 70分钟', status: 'ACTIVE' }
+  ],
+  liveSessions: [],
+  baseCosts: [
+    { id: 501, code: 'CST-F-001', name: '康养包厢中央新风与热水循环能耗', category: 'RENT_UTILITY', categoryName: '店面房租能耗', nature: 'VARIABLE', amount: 4600, month: '2026-09', date: '2026-09-05', storeId: 'F001', handler: '周掌柜', invoiceNo: 'PWR-F-202609', notes: '恒温足浴用水与新风能耗' }
+  ],
+  rechargeOrders: [],
+  consumeOrders: [],
+  timeCards: [],
+  pointsLedger: [],
+  rewardsLedger: [],
+  expenses: [],
+  appointments: []
+}
+
+// ------------------------------------------------------------------------------
+// 6. 茶楼棋牌雅座 (TEA_HOUSE)
+// ------------------------------------------------------------------------------
+export const teaHousePackage: IndustryPackage = {
+  industryCode: 'TEA_HOUSE',
+  industryName: '茶楼棋牌雅集',
+  spaceAlias: '雅间',
+  appendActionAlias: '续水/加茶点',
+  defaultFeeName: '山泉炭火茶位费',
+  stores: [
+    {
+      storeId: 'H001',
+      storeName: '松风竹露城市茶空间 (曲江店)',
+      address: '西安市雁塔区曲江池东路禅意街区8号',
+      managerName: '林掌柜',
+      phone: '029-85567788',
+      isHeadquarter: true,
+      businessStatus: 'OPEN',
+      totalSpaces: 10,
+      openTime: '10:00 - 24:00'
+    }
+  ],
+  staff: [
+    { id: 61, storeId: 'H001', realName: '林掌柜', phone: '13800660001', postName: '茶空间主理人', role: 'STORE_MANAGER', department: '店务管理部', baseSalary: 7800, serviceCommissionRate: 0.08, cardCommissionRate: 0.06, retailCommissionRate: 0.12, gender: 'FEMALE', status: 'ACTIVE', entryDate: '2025-02-18' },
+    { id: 62, storeId: 'H001', realName: '沈知秋', phone: '13800660002', postName: '高级评茶/侍茶师', role: 'TECHNICIAN', department: '茶艺服务部', baseSalary: 5200, serviceCommissionRate: 0.25, cardCommissionRate: 0.08, retailCommissionRate: 0.15, gender: 'FEMALE', status: 'ACTIVE', entryDate: '2025-04-01' }
+  ],
+  products: [
+    { id: 61, code: 'TEA-001', name: '武夷正岩肉桂工夫茶雅集包厢 (3小时)', type: 'SERVICE', category: 'TEA_ROOM', categoryName: '雅间品茗', price: 298, cost: 45, durationMinutes: 180, unit: '场' },
+    { id: 62, code: 'TEA-002', name: '手作中式四宫格苏式茶点拼盘', type: 'RETAIL', category: 'TEA_SNACK', categoryName: '手作茶点', price: 68, cost: 22, unit: '份', spec: '现烤四味拼盘' },
+    { id: 63, code: 'TEA-003', name: '福鼎荒野牡丹王年份白茶饼 350g', type: 'RETAIL', category: 'TEA_GIFT', categoryName: '名优茶叶零售', price: 480, cost: 190, unit: '饼', spec: '350g 棉纸礼盒' }
+  ],
+  materials: [
+    { id: 'MAT-H01', code: 'MAT-TEA-01', name: '武夷正岩肉桂私房泡袋 8g', category: 'RAW', unit: '泡', costPrice: 18, initialStock: 200, safeStock: 30, supplier: '武夷山核心产区茶厂' }
+  ],
+  members: [
+    { id: 61, memberNo: 'HM880601', name: '顾长风', phone: '13800669901', gender: 'MALE', level: 'GOLD', levelName: '知音茶友金卡', registeredStoreId: 'H001', registerTime: '2026-09-02 14:30:00' }
+  ],
+  cardTemplates: [
+    { id: 61, cardType: 'STORED_VALUE', cardTypeName: '储值卡', cardName: '松风雅集充3000送600商务茶卡', price: 3000, originalPrice: 3600, contentDescription: '商务接待雅间通用，购年份茶礼享8.5折', validityDays: 730, themeColor: 'black', discountRate: 0.85, principalAmount: 3000, giftAmount: 600, status: 'ACTIVE' }
+  ],
+  liveSessions: [],
+  baseCosts: [
+    { id: 601, code: 'CST-H-001', name: '农夫山泉泡茶专用水与橄榄炭耗材', category: 'ADMIN_MISC', categoryName: '日常运营杂费', nature: 'VARIABLE', amount: 2100, month: '2026-09', date: '2026-09-04', storeId: 'H001', handler: '林掌柜', invoiceNo: 'TEA-W-202609', notes: '山泉泡茶水月结' }
+  ],
+  rechargeOrders: [],
+  consumeOrders: [],
+  timeCards: [],
+  pointsLedger: [],
+  rewardsLedger: [],
+  expenses: [],
+  appointments: []
+}
+
+// ------------------------------------------------------------------------------
+// 7. 宠物洗护生活馆 (PET)
+// ------------------------------------------------------------------------------
+export const petPackage: IndustryPackage = {
+  industryCode: 'PET',
+  industryName: '宠物洗护生活馆',
+  spaceAlias: '洗美舱',
+  appendActionAlias: '加SPA/加零食',
+  defaultFeeName: '独立舱紫外消毒费',
+  stores: [
+    {
+      storeId: 'P001',
+      storeName: '爪爪星球精致洗美生活馆 (旗舰店)',
+      address: '深圳市南山区华侨城创意园东区106铺',
+      managerName: '许店长',
+      phone: '0755-86654321',
+      isHeadquarter: true,
+      businessStatus: 'OPEN',
+      totalSpaces: 8,
+      openTime: '09:30 - 21:30'
+    }
+  ],
+  staff: [
+    { id: 71, storeId: 'P001', realName: '许诺', phone: '13800770001', postName: '宠物馆店长', role: 'STORE_MANAGER', department: '店务管理部', baseSalary: 7500, serviceCommissionRate: 0.10, cardCommissionRate: 0.06, retailCommissionRate: 0.10, gender: 'FEMALE', status: 'ACTIVE', entryDate: '2025-03-12' },
+    { id: 72, storeId: 'P001', realName: '阿杰', phone: '13800770002', postName: 'A级宠物美容造型师', role: 'TECHNICIAN', department: '洗美造型部', baseSalary: 5800, serviceCommissionRate: 0.30, cardCommissionRate: 0.08, retailCommissionRate: 0.12, gender: 'MALE', status: 'ACTIVE', entryDate: '2025-05-01' }
+  ],
+  products: [
+    { id: 71, code: 'PET-001', name: '小型犬伊珊娜精油精细洗护吹干', type: 'SERVICE', category: 'PET_WASH', categoryName: '精致洗护', price: 98, cost: 14, durationMinutes: 60, unit: '次' },
+    { id: 72, code: 'PET-002', name: '比熊/贵宾全身萌系泰迪装手剪造型', type: 'SERVICE', category: 'PET_GROOM', categoryName: '创意美容修剪', price: 228, cost: 25, durationMinutes: 120, unit: '次' },
+    { id: 73, code: 'PET-003', name: '新西兰进口风干鹿肉洁齿冻干 200g', type: 'RETAIL', category: 'PET_FOOD', categoryName: '主粮零食零售', price: 118, cost: 52, unit: '袋', spec: '200g 原切装' }
+  ],
+  materials: [
+    { id: 'MAT-P01', code: 'MAT-SHAM-01', name: '伊珊娜白毛蓬松植物香波 1000ml', category: 'RAW', unit: '瓶', costPrice: 145, initialStock: 35, safeStock: 8, supplier: '萌宠院线洗护供应链' }
+  ],
+  members: [
+    { id: 71, memberNo: 'HM880701', name: '温知夏 (爱宠:糯米)', phone: '13800779901', gender: 'FEMALE', level: 'GOLD', levelName: '星级铲屎官金卡', registeredStoreId: 'P001', registerTime: '2026-09-03 11:20:00' }
+  ],
+  cardTemplates: [
+    { id: 71, cardType: 'TIME_CARD', cardTypeName: '次卡', cardName: '萌宠精致洗护 10次畅洗卡', price: 799, originalPrice: 980, contentDescription: '含小型犬精细洗护10次（含剪指甲、清耳道、挤肛门腺）', validityDays: 365, themeColor: 'blue', totalTimes: 10, serviceSkuName: '小型犬伊珊娜精油精细洗护吹干', status: 'ACTIVE' },
+    { id: 72, cardType: 'STORED_VALUE', cardTypeName: '储值卡', cardName: '爱宠全馆充1500送300成长储值卡', price: 1500, originalPrice: 1800, contentDescription: '洗美造型、寄养及进口零食全场9折通用', validityDays: 730, themeColor: 'rose', discountRate: 0.9, principalAmount: 1500, giftAmount: 300, status: 'ACTIVE' }
+  ],
+  liveSessions: [],
+  baseCosts: [
+    { id: 701, code: 'CST-P-001', name: '新风除味滤芯与宠物医院级消毒液耗材', category: 'ADMIN_MISC', categoryName: '日常运营杂费', nature: 'VARIABLE', amount: 1800, month: '2026-09', date: '2026-09-05', storeId: 'P001', handler: '许诺', invoiceNo: 'PET-SAN-09', notes: '每日全店紫外与次氯酸消杀' }
+  ],
+  rechargeOrders: [],
+  consumeOrders: [],
+  timeCards: [],
+  pointsLedger: [],
+  rewardsLedger: [],
+  expenses: [],
+  appointments: []
+}
+
 export const allIndustryPackages: Record<string, IndustryPackage> = {
   BEAUTY: beautyPackage,
   RESTAURANT: restaurantPackage,
   AUTO: autoPackage,
-  RETAIL: retailPackage
+  RETAIL: retailPackage,
+  FOOT_SPA: footSpaPackage,
+  TEA_HOUSE: teaHousePackage,
+  PET: petPackage
 }

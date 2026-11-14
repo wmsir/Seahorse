@@ -104,6 +104,7 @@
                 v-model="selectedStoreId"
                 placeholder="选择门店"
                 style="width: 280px;"
+                @change="fetchCloudNotices"
               >
                 <el-option label="全部适用门店 (集团通用)" value="ALL" />
                 <el-option
@@ -490,9 +491,10 @@
                 <el-option label="⏰ 考勤考纪规范" value="ATTENDANCE" />
                 <el-option label="🛡️ 安全卫生规范" value="SAFETY" />
                 <el-option label="🏆 奖惩考核规范" value="COMMISSION" />
+                <el-option label="🔒 保密协议规范" value="CONFIDENTIAL" />
                 <el-option label="📢 门店日常业务公告" value="NOTICE" />
                 <el-option label="🚨 特别重要特急通知" value="URGENT" />
-                <el-option label="🔒 保密与综合制度" value="OTHER" />
+                <el-option label="📋 综合管理制度" value="OTHER" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -1204,9 +1206,9 @@ const storeConfig = useStoreConfig()
 
 // 角色与权限识别
 const role = ref(localStorage.getItem('seahorse_role') || 'SUPER_ADMIN')
-const currentUsername = ref(localStorage.getItem('seahorse_user') || '店长/管理')
-const isMerchantBoss = computed(() => role.value === 'SUPER_ADMIN' || role.value === 'MERCHANT_ADMIN' || role.value === 'STORE_OWNER')
-const isStoreManager = computed(() => role.value === 'MANAGER')
+const currentUsername = ref(localStorage.getItem('seahorse_real_name') || localStorage.getItem('seahorse_user') || localStorage.getItem('seahorse_username') || '店长/管理')
+const isMerchantBoss = computed(() => ['SUPER_ADMIN', 'MERCHANT_ADMIN', 'TENANT_ADMIN', 'STORE_OWNER', 'PLATFORM_DEVELOPER'].includes(role.value))
+const isStoreManager = computed(() => role.value === 'STORE_MANAGER' || role.value === 'MANAGER')
 const isManagerOrBoss = computed(() => isMerchantBoss.value || isStoreManager.value)
 
 // 当前门店与多店铺列表
@@ -1307,9 +1309,11 @@ const getCategoryTagType = (cat: string) => {
     case 'SERVICE': return 'primary'
     case 'ATTENDANCE': return 'warning'
     case 'SAFETY': return 'danger'
+    case 'URGENT': return 'danger'
     case 'COMMISSION': return 'success'
     case 'CONFIDENTIAL': return 'info'
-    default: return ''
+    case 'NOTICE': return 'info'
+    default: return 'info'
   }
 }
 
@@ -1385,7 +1389,7 @@ const handleCategoryChange = (val: string) => {
 const handleOpenCreateRegulation = () => {
   isEditing.value = false
   editForm.value = {
-    id: `REG-2026-${String(systemData.regulations.length + 1).padStart(3, '0')}`,
+    id: `REG-${Date.now().toString().slice(-8)}`,
     title: '',
     category: 'SERVICE',
     version: 'V1.0',
@@ -1472,7 +1476,11 @@ const handleSaveRegulation = async () => {
 
   // 2. 实时推送并保存至云端数据库，向手机端与全平台发布
   try {
+    const cloudNumericId = entity.id.startsWith('CLOUD-')
+      ? Number(entity.id.replace('CLOUD-', '')) || undefined
+      : undefined
     const savedRes: any = await saveStoreNoticeApi({
+      ...(cloudNumericId ? { id: cloudNumericId } : {}),
       storeId: entity.storeId,
       title: entity.title,
       category: entity.category,
@@ -1491,6 +1499,16 @@ const handleSaveRegulation = async () => {
 
     const cloudNotice = savedRes?.data || savedRes
     if (cloudNotice && cloudNotice.id) {
+      const nextCloudId = `CLOUD-${cloudNotice.id}`
+      if (entity.id !== nextCloudId) {
+        const localIdx = systemData.regulations.findIndex(r => r.id === entity.id)
+        if (localIdx >= 0) {
+          const updatedEntity = { ...systemData.regulations[localIdx], id: nextCloudId }
+          systemData.deleteRegulation(entity.id)
+          systemData.saveRegulation(updatedEntity)
+        }
+      }
+
       // 记录在本地已知集合中，发布人本机无需重复收到右下角弹窗
       try {
         const raw = localStorage.getItem('seahorse_notified_notice_ids')
@@ -1532,11 +1550,16 @@ const handleDeleteRegulation = async (reg: RegulationEntity) => {
 // 异步从云端拉取门店现行规范与日常公告
 const fetchCloudNotices = async () => {
   try {
-    const res: any = await getStoreNoticesApi(selectedStoreId.value)
-    if (res && res.code === 200 && Array.isArray(res.data) && res.data.length > 0) {
-      res.data.forEach((cn: any) => {
+    const queryStoreId = selectedStoreId.value !== 'ALL'
+      ? selectedStoreId.value
+      : (storeConfig.currentStoreId || localStorage.getItem('seahorse_store_id') || availableStores.value[0]?.storeId || 'ALL')
+    const res: any = await getStoreNoticesApi(queryStoreId)
+    const list: any[] = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : [])
+    if (list.length > 0) {
+      list.forEach((cn: any) => {
         const cloudId = `CLOUD-${cn.id}`
         const existIdx = systemData.regulations.findIndex(r => r.id === cloudId || r.title === cn.title)
+        const existingItem = existIdx >= 0 ? systemData.regulations[existIdx] : null
         const regObj: RegulationEntity = {
           id: cloudId,
           storeId: cn.storeId || 'ALL',
@@ -1552,16 +1575,20 @@ const fetchCloudNotices = async () => {
           requireSignature: !!cn.requireSignature,
           publisher: cn.publisher || '门店管理',
           publishTime: cn.createdAt ? String(cn.createdAt).replace('T', ' ').slice(0, 19) : todayFormatted.value,
-          readStaffIds: [],
-          signatures: []
+          readStaffIds: existingItem?.readStaffIds || [],
+          signatures: existingItem?.signatures || []
         };
         (regObj as any).isUrgent = !!cn.isUrgent;
         (regObj as any).playMusic = !!cn.playMusic;
 
         if (existIdx >= 0) {
-          systemData.regulations[existIdx] = { ...systemData.regulations[existIdx], ...regObj }
+          const oldId = systemData.regulations[existIdx].id
+          if (oldId !== cloudId) {
+            systemData.deleteRegulation(oldId)
+          }
+          systemData.saveRegulation({ ...existingItem, ...regObj })
         } else {
-          systemData.regulations.unshift(regObj)
+          systemData.saveRegulation(regObj)
         }
       })
     }
@@ -1755,7 +1782,8 @@ const renderPosterCanvas = async () => {
 
   // 生成真实可用二维码
   try {
-    const qrUrl = `${window.location.origin}/regulations?id=${reg.id}`
+    const basePrefix = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
+    const qrUrl = `${window.location.origin}${basePrefix}/regulations?id=${encodeURIComponent(reg.id)}`
     const qrDataUrl = await QRCode.toDataURL(qrUrl, { margin: 1, width: 110 })
     const img = new Image()
     img.src = qrDataUrl
@@ -1831,6 +1859,7 @@ const triggerBrowserPrint = () => {
 
 const handleCopyNoticeText = (reg?: RegulationEntity | null) => {
   if (!reg) return
+  const basePrefix = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
   const kps = reg.keyPoints.map((k, i) => `${i + 1}. ${k}`).join('\n')
   const text = `【📢 ${currentStoreName.value} · 规章制度贯彻通知】
 ------------------------------------------
@@ -1839,7 +1868,7 @@ const handleCopyNoticeText = (reg?: RegulationEntity | null) => {
 ${kps}
 
 ${reg.requireSignature ? '⚠️【特别提醒】：本制度要求全员完成在线手写电子签名，请大家在入职/今日下班前登录海马工作台完成签字确认备查。' : ''}
-制度详情与签署入口：${window.location.origin}/regulations
+制度详情与签署入口：${window.location.origin}${basePrefix}/regulations
 请大家严格遵照执行，树立专业标准服务形象！`
 
   navigator.clipboard.writeText(text).then(() => {
@@ -1878,16 +1907,26 @@ const clearSignaturePad = () => {
   hasSignatureDrawn.value = false
 }
 
+const getCanvasScaledPoint = (canvas: HTMLCanvasElement, clientX: number, clientY: number) => {
+  const rect = canvas.getBoundingClientRect()
+  const scaleX = rect.width ? canvas.width / rect.width : 1
+  const scaleY = rect.height ? canvas.height / rect.height : 1
+  return {
+    x: (clientX - rect.left) * scaleX,
+    y: (clientY - rect.top) * scaleY
+  }
+}
+
 const startDrawing = (e: MouseEvent) => {
   const canvas = signCanvasRef.value
   if (!canvas) return
   const ctx = canvas.getContext('2d')
   if (!ctx) return
-  const rect = canvas.getBoundingClientRect()
+  const pt = getCanvasScaledPoint(canvas, e.clientX, e.clientY)
   isDrawing.value = true
   hasSignatureDrawn.value = true
   ctx.beginPath()
-  ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top)
+  ctx.moveTo(pt.x, pt.y)
   ctx.strokeStyle = '#0f172a'
   ctx.lineWidth = 3
   ctx.lineCap = 'round'
@@ -1900,8 +1939,8 @@ const draw = (e: MouseEvent) => {
   if (!canvas) return
   const ctx = canvas.getContext('2d')
   if (!ctx) return
-  const rect = canvas.getBoundingClientRect()
-  ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top)
+  const pt = getCanvasScaledPoint(canvas, e.clientX, e.clientY)
+  ctx.lineTo(pt.x, pt.y)
   ctx.stroke()
 }
 
@@ -1915,12 +1954,12 @@ const startTouchDrawing = (e: TouchEvent) => {
   if (!canvas) return
   const ctx = canvas.getContext('2d')
   if (!ctx) return
-  const rect = canvas.getBoundingClientRect()
   const touch = e.touches[0]
+  const pt = getCanvasScaledPoint(canvas, touch.clientX, touch.clientY)
   isDrawing.value = true
   hasSignatureDrawn.value = true
   ctx.beginPath()
-  ctx.moveTo(touch.clientX - rect.left, touch.clientY - rect.top)
+  ctx.moveTo(pt.x, pt.y)
   ctx.strokeStyle = '#0f172a'
   ctx.lineWidth = 3
   ctx.lineCap = 'round'
@@ -1933,9 +1972,9 @@ const touchDraw = (e: TouchEvent) => {
   if (!canvas) return
   const ctx = canvas.getContext('2d')
   if (!ctx) return
-  const rect = canvas.getBoundingClientRect()
   const touch = e.touches[0]
-  ctx.lineTo(touch.clientX - rect.left, touch.clientY - rect.top)
+  const pt = getCanvasScaledPoint(canvas, touch.clientX, touch.clientY)
+  ctx.lineTo(pt.x, pt.y)
   ctx.stroke()
 }
 
@@ -2027,7 +2066,7 @@ const getFeedbackTypeTag = (type: string) => {
     case 'DIFFICULTY': return 'warning'
     case 'INNOVATION': return 'success'
     case 'APPEAL': return 'danger'
-    default: return ''
+    default: return 'info'
   }
 }
 
@@ -2108,8 +2147,8 @@ const handleConfirmSubmitFeedback = () => {
   }
 
   const fb: StaffFeedbackEntity = {
-    id: `FB-2026-${String(systemData.staffFeedbacks.length + 1).padStart(3, '0')}`,
-    storeId: selectedStoreId.value !== 'ALL' ? selectedStoreId.value : 'S001',
+    id: `FB-${Date.now().toString().slice(-8)}`,
+    storeId: selectedStoreId.value !== 'ALL' ? selectedStoreId.value : (storeConfig.currentStoreId || localStorage.getItem('seahorse_store_id') || 'S001'),
     regulationId: feedbackForm.value.regulationId || undefined,
     regulationTitle: feedbackForm.value.regulationTitle || undefined,
     staffId: feedbackForm.value.isAnonymous ? undefined : currentStaffId.value,

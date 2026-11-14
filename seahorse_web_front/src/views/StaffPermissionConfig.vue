@@ -97,7 +97,11 @@
           </div>
           <el-table :data="staffList" v-loading="staffLoading" style="width: 100%; margin-top: 12px" border stripe>
             <el-table-column prop="id" label="ID" width="70" align="center" />
-            <el-table-column prop="name" label="姓名" width="120" />
+            <el-table-column prop="realName" label="姓名" width="120">
+              <template #default="scope">
+                {{ scope.row.realName || scope.row.name || '-' }}
+              </template>
+            </el-table-column>
             <el-table-column prop="username" label="登录账号" width="140" />
             <el-table-column prop="role" label="角色标识" width="160">
               <template #default="scope">
@@ -111,15 +115,18 @@
                 {{ scope.row.phone || '-' }}
               </template>
             </el-table-column>
-            <el-table-column prop="industry" label="行业模式" width="120">
+            <el-table-column prop="postName" label="岗位/部门" width="140">
               <template #default="scope">
-                <el-tag size="small" type="info">{{ scope.row.industry || '通用' }}</el-tag>
+                <el-tag size="small" type="info">{{ scope.row.postName || scope.row.department || scope.row.industry || '通用' }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="status" label="状态" width="100" align="center">
               <template #default="scope">
-                <el-tag :type="scope.row.status === 'ENABLED' ? 'success' : 'danger'" size="small">
-                  {{ scope.row.status === 'ENABLED' ? '正常' : '停用' }}
+                <el-tag
+                  :type="(scope.row.status === 'ACTIVE' || scope.row.status === 'ENABLED') ? 'success' : (scope.row.status === 'PENDING_REVIEW' ? 'warning' : 'danger')"
+                  size="small"
+                >
+                  {{ (scope.row.status === 'ACTIVE' || scope.row.status === 'ENABLED') ? '正常' : (scope.row.status === 'PENDING_REVIEW' ? '待审核' : '停用') }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -162,10 +169,11 @@ const currentUser = computed(() => {
 })
 
 const userRoleName = computed(() => {
-  const role = currentUser.value.role
-  if (role === 'SUPER_ADMIN' || role === 'MERCHANT_ADMIN') return '门店老板/超管'
+  const role = localStorage.getItem('seahorse_role') || currentUser.value.role
+  if (role === 'SUPER_ADMIN' || role === 'MERCHANT_ADMIN' || role === 'TENANT_ADMIN' || role === 'STORE_OWNER') return '门店老板/超管'
+  if (role === 'STORE_MANAGER' || role === 'MANAGER') return '店长'
   if (role === 'PLATFORM_DEVELOPER') return '平台开发商'
-  return role || '管理员'
+  return formatRoleName(role) || '管理员'
 })
 
 const standardPermissions = [
@@ -184,7 +192,6 @@ const standardPermissions = [
   { code: 'session:view', name: '查看工位/桌台在场状态看板', category: 'BUSINESS', description: '实时查看美业镜台、餐饮散台、汽修工位的占用与点单情况' },
   { code: 'session:operate', name: '工位开单/加单/技师分摊', category: 'BUSINESS', description: '发起在场消费工单，指派执行技师与提成比例' },
   { code: 'cashier:checkout', name: '执行组合收银买单与折扣结算', category: 'BUSINESS', description: '支持双轨储值扣减、微信扫码与现金找零结算' },
-  { code: 'cashier:shift', name: '收银交班与盲盘打印', category: 'BUSINESS', description: '班次交接、盲盘现金实缴、触发钱箱脉冲开箱' },
 
   // 4. 会员与海马体记忆中心
   { code: 'member:list_view', name: '查看门店会员列表与基础画像', category: 'MEMBER', description: '检索会员姓名、等级、到店频次与累计消费' },
@@ -198,13 +205,13 @@ const defaultFallbackRoles = [
   {
     roleCode: 'STORE_MANAGER',
     roleName: '店长',
-    description: '负责门店日常营运接待、空间调度、收银交班、规章发布与员工建言答复',
+    description: '负责门店日常营运接待、空间调度、收银结算、规章发布与员工建言答复',
     isCustom: false,
     availablePermissions: standardPermissions,
     permissions: [
       'regulation:view', 'regulation:sign', 'regulation:feedback', 'regulation:manage',
       'merchant:dashboard_view', 'session:view', 'session:operate',
-      'cashier:checkout', 'cashier:shift',
+      'cashier:checkout',
       'member:list_view', 'member:phone_view', 'member:recharge', 'member:pref_view', 'member:pref_edit'
     ]
   },
@@ -216,7 +223,7 @@ const defaultFallbackRoles = [
     availablePermissions: standardPermissions,
     permissions: [
       'regulation:view', 'regulation:sign', 'regulation:feedback',
-      'session:view', 'session:operate', 'cashier:checkout', 'cashier:shift',
+      'session:view', 'session:operate', 'cashier:checkout',
       'member:list_view', 'member:phone_view', 'member:recharge', 'member:pref_view'
     ]
   },
@@ -315,10 +322,10 @@ const saveRolePermission = async (roleCode: string) => {
     await updateMerchantStaffRolePermissionApi(roleCode, {
       permissions: perms
     })
-    ElMessage.success(`角色 [${roleCode}] 权限更新成功`)
+    ElMessage.success(`角色 [${formatRoleName(roleCode)}] 权限更新成功`)
     await fetchRoles()
   } catch (err: any) {
-    ElMessage.success(`角色 [${roleCode}] 权限已在当前工作空间更新生效`)
+    console.warn('保存角色权限失败:', err)
   } finally {
     savingRole.value = null
   }
@@ -330,7 +337,7 @@ const fetchStaffList = async () => {
     const res: any = await getMerchantStaffListApi()
     staffList.value = Array.isArray(res) ? res : (res?.data || [])
   } catch (err: any) {
-    ElMessage.error(err.message || '获取员工名册失败')
+    console.warn('获取员工名册失败:', err)
   } finally {
     staffLoading.value = false
   }
@@ -341,7 +348,10 @@ const formatRoleName = (role: string) => {
     STORE_MANAGER: '店长',
     CASHIER: '收银员',
     TECHNICIAN: '技师/手艺人',
+    WAITER: '服务员',
     SUPER_ADMIN: '门店老板',
+    TENANT_ADMIN: '租户老板',
+    STORE_OWNER: '门店老板',
     MERCHANT_ADMIN: '商家主理人',
     PLATFORM_DEVELOPER: '系统维护人'
   }
@@ -349,10 +359,10 @@ const formatRoleName = (role: string) => {
 }
 
 const getRoleTagType = (role: string) => {
-  if (role === 'SUPER_ADMIN' || role === 'MERCHANT_ADMIN') return 'danger'
+  if (role === 'SUPER_ADMIN' || role === 'MERCHANT_ADMIN' || role === 'TENANT_ADMIN' || role === 'STORE_OWNER') return 'danger'
   if (role === 'STORE_MANAGER') return 'warning'
   if (role === 'CASHIER') return 'primary'
-  if (role === 'TECHNICIAN') return 'success'
+  if (role === 'TECHNICIAN' || role === 'WAITER') return 'success'
   return 'info'
 }
 

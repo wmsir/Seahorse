@@ -275,6 +275,9 @@ public class IndustryProfileController {
     @Operation(summary = "一键切换门店行业模态 (餐饮 / 美业 / 汽修 / 零售)")
     @PostMapping("/switch")
     public ApiResponse<Store> switchIndustry(@RequestBody SwitchIndustryCommand req) {
+        if (req == null || req.getIndustry() == null) {
+            throw new ServiceException("行业模态类型不能为空");
+        }
         Store store = resolveCurrentStore();
 
         store.setIndustry(req.getIndustry());

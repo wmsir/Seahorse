@@ -13,4 +13,5 @@ public interface NotificationLogRepository extends JpaRepository<NotificationLog
     List<NotificationLog> findTop100ByTenantIdOrderBySentAtDesc(String tenantId);
     List<NotificationLog> findByTenantIdAndMemberIdOrderBySentAtDesc(String tenantId, Long memberId);
     Page<NotificationLog> findByTenantIdOrderBySentAtDesc(String tenantId, Pageable pageable);
+    Page<NotificationLog> findByTenantIdAndMemberIdOrderBySentAtDesc(String tenantId, Long memberId, Pageable pageable);
 }

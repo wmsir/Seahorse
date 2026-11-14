@@ -46,7 +46,7 @@
             <el-radio-button label="PENDING">待履约 ({{ pendingCount }})</el-radio-button>
             <el-radio-button label="SERVING">服务中 ({{ servingCount }})</el-radio-button>
             <el-radio-button label="COMPLETED">已完成 ({{ completedCount }})</el-radio-button>
-            <el-radio-button label="CANCELLED">已取消</el-radio-button>
+            <el-radio-button label="CANCELLED">已取消 ({{ cancelledCount }})</el-radio-button>
           </el-radio-group>
 
           <div style="display: flex; gap: 10px;">
@@ -73,6 +73,7 @@
               placeholder="搜索顾客姓名/手机号/技师"
               style="width: 220px;"
               clearable
+              @input="currentPage = 1"
               @clear="currentPage = 1"
             />
           </div>
@@ -675,13 +676,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { List, Clock, Calendar, Grid, ArrowLeft, ArrowRight, Refresh } from '@element-plus/icons-vue'
+import { List, Clock, Calendar, Grid, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { useSystemDataStore } from '../stores/systemDataStore'
 import { useStoreConfig } from '../stores/store'
-import { mockFootSpaRooms } from '../mock/mockFootSpaData'
 import { getDateBadge, getWeekdayText } from '../utils/chineseHolidayUtils'
 import {
   getAppointmentsApi,
@@ -723,23 +723,75 @@ const goToConfigRooms = () => {
   router.push('/rooms')
 }
 
-const loadServerAppointments = async () => {
-  if (systemData.isNewTenant) {
-    serverAppointments.value = []
-    return
-  }
+const formatLocalDate = (d: Date = new Date()): string => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const date = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${date}`
+}
+
+const getInitialWeekMonday = (): string => {
+  const now = new Date()
+  const day = now.getDay()
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1)
+  return formatLocalDate(new Date(now.getFullYear(), now.getMonth(), diff))
+}
+
+const loadServerAppointments = async (targetDate?: string) => {
+  const effectiveDate = targetDate || selectedDayDate.value || formatLocalDate()
   try {
-    let res: any = await getAppointmentsApi({ storeId: currentStoreId.value })
-    let list = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : [])
-    if (list.length === 0 && currentStoreId.value) {
+    const sId = currentStoreId.value
+    const tenantId = localStorage.getItem('seahorse_tenant_id') || ''
+    const res: any = await getAppointmentsApi({ storeId: sId, date: effectiveDate })
+    let list: any[] = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : [])
+    if (list.length === 0 && sId && !systemData.isNewTenant) {
       try {
-        const fallbackRes: any = await getAppointmentsApi()
+        const fallbackRes: any = await getAppointmentsApi({ date: effectiveDate })
         list = Array.isArray(fallbackRes) ? fallbackRes : (Array.isArray(fallbackRes?.data) ? fallbackRes.data : [])
       } catch (_) {}
     }
-    serverAppointments.value = list
+    if (systemData.isNewTenant) {
+      list = list.filter((a: any) => {
+        if (tenantId && a.tenantId && a.tenantId !== tenantId) return false
+        if (sId && a.storeId && a.storeId !== sId) return false
+        return true
+      })
+    }
+    const others = serverAppointments.value.filter((a: any) => a.aptDate !== effectiveDate && !list.some((n: any) => n.id === a.id))
+    serverAppointments.value = [...others, ...list]
   } catch (err) {
     console.error('loadServerAppointments error:', err)
+  }
+}
+
+const loadServerAppointmentsRange = async (startDate: string, endDate: string) => {
+  if (!startDate || !endDate) return
+  try {
+    const sId = currentStoreId.value
+    const tenantId = localStorage.getItem('seahorse_tenant_id') || ''
+    const res: any = await getAppointmentsApi({ storeId: sId, startDate, endDate } as any)
+    let list: any[] = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : [])
+    if (list.length === 0 && sId && !systemData.isNewTenant) {
+      try {
+        const fallbackRes: any = await getAppointmentsApi({ startDate, endDate } as any)
+        list = Array.isArray(fallbackRes) ? fallbackRes : (Array.isArray(fallbackRes?.data) ? fallbackRes.data : [])
+      } catch (_) {}
+    }
+    if (systemData.isNewTenant) {
+      list = list.filter((a: any) => {
+        if (tenantId && a.tenantId && a.tenantId !== tenantId) return false
+        if (sId && a.storeId && a.storeId !== sId) return false
+        return true
+      })
+    }
+    const others = serverAppointments.value.filter((a: any) => {
+      const d = a.aptDate || ''
+      const inRange = d >= startDate && d <= endDate
+      return !inRange && !list.some((n: any) => n.id === a.id)
+    })
+    serverAppointments.value = [...others, ...list]
+  } catch (err) {
+    console.error('loadServerAppointmentsRange error:', err)
   }
 }
 
@@ -809,9 +861,37 @@ const loadServerSpaces = async () => {
   }
 }
 
+const loadActiveViewAppointments = async () => {
+  if (viewMode.value === 'week') {
+    const parts = currentWeekMonday.value.split('-')
+    const monday = parts.length === 3
+      ? new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+      : new Date()
+    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6)
+    await loadServerAppointmentsRange(formatLocalDate(monday), formatLocalDate(sunday))
+  } else if (viewMode.value === 'month') {
+    const y = currentMonthDate.value.getFullYear()
+    const m = currentMonthDate.value.getMonth()
+    const rangeStart = formatLocalDate(new Date(y, m, -6))
+    const rangeEnd = formatLocalDate(new Date(y, m + 1, 7))
+    await loadServerAppointmentsRange(rangeStart, rangeEnd)
+  } else if (viewMode.value === 'table') {
+    if (dateFilter.value) {
+      await loadServerAppointments(dateFilter.value)
+    } else {
+      const now = new Date()
+      const start = formatLocalDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30))
+      const end = formatLocalDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 60))
+      await loadServerAppointmentsRange(start, end)
+    }
+  } else {
+    await loadServerAppointments(selectedDayDate.value)
+  }
+}
+
 const refreshAllData = async () => {
   await Promise.allSettled([
-    loadServerAppointments(),
+    loadActiveViewAppointments(),
     loadServerServices(),
     loadServerStaff(),
     loadServerSpaces()
@@ -821,7 +901,7 @@ const refreshAllData = async () => {
 
 onMounted(() => {
   Promise.allSettled([
-    loadServerAppointments(),
+    loadActiveViewAppointments(),
     loadServerServices(),
     loadServerStaff(),
     loadServerSpaces()
@@ -926,26 +1006,31 @@ const allAppointments = computed(() => {
   if (!serverAppointments.value || serverAppointments.value.length === 0) {
     return []
   }
-  return serverAppointments.value.map((a: any) => ({
-    id: a.id,
-    aptNo: a.aptNo,
-    customerName: a.customerName,
-    isMember: true,
-    phone: a.phone,
-    serviceName: a.serviceName,
-    aptTime: a.aptTime?.includes(' ') ? a.aptTime : `${a.aptDate} ${a.aptTime}`,
-    rawStartTime: a.aptTime?.split(' - ')[0]?.split(' ')[1] || a.aptTime?.split(' - ')[0] || '14:00',
-    date: a.aptDate,
-    hour: parseInt(a.aptTime?.split(':')[0] || '14', 10),
-    technicianName: a.staffName || a.technicianName || '智能调配',
-    spaceName: a.spaceName || '1号包厢/镜台',
-    status: a.status
-  }))
+  return serverAppointments.value.map((a: any) => {
+    const rawStartTime = a.aptTime?.split(' - ')[0]?.split(' ')[1] || a.aptTime?.split(' - ')[0] || '14:00'
+    const parsedHour = parseInt(rawStartTime.split(':')[0] || '14', 10)
+    return {
+      id: a.id,
+      aptNo: a.aptNo,
+      customerName: a.customerName,
+      isMember: true,
+      phone: a.phone,
+      serviceName: a.serviceName,
+      aptTime: a.aptTime?.includes(' ') ? a.aptTime : `${a.aptDate} ${a.aptTime}`,
+      rawStartTime,
+      date: a.aptDate,
+      hour: Number.isNaN(parsedHour) ? 14 : parsedHour,
+      technicianName: a.staffName || a.technicianName || '智能调配',
+      spaceName: a.spaceName || '1号包厢/镜台',
+      status: a.status
+    }
+  })
 })
 
 const pendingCount = computed(() => allAppointments.value.filter(a => a.status === 'PENDING').length)
 const servingCount = computed(() => allAppointments.value.filter(a => a.status === 'SERVING').length)
 const completedCount = computed(() => allAppointments.value.filter(a => a.status === 'COMPLETED').length)
+const cancelledCount = computed(() => allAppointments.value.filter(a => a.status === 'CANCELLED').length)
 
 const filteredAppointments = computed(() => {
   return allAppointments.value.filter(item => {
@@ -972,17 +1057,38 @@ const padZero = (n: number) => n < 10 ? '0' + n : String(n)
 // ============================================================================
 // 日看板逻辑 (Day Board: 0-24小时时间轴刻度)
 // ============================================================================
-const selectedDayDate = ref(new Date().toISOString().substring(0, 10))
+const selectedDayDate = ref(formatLocalDate())
 const dayLanesMode = ref<'TECH' | 'SPACE'>('TECH')
 
+watch(selectedDayDate, (val) => {
+  if (val) {
+    loadServerAppointments(val)
+  }
+})
+
+watch(dateFilter, (val) => {
+  if (val) {
+    loadServerAppointments(val)
+  } else if (viewMode.value === 'table') {
+    loadActiveViewAppointments()
+  }
+})
+
+watch(viewMode, () => {
+  loadActiveViewAppointments()
+})
+
 const changeDayOffset = (days: number) => {
-  const d = new Date(selectedDayDate.value)
+  const parts = selectedDayDate.value.split('-')
+  const d = parts.length === 3
+    ? new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+    : new Date()
   d.setDate(d.getDate() + days)
-  selectedDayDate.value = d.toISOString().substring(0, 10)
+  selectedDayDate.value = formatLocalDate(d)
 }
 
 const setDayToday = () => {
-  selectedDayDate.value = new Date().toISOString().substring(0, 10)
+  selectedDayDate.value = formatLocalDate()
 }
 
 const getDayOfWeekStr = (dateStr: string) => {
@@ -1038,14 +1144,13 @@ const handleClickTimeSlot = (dateStr: string, hour: number, lane: any) => {
 // ============================================================================
 // 周看板逻辑 (Week Board: 7天视图)
 // ============================================================================
-const currentWeekMonday = ref('2026-09-07')
+const currentWeekMonday = ref(getInitialWeekMonday())
 
-const formatLocalDate = (d: Date): string => {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const date = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${date}`
-}
+watch(currentWeekMonday, () => {
+  if (viewMode.value === 'week') {
+    loadActiveViewAppointments()
+  }
+})
 
 const changeWeekOffset = (weeks: number) => {
   const parts = currentWeekMonday.value.split('-')
@@ -1098,6 +1203,12 @@ const handleClickWeekQuickAdd = (dateStr: string) => {
 // 月看板逻辑 (Month Board: 整月日历)
 // ============================================================================
 const currentMonthDate = ref(new Date())
+
+watch(currentMonthDate, () => {
+  if (viewMode.value === 'month') {
+    loadActiveViewAppointments()
+  }
+})
 
 const currentYearMonthStr = computed(() => {
   const y = currentMonthDate.value.getFullYear()
@@ -1181,24 +1292,44 @@ const monthCalendarCells = computed(() => {
   return cells
 })
 
-const selectedMonthDay = ref<any>(null)
+const selectedMonthDateStr = ref('')
+
+const selectedMonthDay = computed(() => {
+  if (!selectedMonthDateStr.value) return null
+  const matchedCell = monthCalendarCells.value.find(c => c.dateStr === selectedMonthDateStr.value)
+  const dateStr = selectedMonthDateStr.value
+  return {
+    ...(matchedCell || {
+      dayNumber: parseInt(dateStr.split('-')[2] || '1', 10),
+      dateStr,
+      isCurrentMonth: true,
+      isToday: dateStr === formatLocalDate(),
+      appointments: allAppointments.value.filter(a => a.date === dateStr)
+    }),
+    dayOfWeekName: getDayOfWeekStr(dateStr),
+    badge: matchedCell?.badge || getDateBadge(dateStr)
+  }
+})
 
 const handleSelectMonthDay = (day: any) => {
-  selectedMonthDay.value = {
-    ...day,
-    dayOfWeekName: getDayOfWeekStr(day.dateStr),
-    badge: day.badge || getDateBadge(day.dateStr)
+  selectedMonthDateStr.value = day.dateStr
+  if (day.dateStr) {
+    loadServerAppointments(day.dateStr)
   }
 }
 
+const currentYearMonthPrefix = computed(() => {
+  const y = currentMonthDate.value.getFullYear()
+  const m = String(currentMonthDate.value.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+})
+
 const monthCompletedCount = computed(() => {
-  const yMonth = currentMonthDate.value.toISOString().substring(0, 7)
-  return allAppointments.value.filter(a => a.date?.startsWith(yMonth) && a.status === 'COMPLETED').length
+  return allAppointments.value.filter(a => a.date?.startsWith(currentYearMonthPrefix.value) && a.status === 'COMPLETED').length
 })
 
 const monthPendingCount = computed(() => {
-  const yMonth = currentMonthDate.value.toISOString().substring(0, 7)
-  return allAppointments.value.filter(a => a.date?.startsWith(yMonth) && a.status === 'PENDING').length
+  return allAppointments.value.filter(a => a.date?.startsWith(currentYearMonthPrefix.value) && a.status === 'PENDING').length
 })
 
 // ============================================================================
@@ -1237,11 +1368,9 @@ const handleCheckIn = async (row: any) => {
         sp.status = 'OCCUPIED'
       }
     }
-    await loadServerAppointments()
+    await loadServerAppointments(row.date)
   } catch (err: any) {
-    row.status = 'SERVING'
-    ElMessage.success(`顾客【${row.customerName}】已顺利接待并安排在【${row.spaceName || '包厢'}】开始体验！`)
-    await loadServerAppointments()
+    console.error('handleCheckIn error:', err)
   }
 }
 
@@ -1250,10 +1379,12 @@ const handleComplete = async (row: any) => {
     if (row.id) {
       await updateAppointmentStatusApi(row.id, 'COMPLETED')
     }
-  } catch (_) {}
-  row.status = 'COMPLETED'
-  ElMessage.success(`预约工单【${row.aptNo}】服务完成，实收金额已计入当前门店账本！`)
-  await loadServerAppointments()
+    row.status = 'COMPLETED'
+    ElMessage.success(`预约工单【${row.aptNo}】服务完成！`)
+    await loadServerAppointments(row.date)
+  } catch (err: any) {
+    console.error('handleComplete error:', err)
+  }
 }
 
 const handleCancel = (row: any) => {
@@ -1266,11 +1397,17 @@ const handleCancel = (row: any) => {
       if (row.id) {
         await deleteAppointmentApi(row.id)
       }
-    } catch (_) {}
-    row.status = 'CANCELLED'
-    ElMessage.success('已取消预约')
-    await loadServerAppointments()
-  })
+      const target = serverAppointments.value.find((a: any) => a.id === row.id)
+      if (target) {
+        target.status = 'CANCELLED'
+      }
+      row.status = 'CANCELLED'
+      ElMessage.success('已取消预约，记录已归档至【已取消】列表')
+      await loadActiveViewAppointments()
+    } catch (err: any) {
+      console.error('handleCancel error:', err)
+    }
+  }).catch(() => {})
 }
 
 // ============================================================================
@@ -1380,12 +1517,16 @@ const handleSaveAppointment = async () => {
     ElMessage.warning('当前门店暂无可预约的服务项目，请先配置服务项目')
     return
   }
+  if (!addForm.value.aptDate || !addForm.value.aptTimeSlot) {
+    ElMessage.warning('请选择完整的预约日期与到店时段')
+    return
+  }
 
   // 校验是否为本店铺已有会员；若不是，则自动新增该信息到会员体系，默认是普通会员
-  const existingMember = (systemData.members || []).find((m: any) => m.phone === phone)
+  const existingMember = storeMembersOptions.value.find((m: any) => m.phone === phone)
   let isNewMemberCreated = false
   if (!existingMember) {
-    systemData.addMember({
+    systemData.registerMember({
       name: name,
       phone: phone,
       registeredStoreId: currentStoreId.value
@@ -1402,22 +1543,24 @@ const handleSaveAppointment = async () => {
     } catch (_) {}
   }
 
-  const aptHour = parseInt(addForm.value.aptTimeSlot.split(':')[0] || '14', 10)
+  const parsedStartHour = parseInt(addForm.value.aptTimeSlot.split(':')[0] || '14', 10)
+  const aptHour = Number.isNaN(parsedStartHour) ? 14 : parsedStartHour
   const endHour = (aptHour + 1) % 24
   const timeSlotStr = `${addForm.value.aptTimeSlot} - ${padZero(endHour)}:00`
 
   // 获取所选服务的真实价格
   const selectedSvc = availableServices.value.find((s: any) => s.name === addForm.value.serviceName)
-  const svcPrice = selectedSvc?.price || 0
+  const svcPrice = selectedSvc?.price ?? 0
 
   try {
+    const targetAptDate = addForm.value.aptDate
     await createAppointmentApi({
       storeId: currentStoreId.value,
       customerName: name,
       phone: phone,
       serviceName: addForm.value.serviceName,
       servicePrice: svcPrice,
-      aptDate: addForm.value.aptDate,
+      aptDate: targetAptDate,
       aptTime: timeSlotStr,
       spaceName: addForm.value.spaceName,
       staffName: addForm.value.technicianName,
@@ -1429,9 +1572,9 @@ const handleSaveAppointment = async () => {
       ElMessage.success(`会员【${name}】预约排班登记成功！`)
     }
     openAddDialog.value = false
-    await loadServerAppointments()
+    await loadServerAppointments(targetAptDate)
   } catch (err: any) {
-    ElMessage.error(err.message || '登记预约失败，请检查网络或后端服务')
+    console.error('handleSaveAppointment error:', err)
   }
 }
 </script>

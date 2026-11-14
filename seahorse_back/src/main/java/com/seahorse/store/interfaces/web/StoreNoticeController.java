@@ -75,10 +75,11 @@ public class StoreNoticeController {
     @Operation(summary = "发布或更新门店运营规范 / 日常公告 / 特急通知")
     @PostMapping("/save")
     public ApiResponse<StoreNotice> saveNotice(@RequestBody StoreNotice notice) {
-        String tenantId = notice.getTenantId();
-        if (tenantId == null || tenantId.trim().isEmpty()) {
-            tenantId = TenantContext.getTenantId();
+        if (notice.getId() != null) {
+            noticeRepository.findById(notice.getId())
+                    .ifPresent(existing -> TenantContext.assertTenantAccess(existing.getTenantId()));
         }
+        String tenantId = TenantContext.isPlatformAdmin() ? notice.getTenantId() : TenantContext.getTenantId();
         if (tenantId == null || tenantId.trim().isEmpty() || "PLATFORM".equalsIgnoreCase(tenantId)) {
             String resolved = resolveTenantId(notice.getStoreId());
             tenantId = (resolved != null && !resolved.isEmpty()) ? resolved : "T001";
@@ -114,6 +115,7 @@ public class StoreNoticeController {
         Optional<StoreNotice> opt = noticeRepository.findById(id);
         if (opt.isPresent()) {
             StoreNotice notice = opt.get();
+            TenantContext.assertTenantAccess(notice.getTenantId());
             notice.setStatus("REVOKED");
             noticeRepository.save(notice);
             log.info("已成功下架废止规范公告: id={}, title={}", id, notice.getTitle());

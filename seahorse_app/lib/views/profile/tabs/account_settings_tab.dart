@@ -224,7 +224,7 @@ class AccountSettingsTab extends StatelessWidget {
                     onPressed: () async {
                       final sw = Stopwatch()..start();
                       try {
-                        await ApiClient().dio.get('/public/platform-config');
+                        await ApiClient().dio.get('/ping');
                         sw.stop();
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -343,6 +343,7 @@ class AccountSettingsTab extends StatelessWidget {
   }
 
   void _showChangePasswordDialog(BuildContext context, String currentUsername) {
+    final oldPassCtrl = TextEditingController();
     final newPassCtrl = TextEditingController();
     final confirmPassCtrl = TextEditingController();
     showDialog(
@@ -361,6 +362,17 @@ class AccountSettingsTab extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('当前登录账号：$currentUsername', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: oldPassCtrl,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: '原登录密码',
+                hintText: '请输入当前使用的登录密码',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: newPassCtrl,
@@ -393,6 +405,7 @@ class AccountSettingsTab extends StatelessWidget {
               foregroundColor: Colors.white,
             ),
             onPressed: () async {
+              final oldPass = oldPassCtrl.text.trim();
               final p1 = newPassCtrl.text.trim();
               final p2 = confirmPassCtrl.text.trim();
               if (p1.length < 6) {
@@ -408,26 +421,45 @@ class AccountSettingsTab extends StatelessWidget {
                 return;
               }
               try {
-                await ApiClient().dio.post('/vendor/users/reset-password', data: {
-                  'username': currentUsername,
+                final res = await ApiClient().dio.put('/auth/profile/change-password', data: {
+                  if (oldPass.isNotEmpty) 'oldPassword': oldPass,
                   'newPassword': p1,
                 });
-              } catch (_) {}
-              if (ctx.mounted) {
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('✅ 密码修改成功！下次登录请使用新密码'),
-                    backgroundColor: AppColors.success,
-                  ),
-                );
+                final raw = res.data;
+                if (raw is Map && raw['code'] != null && raw['code'] != 200) {
+                  throw Exception(raw['message']?.toString() ?? '密码修改失败');
+                }
+                if (ctx.mounted) {
+                  Navigator.pop(ctx);
+                }
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ 密码修改成功！下次登录请使用新密码'),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('密码修改失败：${e.toString().replaceAll('Exception: ', '')}'),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                }
               }
             },
             child: const Text('确认修改'),
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      oldPassCtrl.dispose();
+      newPassCtrl.dispose();
+      confirmPassCtrl.dispose();
+    });
   }
 
   void _showVoiceSettingsGuide(BuildContext context) {

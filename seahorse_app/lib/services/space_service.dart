@@ -192,7 +192,7 @@ class SpaceService {
     return true;
   }
 
-  /// 为包厢/工位追加消费项目
+  /// 为包厢/工位追加消费项目（支持单品或批量一次性提交）
   Future<bool> appendItem({
     required String storeId,
     required int spaceId,
@@ -200,13 +200,33 @@ class SpaceService {
     int quantity = 1,
     String? modifiers,
     String? technicianName,
+  }) {
+    return appendItemsBatch(
+      storeId: storeId,
+      spaceId: spaceId,
+      items: [MapEntry(product, quantity)],
+      modifiers: modifiers,
+      technicianName: technicianName,
+    );
+  }
+
+  /// 批量追加多个项目（仅发起一次 /session/append 请求，彻底消除 3N 串行请求风暴）
+  Future<bool> appendItemsBatch({
+    required String storeId,
+    required int spaceId,
+    required List<MapEntry<ProductModel, int>> items,
+    String? modifiers,
+    String? technicianName,
   }) async {
+    if (items.isEmpty) return false;
     final list = _cachedSpaces[storeId] ?? [];
     final index = list.indexWhere((s) => s.id == spaceId);
     if (index != -1) {
       final space = list[index];
-      space.currentBillAmount += (product.price * quantity);
-      space.currentItemCount += quantity;
+      for (final entry in items) {
+        space.currentBillAmount += (entry.key.price * entry.value);
+        space.currentItemCount += entry.value;
+      }
       _cachedSpaces[storeId] = list;
     }
 
@@ -214,21 +234,31 @@ class SpaceService {
       final space = (index != -1) ? list[index] : null;
       final sessionId = space?.currentSessionId;
       if (sessionId != null) {
-        await _client.dio.post('/session/append', data: {
+        final payloadItems = items.map((entry) {
+          final product = entry.key;
+          final qty = entry.value;
+          return {
+            'productId': product.id > 0 ? product.id : 1,
+            'quantity': qty,
+            'modifiers': (modifiers != null && modifiers.isNotEmpty)
+                ? '${product.title} ($modifiers)'
+                : product.title,
+          };
+        }).toList();
+
+        final res = await _client.dio.post('/session/append', data: {
           'sessionId': sessionId,
-          'items': [
-            {
-              'productId': product.id > 0 ? product.id : 1,
-              'quantity': quantity,
-              'modifiers': modifiers?.isNotEmpty == true ? modifiers : product.title,
-            }
-          ],
+          'items': payloadItems,
           'operatorType': 'WAITER',
           'operatorName': technicianName ?? space?.currentTechnicianName ?? '服务人员',
         });
+        if (res.statusCode == 200 && res.data is Map && res.data['code'] != null && res.data['code'] != 200) {
+          return false;
+        }
       }
     } catch (e) {
-      print('SpaceService appendItem error: $e');
+      print('SpaceService appendItemsBatch error: $e');
+      return false;
     }
 
     return true;

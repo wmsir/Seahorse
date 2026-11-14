@@ -73,30 +73,17 @@ public class MemberAssetAppService {
         }
 
         int trialDays = platformConfigAppService != null ? platformConfigAppService.getCustomerTrialDays() : 3;
-        // 使用分布式高并发全局唯一会员号发号器
-        String memberNo = distributedMemberNoGenerator.nextMemberNo();
+        // 使用分布式高并发租户内唯一会员号发号器
+        String memberNo = distributedMemberNoGenerator.nextMemberNo(tenantId);
         LocalDate trialExpire = LocalDate.now().plusDays(trialDays);
 
         // 计算初始会员等级：依据首充本金门槛自动定级
         BigDecimal initP = cmd.getInitialPrincipal() != null ? cmd.getInitialPrincipal() : BigDecimal.ZERO;
         BigDecimal initG = cmd.getInitialGift() != null ? cmd.getInitialGift() : BigDecimal.ZERO;
 
-        MemberLevel initialLevel = MemberLevel.REGULAR;
-        if (cmd.getLevel() != null && !cmd.getLevel().trim().isEmpty()) {
-            initialLevel = MemberLevel.fromString(cmd.getLevel().trim());
-        } else {
-            if (initP.compareTo(new BigDecimal("3500")) >= 0) {
-                initialLevel = MemberLevel.DIAMOND;
-            } else if (initP.compareTo(new BigDecimal("2000")) >= 0) {
-                initialLevel = MemberLevel.PLATINUM;
-            } else if (initP.compareTo(new BigDecimal("1200")) >= 0) {
-                initialLevel = MemberLevel.VIP;
-            } else if (initP.compareTo(new BigDecimal("800")) >= 0) {
-                initialLevel = MemberLevel.GOLD;
-            } else if (initP.compareTo(new BigDecimal("300")) >= 0) {
-                initialLevel = MemberLevel.SILVER;
-            }
-        }
+        MemberLevel initialLevel = (cmd.getLevel() != null && !cmd.getLevel().trim().isEmpty())
+                ? MemberLevel.fromString(cmd.getLevel().trim())
+                : MemberLevel.calculateLevelByRecharge(initP);
 
         Member member = Member.builder()
                 .tenantId(tenantId)
@@ -163,6 +150,7 @@ public class MemberAssetAppService {
     public DualBalanceAccount rechargeDualBalance(RechargeCommand cmd) {
         Member member = memberRepository.findById(cmd.getMemberId())
                 .orElseThrow(() -> new ServiceException("会员不存在"));
+        TenantContext.assertTenantAccess(member.getTenantId());
 
         DualBalanceAccount account = dualBalanceAccountRepository.findByMemberId(member.getId())
                 .orElseGet(() -> DualBalanceAccount.builder()
@@ -179,6 +167,16 @@ public class MemberAssetAppService {
 
         account.recharge(p, g);
         account = dualBalanceAccountRepository.save(account);
+
+        // 依据累计充值本金自动晋升会员等级（单向升级不降级）
+        MemberLevel rechargeTier = MemberLevel.calculateLevelByRecharge(account.getTotalRecharged());
+        MemberLevel currentLevel = member.getLevel() != null ? member.getLevel() : MemberLevel.REGULAR;
+        if (rechargeTier.ordinal() > currentLevel.ordinal()) {
+            member.setLevel(rechargeTier);
+            memberRepository.save(member);
+            log.info("【储值自动晋级成功】会员ID={}, 姓名={}, 原等级={}, 新等级={}, 累计充值={}",
+                    member.getId(), member.getName(), currentLevel.getDescription(), rechargeTier.getDescription(), account.getTotalRecharged());
+        }
 
         String sellerName = null;
         // 如果指定售卡人，核算售卡充值提成（按本金 5% 或员工默认提成比例）
@@ -246,6 +244,7 @@ public class MemberAssetAppService {
     public TimeCardBucket issueTimeCard(IssueTimeCardCommand cmd) {
         Member member = memberRepository.findById(cmd.getMemberId())
                 .orElseThrow(() -> new ServiceException("会员不存在"));
+        TenantContext.assertTenantAccess(member.getTenantId());
 
         TimeCardBucket bucket = TimeCardBucket.builder()
                 .memberId(member.getId())
@@ -269,6 +268,9 @@ public class MemberAssetAppService {
         }
         Member member = memberRepository.findById(cmd.getMemberId())
                 .orElseThrow(() -> new ServiceException("会员不存在"));
+        if (TenantContext.isAuthenticated()) {
+            TenantContext.assertTenantAccess(member.getTenantId());
+        }
 
         MemberPreference pref = MemberPreference.builder()
                 .memberId(member.getId())
@@ -305,6 +307,7 @@ public class MemberAssetAppService {
     public MemberProfileVO getMemberProfile(Long memberId) {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ServiceException("未找到该会员档案"));
+        TenantContext.assertTenantAccess(member.getTenantId());
 
         DualBalanceAccount account = dualBalanceAccountRepository.findByMemberId(memberId)
                 .orElse(null);
@@ -372,24 +375,22 @@ public class MemberAssetAppService {
             tenantId = "T001";
         }
 
+        boolean canQueryGlobal = "PLATFORM".equalsIgnoreCase(TenantContext.getTenantId())
+                || "PLATFORM_DEVELOPER".equalsIgnoreCase(TenantContext.getRole());
         List<Member> list;
-        if ("PLATFORM".equalsIgnoreCase(tenantId) || "ALL".equalsIgnoreCase(tenantId)) {
+        if (canQueryGlobal && ("PLATFORM".equalsIgnoreCase(tenantId) || "ALL".equalsIgnoreCase(tenantId))) {
             if (query == null || query.trim().isEmpty()) {
                 list = new java.util.ArrayList<>(memberRepository.findAll());
             } else {
                 list = new java.util.ArrayList<>(memberRepository.findByNameContainingOrPhoneContaining(query.trim(), query.trim()));
             }
         } else {
+            String scopedTenantId = ("PLATFORM".equalsIgnoreCase(tenantId) || "ALL".equalsIgnoreCase(tenantId)) ? "T001" : tenantId;
             if (query == null || query.trim().isEmpty()) {
-                list = new java.util.ArrayList<>(memberRepository.findByTenantId(tenantId));
+                list = new java.util.ArrayList<>(memberRepository.findByTenantId(scopedTenantId));
             } else {
-                list = new java.util.ArrayList<>(memberRepository.findByTenantIdAndNameContainingOrTenantIdAndPhoneContaining(tenantId, query.trim(), tenantId, query.trim()));
-                if (list.isEmpty()) {
-                    List<Member> globalMatches = memberRepository.findByNameContainingOrPhoneContaining(query.trim(), query.trim());
-                    if (!globalMatches.isEmpty()) {
-                        list.addAll(globalMatches);
-                    }
-                }
+                list = new java.util.ArrayList<>(memberRepository.findByTenantIdAndNameContainingOrTenantIdAndPhoneContaining(
+                        scopedTenantId, query.trim(), scopedTenantId, query.trim()));
             }
         }
 
@@ -457,6 +458,7 @@ public class MemberAssetAppService {
     public Member updateMemberDetail(Long memberId, com.seahorse.store.application.dto.member.MemberCommands.UpdateMemberDetailCommand cmd) {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ServiceException("未找到该会员档案"));
+        TenantContext.assertTenantAccess(member.getTenantId());
 
         if (cmd.getName() != null) member.setName(cmd.getName());
         if (cmd.getPhone() != null) member.setPhone(cmd.getPhone());
@@ -478,6 +480,12 @@ public class MemberAssetAppService {
         if (cmd.getNotes() != null) member.setNotes(cmd.getNotes());
         if (cmd.getLevel() != null && !cmd.getLevel().trim().isEmpty()) {
             member.setLevel(MemberLevel.fromString(cmd.getLevel()));
+        } else if (cmd.getDiscountName() != null && !cmd.getDiscountName().trim().isEmpty()) {
+            String dn = cmd.getDiscountName().trim();
+            MemberLevel inferred = MemberLevel.fromString(dn);
+            if (inferred != MemberLevel.REGULAR || dn.contains("普") || dn.contains("无") || dn.equalsIgnoreCase("REGULAR")) {
+                member.setLevel(inferred);
+            }
         }
 
         return memberRepository.save(member);
@@ -485,6 +493,7 @@ public class MemberAssetAppService {
 
     @Transactional(readOnly = true)
     public List<BillingOrder> getMemberOrders(Long memberId) {
+        memberRepository.findById(memberId).ifPresent(m -> TenantContext.assertTenantAccess(m.getTenantId()));
         return billingOrderRepository.findByMemberIdOrderByCreatedAtDesc(memberId);
     }
 
@@ -492,6 +501,7 @@ public class MemberAssetAppService {
     public Member adjustPoints(Long memberId, com.seahorse.store.application.dto.member.MemberCommands.AdjustPointsCommand cmd) {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ServiceException("未找到该会员档案"));
+        TenantContext.assertTenantAccess(member.getTenantId());
         int current = member.getPoints() != null ? member.getPoints() : 0;
         int delta = cmd.getPointsDelta() != null ? cmd.getPointsDelta() : 0;
         member.setPoints(Math.max(0, current + delta));
@@ -502,6 +512,7 @@ public class MemberAssetAppService {
     public Member adjustRewards(Long memberId, com.seahorse.store.application.dto.member.MemberCommands.AdjustRewardsCommand cmd) {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ServiceException("未找到该会员档案"));
+        TenantContext.assertTenantAccess(member.getTenantId());
         BigDecimal current = member.getRewardAmount() != null ? member.getRewardAmount() : BigDecimal.ZERO;
         BigDecimal delta = cmd.getRewardDelta() != null ? cmd.getRewardDelta() : BigDecimal.ZERO;
         BigDecimal updated = current.add(delta);
@@ -516,6 +527,7 @@ public class MemberAssetAppService {
     public Member setCardPassword(Long memberId, com.seahorse.store.application.dto.member.MemberCommands.SetCardPasswordCommand cmd) {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ServiceException("未找到该会员档案"));
+        TenantContext.assertTenantAccess(member.getTenantId());
         if (cmd.getPassword() != null) {
             member.setCardPassword(cmd.getPassword());
         }
@@ -527,6 +539,7 @@ public class MemberAssetAppService {
 
     @Transactional(readOnly = true)
     public List<com.seahorse.store.domain.member.model.MemberRechargeRecord> getMemberRecharges(Long memberId) {
+        memberRepository.findById(memberId).ifPresent(m -> TenantContext.assertTenantAccess(m.getTenantId()));
         return memberRechargeRecordRepository.findByMemberIdOrderByCreatedAtDesc(memberId);
     }
 }

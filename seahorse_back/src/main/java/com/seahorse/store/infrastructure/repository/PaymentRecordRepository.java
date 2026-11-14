@@ -6,11 +6,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 @Repository
 public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, Long> {
     List<PaymentRecord> findByBillingOrderId(Long billingOrderId);
-    List<PaymentRecord> findByPayTimeBetween(LocalDateTime start, LocalDateTime end);
+    List<PaymentRecord> findByBillingOrderIdIn(Collection<Long> billingOrderIds);
     List<PaymentRecord> findByChannelAndPayTimeBetween(PaymentChannel channel, LocalDateTime start, LocalDateTime end);
 }

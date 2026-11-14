@@ -79,6 +79,10 @@ class OrderModel {
     var itemsJson = json['items'] as List? ?? [];
     List<OrderLineItem> parsedItems = itemsJson.map((e) => OrderLineItem.fromJson(e)).toList();
 
+    final rawCreateTime = (json['createTime'] ?? json['createdAt'] ?? '').toString();
+    final rawPayTime = json['payTime'] ?? json['settledAt'];
+    final rawPayable = json['payableAmount'] ?? json['actualAmount'] ?? json['paidAmount'] ?? json['totalAmount'] ?? 0;
+
     return OrderModel(
       orderNo: json['orderNo'] ?? '',
       storeId: json['storeId'] ?? '',
@@ -89,10 +93,13 @@ class OrderModel {
       items: parsedItems,
       totalAmount: (json['totalAmount'] ?? 0).toDouble(),
       discountAmount: (json['discountAmount'] ?? 0).toDouble(),
-      payableAmount: (json['payableAmount'] ?? 0).toDouble(),
-      status: json['status'] ?? 'PAID',
-      createTime: DateTime.tryParse(json['createTime'] ?? '') ?? DateTime.now(),
-      payTime: json['payTime'] != null ? DateTime.tryParse(json['payTime']) : null,
+      payableAmount: (rawPayable is num) ? rawPayable.toDouble() : (double.tryParse(rawPayable.toString()) ?? 0.0),
+      paymentMethod: PaymentMethod.fromCode(
+        (json['paymentMethod'] ?? json['payChannel'] ?? json['channel'])?.toString(),
+      ),
+      status: json['status']?.toString() ?? 'PAID',
+      createTime: DateTime.tryParse(rawCreateTime) ?? DateTime.now(),
+      payTime: rawPayTime != null ? DateTime.tryParse(rawPayTime.toString()) : null,
     );
   }
 

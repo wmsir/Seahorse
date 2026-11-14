@@ -1,13 +1,36 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:seahorse_app/core/network/api_client.dart';
 import 'package:seahorse_app/models/product_model.dart';
 import 'package:seahorse_app/providers/cashier_provider.dart';
 
 void main() {
   group('CashierProvider Automated Feature Tests', () {
     late CashierProvider provider;
+    late InterceptorsWrapper mockInterceptor;
 
     setUp(() {
+      mockInterceptor = InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (options.path.startsWith('/product/')) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {'code': 200, 'data': []},
+              ),
+            );
+            return;
+          }
+          handler.next(options);
+        },
+      );
+      ApiClient().dio.interceptors.insert(0, mockInterceptor);
       provider = CashierProvider();
+    });
+
+    tearDown(() {
+      ApiClient().dio.interceptors.remove(mockInterceptor);
     });
 
     test('1. Adding newly entered product updates product list immediately', () {

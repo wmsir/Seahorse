@@ -24,7 +24,7 @@ flowchart TD
     subgraph Transport["🚀 加密传输隧道 (SSH / SFTP: 22)"]
         PackFront["web_dist.tar.gz (~1MB)"]
         PackBack["backend_src.tar.gz (~300KB)"]
-        PackApp["seahorse_app_v1.0_release.apk (~36MB)"]
+        PackApp["seahorse_app_latest.apk (可选上传)"]
     end
 
     subgraph Remote["☁️ 远程云服务器 (39.97.158.22)"]
@@ -69,18 +69,17 @@ flowchart TD
   ```
   这一步直接绕过了繁重的重新构建整套 Dockerfile 镜像图层的限制，在 8~10 秒内即可完成后端容器的无损热重启，且完全保留数据库连接池配置与生产环境 Profile (`prod`)。
 
-### 3. 移动端 Flutter Release APK 自动化分发原理
-* 本地编译出的 `seahorse_app_v1.0_release.apk`（约 36MB）同步上传至 Nginx 的静态资源根目录下。
-* 对外直接形成固定的公网下载直链：
-  `http://39.97.158.22/seahorse_app_v1.0_release.apk`
-* 任何移动设备、微信扫码或手机浏览器点击即可免应用商店直接下载安装使用。
+### 3. 移动端 Flutter Release APK 本地构建与容器化分发原理
+* 默认流水线（`--all` / `--build-apk`）委托 `seahorse_app/build_android.ps1` 在本地编译生成 `seahorse_app-v1.0.0.apk` 与 `seahorse_app_latest.apk`（通过 `SEAHORSE_SKIP_DIST_APPS=1` 保护父仓冻结归档不被意外改写），保留在本地供直接测试安装。
+* 如需通过 `deploy_engine.py --upload-apk` 发布至云端下载通道，引擎会将 APK 上传并通过 `docker cp` 同步注入 `seahorse-web-front:/usr/share/nginx/html/index/seahorse_app-v1.0.0.apk`（及兼容副本 `seahorse_app_latest.apk`），对外直链立即可达：
+  `http://39.97.158.22/seahorse_app-v1.0.0.apk`（门户统一 HTTPS 直链：`https://fwpt.cn/seahorse_app-v1.0.0.apk`）。
 
 ### 4. 自动化全链路健康巡检机制
 发布完成后，部署引擎会自动发起 4 路连续 HTTP 探针校验：
-1. **Web 前端页面探针**：`http://39.97.158.22/` -> 确认返回 HTTP 200。
-2. **后端核心服务探针**：`http://39.97.158.22:8082/api/dashboard/stats` -> 确认 Spring Boot 微服务正常响应大盘数据。
-3. **空间展位探针**：`http://39.97.158.22:8082/api/space/list?storeId=S001` -> 确认包厢/工位数据完整。
-4. **数据纯净度探针**：`http://39.97.158.22:8082/api/appointment/list?storeId=S001` -> 确认预约数据处于真实无垃圾数据的纯净状态。
+1. **Web 前端页面探针**：`http://39.97.158.22/seahorse/` -> 确认返回 HTTP 200。
+2. **后端健康心跳探针**：`http://39.97.158.22:8080/api/health` -> 确认 Spring Boot 微服务在线响应（注：单机 `docker-compose.yml` 默认映射 `8082`，云端计算节点映射 `8080`）。
+3. **数据纯净度探针**：`http://39.97.158.22:8080/api/appointment/list?storeId=S001` -> 确认预约数据处于真实无垃圾数据的纯净状态。
+4. **空间展位探针**：`http://39.97.158.22:8080/api/space/list?storeId=S001` -> 确认包厢/工位数据完整。
 
 ---
 
@@ -110,10 +109,10 @@ C:\project\fwpt\seahorse\
 │   │
 │   └── 02_远程Docker部署/
 │       ├── deploy_engine.py   # 核心自动化发布引擎 (支持全量/模块化部署)
-│       ├── deploy_all.bat     # 一键全量发布 (前端 + 后端 + APK + 巡检)
+│       ├── deploy_all.bat     # 一键全量发布 (前后端发布云端 + 本地打APK + 巡检)
 │       ├── deploy_frontend_only.bat # 仅发布前端工程至云端 Nginx
 │       ├── deploy_backend_only.bat  # 仅发布后端微服务至云端 Docker
-│       ├── deploy_app_apk.bat       # 仅发布移动端 APK 安装包
+│       ├── deploy_app_apk.bat       # 本地编译最新移动端 Release APK (委托 build_android.ps1)
 │       └── health_check.bat         # 云端全链路健康巡检工具
 │
 ├── docs/                      # 📚 核心设计与使用规范文档
@@ -122,9 +121,11 @@ C:\project\fwpt\seahorse\
 │   └── 智慧会员与全场景门店履约系统领域驱动设计(DDD)详尽规格说明书.md
 │
 ├── seahorse_web_front/        # Web 前端 Vue 3 工程源码
+├── seahorse_desktop/          # Windows & macOS 原生桌面客户端 (Rust + Tauri v2)
 ├── seahorse_back/             # 后端微服务 Spring Boot 工程源码
-├── seahorse_app/              # 移动端 Flutter APP 工程源码
-└── seahorse_app_v1.0_release.apk # 编译就绪的 Release 安装包
+├── seahorse_app/              # 移动端 Flutter APP 工程源码 (Android / iOS / HarmonyOS NEXT)
+├── seahorse_mini_program/     # 顾客端微信小程序工程源码
+└── seahorse_app_latest.apk    # 本地编译生成的最新 Release 安装包 (构建后产出)
 ```
 
 ---
@@ -134,7 +135,7 @@ C:\project\fwpt\seahorse\
 ### 场景 1：日常本地开发与联调
 * **启动全部服务**：
   * 直接双击根目录下的 `start.bat`（或运行 `一键运维总控面板.bat` 输入 `1`）。
-  * 脚本将自动启动后端（8082 端口）、等待其就绪后拉起前端（3000 端口），并在默认浏览器中打开 `http://localhost:3000`。
+  * 脚本将自动启动后端（8082 端口）、等待其就绪后拉起前端（3000 端口），并在默认浏览器中打开 `http://localhost:3000/seahorse/`。
 * **重启本地服务**：
   * 双击根目录下的 `restart.bat`。
 * **停止本地服务**：
@@ -142,20 +143,20 @@ C:\project\fwpt\seahorse\
 
 ### 场景 2：一键全量打包发布到云端服务器 (最常用)
 当您在本地完成了前端界面的优化、后端的逻辑调整，需要将系统整体更新到生产服务器时：
-1. **直接双击根目录下的 `deploy_to_remote.bat`**；
+1. **配置环境变量 `FWPT_SSH_PASSWORD` / `FWPT_SSH_KEY`（或在仓库根目录 `.secrets/fwpt_credentials.json` 配置凭据）后双击根目录下的 `deploy_to_remote.bat`**（或使用仓库根级统一脚本 `c:\project\fwpt\scripts\production\deploy_seahorse_only.py`）；
 2. 自动化引擎将自动完成：
-   * 本地 Vite 前端构建 -> 打包 -> 上传 -> Nginx 部署；
+   * 本地 Vite 前端构建 -> 打包 -> 上传 -> Nginx `/seahorse/` 目录热更新；
    * 后端源码打包 -> 上传 -> 云端原生 Maven 编译 -> 注入 Docker 容器热重启；
-   * 同步最新 Flutter Release APK 到下载目录；
+   * 在本地编译生成最新 `seahorse_app_latest.apk`（不默认上传服务器）；
    * 运行自动化健康巡检并输出各接口状态。
-3. 过程耗时约 40 秒，看到控制台出现 `🎉 恭喜！所有选定服务已成功一键打包发布至远程 Docker 服务端！` 即代表发布成功。
+3. 看到控制台出现 `🎉 所选发布任务全部执行完毕！服务已在云端正常上线运行。` 即代表发布成功。
 
 ### 场景 3：模块化增量发布 (极速提效)
 进入 `ops\02_远程Docker部署\` 目录，按需选择：
 * **只修改了前端页面/CSS 样式**：双击 `deploy_frontend_only.bat`，**仅耗时约 5 秒**即可在远程 Nginx 看到最新页面生效！
 * **只修改了 Java 接口或业务逻辑**：双击 `deploy_backend_only.bat`，**仅耗时约 15 秒**即可完成云端容器热更新！
-* **更新了 Flutter APP 界面并打包了新 APK**：双击 `deploy_app_apk.bat`，瞬间同步最新安装包供扫码下载！
-* **临时检查线上服务器运行状态**：双击 `health_check.bat`，即时获得大盘接口与数据库纯净状态反馈。
+* **仅在本地打包最新 Flutter APK**：双击 `deploy_app_apk.bat`（或直接运行 `seahorse_app/build_android.ps1`），在根目录生成 `seahorse_app-v1.0.0.apk` 与 `seahorse_app_latest.apk`（如需上传云端可执行 `python deploy_engine.py --upload-apk`）！
+* **临时检查线上服务器运行状态**：双击 `health_check.bat`，即时获得健康心跳与数据库纯净状态反馈。
 
 ---
 
@@ -171,6 +172,6 @@ C:\project\fwpt\seahorse\
 | **重启后端微服务容器** | `docker restart seahorse-back` |
 | **重启前端 Web 容器** | `docker restart seahorse-web-front` |
 | **查看云端 Maven 编译产物** | `ls -lh /opt/seahorse/seahorse_back/target/` |
-| **查看 Nginx 托管的静态资源文件** | `ls -lh /usr/share/nginx/html/` |
-| **测试云端本机访问微服务** | `curl http://127.0.0.1:8082/api/dashboard/stats` |
+| **查看 Nginx 托管的静态资源文件** | `docker exec seahorse-web-front ls -lh /usr/share/nginx/html/seahorse/` |
+| **测试云端本机访问微服务健康探针** | `curl http://127.0.0.1:8080/api/health` |
 | **查看服务器系统资源占用** | `top` 或 `free -h` |

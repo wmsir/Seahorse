@@ -65,7 +65,10 @@ public class BillingCheckoutController {
     @GetMapping("/{orderId}")
     public ApiResponse<BillingOrder> getBillingOrder(@PathVariable("orderId") Long orderId) {
         return billingOrderRepository.findById(orderId)
-                .map(ApiResponse::success)
+                .map(order -> {
+                    com.seahorse.store.context.TenantContext.assertTenantAccess(order.getTenantId());
+                    return ApiResponse.success(order);
+                })
                 .orElse(ApiResponse.error(404, "订单不存在"));
     }
 }

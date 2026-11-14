@@ -51,6 +51,7 @@
                 placeholder="搜索物料名称/编号/规格"
                 style="width: 220px;"
                 clearable
+                @input="currentPage = 1"
                 @clear="currentPage = 1"
               />
             </div>
@@ -306,8 +307,8 @@ const stockItems = computed(() => {
       type: m.category,
       quantity: m.currentStock,
       unit: m.unit || '件',
-      warningThreshold: m.safeStock || 10,
-      unitCost: m.costPrice || 25,
+      warningThreshold: m.safeStock ?? 10,
+      unitCost: m.costPrice ?? 25,
       lastStockInTime: '2026-09-05 14:20',
       status: 'ACTIVE',
       isProduct: false
@@ -324,12 +325,12 @@ const stockItems = computed(() => {
           productId: p.id,
           code: p.code,
           name: p.name,
-          category: p.categoryName || (p.type === 'RAW' ? '专业院装耗材' : '零售客装商品'),
-          type: p.type === 'RAW' ? 'RAW' : 'RETAIL',
+          category: p.categoryName || ((p.type as string) === 'RAW' ? '专业院装耗材' : '零售客装商品'),
+          type: (p.type as string) === 'RAW' ? 'RAW' : 'RETAIL',
           quantity: p.stock !== undefined ? p.stock : 50,
           unit: p.unit || '件',
           warningThreshold: 10,
-          unitCost: Number(p.cost || Math.round((p.price || 0) * 0.4)),
+          unitCost: Number(p.cost ?? Math.round((p.price || 0) * 0.4)),
           lastStockInTime: '刚刚同步',
           status: p.status || 'ACTIVE',
           isProduct: true
@@ -353,7 +354,7 @@ const filteredStock = computed(() => {
     if (warningFilter.value === 'NORMAL' && item.quantity <= item.warningThreshold) return false
     if (searchKeyword.value) {
       const q = searchKeyword.value.toLowerCase().trim()
-      return item.name.toLowerCase().includes(q) || item.code.toLowerCase().includes(q)
+      return (item.name || '').toLowerCase().includes(q) || (item.code || '').toLowerCase().includes(q)
     }
     return true
   })
@@ -447,34 +448,52 @@ const handleStockInRow = (row: any) => {
 }
 
 const handleConfirmStockIn = () => {
-  if (!stockInForm.value.name) {
+  const trimmedName = stockInForm.value.name?.trim()
+  if (!trimmedName) {
     ElMessage.warning('请填写物料或商品名称')
     return
   }
-  const qty = Number(stockInForm.value.quantity) || 1
-  const cost = Number(stockInForm.value.unitCost) || 0
+  const qty = Math.max(1, Number(stockInForm.value.quantity) || 1)
+  const cost = Math.max(0, Number(stockInForm.value.unitCost) || 0)
 
-  // 1. 同步增加在库数量
-  const mat = systemData.materials.find(m => m.name === stockInForm.value.name)
+  // 1. 同步增加在库数量（若为新建品名则自动补入物料台账）
+  const mat = systemData.materials.find(m => m.name === trimmedName)
+  const prod = systemData.products.find(p => p.name === trimmedName)
   if (mat) {
     mat.initialStock = (mat.initialStock || 0) + qty
+    if (cost > 0) mat.costPrice = cost
   }
-  const prod = systemData.products.find(p => p.name === stockInForm.value.name)
   if (prod && prod.type !== 'SERVICE') {
-    prod.stock = (prod.stock || 0) + qty
-    systemData.persistProducts()
+    systemData.updateProduct(prod.id, {
+      stock: (prod.stock || 0) + qty,
+      ...(cost > 0 ? { cost } : {})
+    })
+  }
+  if (!mat && (!prod || prod.type === 'SERVICE')) {
+    const codeSuffix = Date.now().toString().slice(-4)
+    systemData.materials.unshift({
+      id: `MAT-${codeSuffix}`,
+      code: `MAT-${codeSuffix}`,
+      name: trimmedName,
+      category: (['RAW', 'RETAIL', 'TOOL'].includes(stockInForm.value.category) ? stockInForm.value.category : 'RAW') as 'RAW' | 'RETAIL' | 'TOOL',
+      unit: '件',
+      costPrice: cost || 25,
+      initialStock: qty,
+      safeStock: 10,
+      supplier: stockInForm.value.supplier || '厂家直接发货'
+    })
   }
 
   // 2. 写入全局真实出入库流水
   systemData.recordStockLedger(
     'STOCK_IN',
-    stockInForm.value.name,
+    trimmedName,
     qty,
     undefined,
     `采购入库 · 进价单价 ￥${cost.toFixed(2)} · 供货商：${stockInForm.value.supplier || '厂家直接发货'}`
   )
 
-  ElMessage.success(`【${stockInForm.value.name}】采购入库 +${qty} 成功！实时台账估值已自动重算！`)
+  ElMessage.success(`【${trimmedName}】采购入库 +${qty} 成功！实时台账估值已自动重算！`)
   openStockInDialog.value = false
 }
 
@@ -484,7 +503,7 @@ const handleQuickStockAdjust = (row: any) => {
     inputPattern: /^\d+$/,
     inputErrorMessage: '请输入整数数量'
   }).then(({ value }) => {
-    const newQty = parseInt(value)
+    const newQty = parseInt(value, 10)
     const diff = newQty - row.quantity
     const oldQty = row.quantity
 
@@ -493,13 +512,14 @@ const handleQuickStockAdjust = (row: any) => {
     if (row.isProduct && row.productId) {
       const p = systemData.products.find(prod => prod.id === row.productId)
       if (p) {
-        p.stock = newQty
-        systemData.persistProducts()
+        systemData.updateProduct(p.id, { stock: newQty })
       }
     } else {
-      const m = systemData.materials.find(mat => mat.name === row.name)
+      const m = systemData.materials.find(mat => mat.name === row.name || `MAT-${mat.id}` === row.id)
       if (m) {
-        m.initialStock = newQty
+        const statItem = systemData.inventoryWithStats.find(x => x.id === m.id)
+        const usedUnits = statItem?.usedUnits || 0
+        m.initialStock = Math.max(0, newQty + usedUnits)
       }
     }
 
@@ -513,7 +533,7 @@ const handleQuickStockAdjust = (row: any) => {
     )
 
     ElMessage.success(`【${row.name}】库存已成功校准为 ${newQty} ${row.unit}，盘点流水已入账！`)
-  })
+  }).catch(() => {})
 }
 
 const handleStockCheck = () => {

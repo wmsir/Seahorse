@@ -2,15 +2,10 @@ import 'package:dio/dio.dart';
 import '../storage/local_storage.dart';
 import 'api_client.dart';
 
-enum DataMode {
-  remote, // 真实云端服务器接口
-  mock,   // 本地离线模拟自洽数据
-}
-
 class ServerConfig {
   static const String defaultRemoteUrl = 'https://fwpt.cn/api';
   static const String fallbackRemoteUrl = 'http://39.97.158.22/api';
-  static const String storageKeyMode = 'seahorse_data_mode';
+  static const String localDebugUrl = 'http://127.0.0.1:8082/api';
   static const String storageKeyUrl = 'seahorse_server_url';
 
   static const List<Map<String, String>> serverPresets = [
@@ -25,24 +20,16 @@ class ServerConfig {
       'tag': '80端口·兼容旧设备',
     },
     {
-      'title': '云端直连服务通道',
-      'url': 'http://39.97.158.22:8080/api',
-      'tag': '8080备用端口',
-    },
-    {
-      'title': '本地安卓模拟器调试',
+      'title': '本地安卓模拟器调试 (8082)',
       'url': 'http://10.0.2.2:8082/api',
       'tag': '开发调试',
     },
     {
-      'title': '本机电脑直连调试',
+      'title': '本机电脑直连调试 (8082)',
       'url': 'http://127.0.0.1:8082/api',
       'tag': '开发调试',
     },
   ];
-
-  /// 当前数据模式：100% 严格使用 remote 真实云端服务器接口
-  static DataMode get currentMode => DataMode.remote;
 
   /// 获取当前配置的后端服务器 URL
   static String get currentUrl {
@@ -59,18 +46,10 @@ class ServerConfig {
     if (u.contains('fwpt.cn')) {
       return '官方云端安全网关 (fwpt.cn)';
     }
-    if (u.contains(':8080')) {
-      return '官方云端备用直连通道 (8080)';
-    }
     if (u.contains('39.97.158.22')) {
       return '官方云端标准通道 (主节点)';
     }
     return u.replaceAll('https://', '').replaceAll('http://', '');
-  }
-
-  /// 一键切换数据模式
-  static Future<void> switchMode(DataMode mode) async {
-    await LocalStorage.setString(storageKeyMode, mode == DataMode.mock ? 'mock' : 'remote');
   }
 
   /// 更新自定义服务器地址
@@ -79,8 +58,8 @@ class ServerConfig {
     ApiClient().updateBaseUrl(url.trim());
   }
 
-  /// 是否为真实远程接口模式
-  static bool get isRemoteMode => currentMode == DataMode.remote;
+  /// 始终使用真实远程/后端接口模式
+  static bool get isRemoteMode => true;
 
   /// 测试服务器连通性与网络延迟 (Ping)
   static Future<Map<String, dynamic>> testConnection([String? customUrl]) async {
@@ -99,17 +78,15 @@ class ServerConfig {
     ));
 
     final probeCandidates = <String>[];
-    if (baseUrl.endsWith('/dashboard/stats') ||
-        baseUrl.endsWith('/auth/plans') ||
+    if (baseUrl.endsWith('/ping') ||
         baseUrl.endsWith('/health') ||
-        baseUrl.endsWith('/ping')) {
+        baseUrl.endsWith('/auth/plans')) {
       probeCandidates.add(baseUrl);
     } else {
       probeCandidates.addAll([
-        '$baseUrl/dashboard/stats',
-        '$baseUrl/auth/plans',
-        '$baseUrl/health',
         '$baseUrl/ping',
+        '$baseUrl/health',
+        '$baseUrl/auth/plans',
         baseUrl,
       ]);
     }

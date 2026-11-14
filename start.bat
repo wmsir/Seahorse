@@ -1,2 +1,3 @@
 @echo off
-call "%~dp0ops\01_本地开发运行\start.bat"
+chcp 65001 >nul
+call "%~dp0ops\01_鏈湴寮�鍙戣繍琛孿start.bat"

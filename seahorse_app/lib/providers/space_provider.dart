@@ -117,11 +117,27 @@ class SpaceProvider extends ChangeNotifier {
     String? modifiers,
     String? technicianName,
   }) async {
-    final success = await _spaceService.appendItem(
+    return appendItemsBatch(
       storeId: storeId,
       spaceId: spaceId,
-      product: product,
-      quantity: quantity,
+      items: [MapEntry(product, quantity)],
+      modifiers: modifiers,
+      technicianName: technicianName,
+    );
+  }
+
+  /// 批量追加项目（单次网络请求 + 单次房态刷新）
+  Future<bool> appendItemsBatch({
+    required String storeId,
+    required int spaceId,
+    required List<MapEntry<ProductModel, int>> items,
+    String? modifiers,
+    String? technicianName,
+  }) async {
+    final success = await _spaceService.appendItemsBatch(
+      storeId: storeId,
+      spaceId: spaceId,
+      items: items,
       modifiers: modifiers,
       technicianName: technicianName,
     );

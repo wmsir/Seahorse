@@ -126,7 +126,7 @@
           <div v-if="item.devReply" class="dev-reply-box">
             <div class="dev-reply-header">
               <span style="font-weight: 700; color: #0369a1; display: flex; align-items: center; gap: 6px;">
-                <el-icon><ChatDotRound /></el-icon> 研发团队官方受理答复 ({{ item.replyAt || '已同步' }})：
+                <el-icon><ChatDotRound /></el-icon> 研发团队官方受理答复 ({{ item.replyTime || item.replyAt || '已同步' }})：
               </span>
               <el-tag size="small" type="success">已推送至该一线员工工作台</el-tag>
             </div>
@@ -256,10 +256,10 @@ const handleConfirmReply = async () => {
   }
   submittingReply.value = true
   try {
-    systemData.updatePlatformFeedbackStatus(
+    systemData.replyPlatformFeedback(
       activeFeedback.value.id,
-      replyForm.value.status,
-      replyForm.value.reply.trim()
+      replyForm.value.reply.trim(),
+      replyForm.value.status
     )
     ElMessage.success('🎉 官方答复已成功发送！一线提报员工将在工作台接收到更新提醒')
     replyModalVisible.value = false

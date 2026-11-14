@@ -1,0 +1,24 @@
+# ==============================================================================
+# 海马智慧门店 (Seahorse Smart Store) - 单元与集成测试专用配置 (H2 内存库 MySQL 兼容模式)
+# 避免测试执行依赖宿主机 3306 MySQL 实例或污染开发库数据
+# ==============================================================================
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:seahorse_test;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=VALUE,USER
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+logging:
+  level:
+    com.seahorse.store: INFO
+    org.springframework.web: WARN

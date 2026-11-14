@@ -34,16 +34,26 @@ public class AppointmentController {
     private final ServiceSpaceRepository spaceRepository;
     private final ServiceSessionRepository sessionRepository;
 
-    @Operation(summary = "查询预约排班列表")
+    @Operation(summary = "查询预约排班列表（支持单日 date 或区间 startDate~endDate）")
     @GetMapping("/list")
     public ApiResponse<List<Appointment>> getAppointments(
             @RequestParam(value = "storeId", required = false) String storeId,
-            @RequestParam(value = "date", required = false) String date) {
+            @RequestParam(value = "date", required = false) String date,
+            @RequestParam(value = "startDate", required = false) String startDate,
+            @RequestParam(value = "endDate", required = false) String endDate) {
 
-        String tenantId = TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001";
-        String currentStoreId = (storeId != null && !storeId.trim().isEmpty()) ? storeId : "S001";
-        String targetDate = (date != null && !date.trim().isEmpty()) ? date : LocalDate.now().toString();
+        String currentStoreId = (storeId != null && !storeId.trim().isEmpty())
+                ? storeId.trim()
+                : (TenantContext.getStoreId() != null && !TenantContext.getStoreId().trim().isEmpty() ? TenantContext.getStoreId() : "S001");
 
+        if (startDate != null && !startDate.trim().isEmpty()
+                && endDate != null && !endDate.trim().isEmpty()) {
+            List<Appointment> rangeList = appointmentRepository
+                    .findByStoreIdAndAptDateBetweenOrderByAptDateAscAptTimeAsc(currentStoreId, startDate.trim(), endDate.trim());
+            return ApiResponse.success(rangeList);
+        }
+
+        String targetDate = (date != null && !date.trim().isEmpty()) ? date.trim() : LocalDate.now().toString();
         List<Appointment> list = appointmentRepository.findByStoreIdAndAptDate(currentStoreId, targetDate);
         return ApiResponse.success(list);
     }
@@ -87,6 +97,7 @@ public class AppointmentController {
         if (apt == null) {
             return ApiResponse.error(404, "未找到该预约记录");
         }
+        TenantContext.assertTenantAccess(apt.getTenantId());
 
         String tenantId = apt.getTenantId() != null ? apt.getTenantId() : "T001";
         String storeId = apt.getStoreId() != null ? apt.getStoreId() : "S001";
@@ -193,6 +204,7 @@ public class AppointmentController {
         if (apt == null) {
             return ApiResponse.error(404, "未找到该预约记录");
         }
+        TenantContext.assertTenantAccess(apt.getTenantId());
 
         if (newStatus != null && !newStatus.trim().isEmpty()) {
             String upper = newStatus.toUpperCase();
@@ -212,16 +224,18 @@ public class AppointmentController {
         return ApiResponse.success("状态流转成功", apt);
     }
 
-    @Operation(summary = "取消/删除预约")
+    @Operation(summary = "取消预约（软取消保留历史状态与审计记录）")
     @DeleteMapping("/{id}")
-    public ApiResponse<String> deleteAppointment(@PathVariable("id") Long id) {
+    public ApiResponse<Appointment> deleteAppointment(@PathVariable("id") Long id) {
         Appointment apt = appointmentRepository.findById(id).orElse(null);
         if (apt == null) {
             apt = appointmentRepository.findByAptNo("APT" + id).orElse(null);
         }
         if (apt != null) {
-            appointmentRepository.delete(apt);
-            return ApiResponse.success("预约已取消", "OK");
+            TenantContext.assertTenantAccess(apt.getTenantId());
+            apt.setStatus("CANCELLED");
+            Appointment saved = appointmentRepository.save(apt);
+            return ApiResponse.success("预约已取消", saved);
         }
         return ApiResponse.error(404, "预约不存在");
     }

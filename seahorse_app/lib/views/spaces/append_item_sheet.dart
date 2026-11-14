@@ -60,7 +60,7 @@ class _AppendItemSheetState extends State<AppendItemSheet> {
     try {
       final storeProvider = Provider.of<StoreProvider>(context, listen: false);
       final targetStoreId = widget.space.storeId.isNotEmpty ? widget.space.storeId : storeProvider.currentStoreId;
-      final ind = storeProvider.currentStore?.industry.name;
+      final ind = storeProvider.currentStore?.industry.code;
 
       final productsFuture = _cashierService.getProducts(storeId: targetStoreId);
       final staffFuture = _staffService.getStaffList(storeId: targetStoreId);
@@ -173,28 +173,23 @@ class _AppendItemSheetState extends State<AppendItemSheet> {
       final notes = _notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null;
 
       final List<String> appendedSummaries = [];
-      bool allOk = true;
+      final List<MapEntry<ProductModel, int>> batchItems = [];
 
       for (var entry in _selectedQuantities.entries) {
         final prod = _selectedProducts[entry.key];
-        if (prod == null) continue;
-        final qty = entry.value;
-
-        final success = await spaceProv.appendItem(
-          storeId: storeId,
-          spaceId: widget.space.id,
-          product: prod,
-          quantity: qty,
-          modifiers: notes,
-          technicianName: tech,
-        );
-
-        if (success) {
-          appendedSummaries.add('${prod.title}×$qty');
-        } else {
-          allOk = false;
-        }
+        if (prod == null || entry.value <= 0) continue;
+        batchItems.add(MapEntry(prod, entry.value));
+        appendedSummaries.add('${prod.title}×${entry.value}');
       }
+
+      final bool allOk = batchItems.isNotEmpty &&
+          await spaceProv.appendItemsBatch(
+            storeId: storeId,
+            spaceId: widget.space.id,
+            items: batchItems,
+            modifiers: notes,
+            technicianName: tech,
+          );
 
       if (mounted) {
         setState(() => _isSubmitting = false);
@@ -356,7 +351,7 @@ class _AppendItemSheetState extends State<AppendItemSheet> {
               border: Border.all(color: AppColors.primary.withOpacity(0.3)),
             ),
             child: Text(
-              '技师: ',
+              '技师: ${_selectedStaffName ?? widget.space.currentTechnicianName ?? "未指定"}',
               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
             ),
           ),
@@ -751,32 +746,38 @@ class _AppendItemSheetState extends State<AppendItemSheet> {
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: Colors.grey.shade300),
                   ),
-                  child: DropdownButton<String>(
-                    value: _selectedStaffName != null &&
-                            (_staffList.any((s) => s.getDisplayName(_staffDisplayMode) == _selectedStaffName || s.realName == _selectedStaffName) ||
-                             _selectedStaffName == widget.space.currentTechnicianName)
-                        ? _selectedStaffName
-                        : (_staffList.isNotEmpty ? _staffList.first.getDisplayName(_staffDisplayMode) : null),
-                    hint: const Text('选择服务人员', style: TextStyle(fontSize: 12)),
-                    items: [
-                      if (widget.space.currentTechnicianName != null && widget.space.currentTechnicianName!.isNotEmpty)
-                        DropdownMenuItem(
-                          value: widget.space.currentTechnicianName,
-                          child: Text(
-                            '原包厢服务: ${widget.space.currentTechnicianName}',
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ..._staffList.map((s) {
-                        final displayName = s.getDisplayName(_staffDisplayMode);
-                        return DropdownMenuItem(
-                          value: displayName,
-                          child: Text(displayName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  child: Builder(
+                    builder: (context) {
+                      final staffOptions = <String, Widget>{};
+                      final currentTech = widget.space.currentTechnicianName;
+                      if (currentTech != null && currentTech.isNotEmpty) {
+                        staffOptions[currentTech] = Text(
+                          '原包厢服务: $currentTech',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                         );
-                      }),
-                    ],
-                    onChanged: (val) {
-                      setState(() => _selectedStaffName = val);
+                      }
+                      for (final s in _staffList) {
+                        final displayName = s.getDisplayName(_staffDisplayMode);
+                        if (displayName.isNotEmpty && !staffOptions.containsKey(displayName)) {
+                          staffOptions[displayName] = Text(
+                            displayName,
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                          );
+                        }
+                      }
+                      final effectiveStaff = (_selectedStaffName != null && staffOptions.containsKey(_selectedStaffName))
+                          ? _selectedStaffName
+                          : (staffOptions.isNotEmpty ? staffOptions.keys.first : null);
+                      return DropdownButton<String>(
+                        value: effectiveStaff,
+                        hint: const Text('选择服务人员', style: TextStyle(fontSize: 12)),
+                        items: staffOptions.entries
+                            .map((e) => DropdownMenuItem<String>(value: e.key, child: e.value))
+                            .toList(),
+                        onChanged: (val) {
+                          setState(() => _selectedStaffName = val);
+                        },
+                      );
                     },
                   ),
                 ),
@@ -1094,6 +1095,10 @@ class _AppendItemSheetState extends State<AppendItemSheet> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        newTagCtrl.dispose();
+      });
+    });
   }
 }

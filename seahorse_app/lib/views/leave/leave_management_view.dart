@@ -68,10 +68,24 @@ class _LeaveManagementViewState extends State<LeaveManagementView> with SingleTi
     }
   }
 
+  void _ensureTabControllerSynced(bool isMgr) {
+    final targetLength = isMgr ? 2 : 1;
+    if (_tabController.length != targetLength) {
+      final prevIndex = _tabController.index;
+      _tabController.dispose();
+      _tabController = TabController(
+        length: targetLength,
+        vsync: this,
+        initialIndex: prevIndex < targetLength ? prevIndex : 0,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final isMgr = _isManager(auth);
+    _ensureTabControllerSynced(isMgr);
 
     final myLeaves = _allLeaves.where((l) {
       final myPhone = auth.username.trim();
@@ -806,7 +820,11 @@ class _LeaveManagementViewState extends State<LeaveManagementView> with SingleTi
           },
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        reasonCtrl.dispose();
+      });
+    });
   }
 
   Widget _buildTypeOption(String label, String value, String current, Function(String) onSelect) {
@@ -874,12 +892,13 @@ class _LeaveManagementViewState extends State<LeaveManagementView> with SingleTi
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
               onPressed: () async {
+                final reason = reasonCtrl.text.trim();
                 Navigator.pop(ctx);
                 try {
                   await _leaveService.revokeLeave(
                     leaveId: item.id,
                     staffName: auth.realName.isNotEmpty ? auth.realName : auth.username,
-                    reason: reasonCtrl.text.trim(),
+                    reason: reason,
                   );
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('✓ 请假申请已撤回'), backgroundColor: AppColors.success),
@@ -894,7 +913,11 @@ class _LeaveManagementViewState extends State<LeaveManagementView> with SingleTi
           ],
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        reasonCtrl.dispose();
+      });
+    });
   }
 
   // 3. 编辑请假申请
@@ -992,7 +1015,11 @@ class _LeaveManagementViewState extends State<LeaveManagementView> with SingleTi
           },
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        reasonCtrl.dispose();
+      });
+    });
   }
 
   // 4. 主管审批弹窗 (同意/驳回)
@@ -1084,7 +1111,11 @@ class _LeaveManagementViewState extends State<LeaveManagementView> with SingleTi
           ],
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        notesCtrl.dispose();
+      });
+    });
   }
 
   // 5. 流转进度查看

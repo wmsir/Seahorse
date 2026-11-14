@@ -170,6 +170,10 @@ class StaffService {
         'status': newStatus,
       });
       if (response.statusCode == 200) {
+        final raw = response.data;
+        if (raw is Map && raw['code'] != null && raw['code'] != 200) {
+          return false;
+        }
         final index = _cachedStaff.indexWhere((s) => s.id == id);
         if (index != -1) {
           _cachedStaff[index].status = newStatus;
@@ -178,12 +182,6 @@ class StaffService {
       }
     } catch (e) {
       print('StaffService updateStaffStatus error: $e');
-      // 本地缓存乐观更新保证移动端体验流畅
-      final index = _cachedStaff.indexWhere((s) => s.id == id);
-      if (index != -1) {
-        _cachedStaff[index].status = newStatus;
-        return true;
-      }
     }
     return false;
   }

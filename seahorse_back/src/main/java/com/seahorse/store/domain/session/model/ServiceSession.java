@@ -1,6 +1,5 @@
 package com.seahorse.store.domain.session.model;
 
-import com.seahorse.store.common.Money;
 import com.seahorse.store.domain.session.enums.SessionStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;

@@ -65,10 +65,10 @@
         <el-card shadow="hover" class="stat-card">
           <div class="stat-header">
             <span class="stat-title">🌙 晚间夜市 (18:00 - 22:00)</span>
-            <el-tag size="small" type="success">交班对账</el-tag>
+            <el-tag size="small" type="success">收银核销</el-tag>
           </div>
           <div class="stat-num text-purple">{{ eveningPercent }} <span class="stat-sub">({{ periodCounts.evening }} 次操作)</span></div>
-          <div class="stat-desc">主营业务：日结盲盘、收银交班、规章签字确认</div>
+          <div class="stat-desc">主营业务：收银结算、客单归档、规章签字确认</div>
         </el-card>
       </el-col>
     </el-row>

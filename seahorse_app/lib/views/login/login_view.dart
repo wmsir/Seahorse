@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/constants.dart';
@@ -509,7 +510,11 @@ class _LoginViewState extends State<LoginView> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        customUrlCtrl.dispose();
+      });
+    });
   }
 
   Widget _buildRoleBadge(String role) {
@@ -592,7 +597,6 @@ class _LoginViewState extends State<LoginView> {
     final codeCtrl = TextEditingController();
     final newPwdCtrl = TextEditingController();
     final confirmPwdCtrl = TextEditingController();
-    String? sentServerCode;
     bool isSending = false;
     bool isSubmitting = false;
 
@@ -617,7 +621,7 @@ class _LoginViewState extends State<LoginView> {
                     TextField(
                       controller: targetCtrl,
                       decoration: const InputDecoration(
-                        labelText: '绑定手机号 / 电子邮箱 / 账号',
+                        labelText: '登录账号 / 绑定手机号',
                         prefixIcon: Icon(Icons.person_search_outlined),
                         isDense: true,
                       ),
@@ -644,36 +648,57 @@ class _LoginViewState extends State<LoginView> {
                                   final target = targetCtrl.text.trim();
                                   if (target.isEmpty) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('请先输入绑定手机号或邮箱')),
+                                      const SnackBar(content: Text('请先输入登录账号或绑定手机号')),
                                     );
                                     return;
                                   }
                                   setModalState(() => isSending = true);
                                   try {
-                                    final isEmail = target.contains('@');
                                     final res = await ApiClient().dio.post(
-                                      isEmail ? 'https://fwpt.cn/api/v1/auth/send-email-code' : 'https://fwpt.cn/api/v1/auth/send-code',
-                                      data: isEmail ? {'email': target} : {'phone': target},
+                                      '/auth/send-reset-code',
+                                      data: {'account': target},
                                     );
                                     final raw = res.data;
-                                    final serverCode = (raw is Map && raw['data'] is Map) ? raw['data']['code']?.toString() : null;
+                                    if (raw is Map && raw['code'] != null && raw['code'] != 200) {
+                                      throw Exception(raw['message']?.toString() ?? '发送验证码失败');
+                                    }
+                                    final dataMap = (raw is Map && raw['data'] is Map)
+                                        ? Map<String, dynamic>.from(raw['data'] as Map)
+                                        : <String, dynamic>{};
+                                    final serverCode = (dataMap['devCode'] ?? dataMap['code'])?.toString();
                                     if (serverCode != null && serverCode.isNotEmpty) {
-                                      sentServerCode = serverCode;
                                       codeCtrl.text = serverCode;
                                     }
+                                    final tipMsg = (raw is Map && raw['message'] != null)
+                                        ? raw['message'].toString()
+                                        : '验证码已发送，请在5分钟内完成操作';
                                     if (context.mounted) {
                                       ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('验证码已发送，请查收'), backgroundColor: AppColors.success),
+                                        SnackBar(content: Text(tipMsg), backgroundColor: AppColors.success),
                                       );
                                     }
-                                  } catch (_) {
+                                  } on DioException catch (e) {
+                                    final errMsg = (e.response?.data is Map && e.response?.data['message'] != null)
+                                        ? e.response!.data['message'].toString()
+                                        : '发送验证码失败，请确认账号或手机号是否正确';
                                     if (context.mounted) {
                                       ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('验证码请求已发送，请查收短信或邮件')),
+                                        SnackBar(content: Text(errMsg), backgroundColor: AppColors.error),
+                                      );
+                                    }
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(e.toString().replaceFirst('Exception: ', '')),
+                                          backgroundColor: AppColors.error,
+                                        ),
                                       );
                                     }
                                   } finally {
-                                    setModalState(() => isSending = false);
+                                    if (context.mounted) {
+                                      setModalState(() => isSending = false);
+                                    }
                                   }
                                 },
                           child: Text(isSending ? '发送中...' : '获取验证码', style: const TextStyle(fontSize: 12)),
@@ -725,19 +750,17 @@ class _LoginViewState extends State<LoginView> {
                             );
                             return;
                           }
-                          if (sentServerCode != null && code != sentServerCode) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('安全验证码校验不通过，请核对'), backgroundColor: AppColors.error),
-                            );
-                            return;
-                          }
                           setModalState(() => isSubmitting = true);
                           try {
-                            await ApiClient().dio.post('/vendor/users/reset-password', data: {
-                              'username': target,
+                            final res = await ApiClient().dio.post('/auth/reset-password', data: {
+                              'account': target,
                               'code': code,
                               'newPassword': newPwd,
                             });
+                            final raw = res.data;
+                            if (raw is Map && raw['code'] != null && raw['code'] != 200) {
+                              throw Exception(raw['message']?.toString() ?? '密码重置失败');
+                            }
                             if (context.mounted) {
                               Navigator.pop(ctx);
                               setState(() {
@@ -748,14 +771,28 @@ class _LoginViewState extends State<LoginView> {
                                 const SnackBar(content: Text('密码重置成功，请使用新密码登录！'), backgroundColor: AppColors.success),
                               );
                             }
+                          } on DioException catch (e) {
+                            final errMsg = (e.response?.data is Map && e.response?.data['message'] != null)
+                                ? e.response!.data['message'].toString()
+                                : '重置失败，请检查验证码或网络连接';
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(errMsg), backgroundColor: AppColors.error),
+                              );
+                            }
                           } catch (e) {
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('重置失败: $e'), backgroundColor: AppColors.error),
+                                SnackBar(
+                                  content: Text(e.toString().replaceFirst('Exception: ', '')),
+                                  backgroundColor: AppColors.error,
+                                ),
                               );
                             }
                           } finally {
-                            setModalState(() => isSubmitting = false);
+                            if (context.mounted) {
+                              setModalState(() => isSubmitting = false);
+                            }
                           }
                         },
                   child: const Text('确认重置'),
@@ -765,7 +802,14 @@ class _LoginViewState extends State<LoginView> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        targetCtrl.dispose();
+        codeCtrl.dispose();
+        newPwdCtrl.dispose();
+        confirmPwdCtrl.dispose();
+      });
+    });
   }
 
   @override

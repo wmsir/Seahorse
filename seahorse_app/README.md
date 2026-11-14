@@ -27,9 +27,8 @@ seahorse_app/
 │   ├── app.dart                     # MaterialApp 主配置与 Provider 状态注入
 │   ├── core/                        # 品牌主题规范、Dio 客户端、持久化存储、格式化工具
 │   ├── models/                      # 门店、包厢房态、预约、会员、项目、技师、订单实体
-│   ├── mock/                        # 真实完整离线业务模拟数据集 (御境云足全套场景)
-│   ├── services/                    # 认证、门店、房态、预约、收银、会员服务 (双引擎)
-│   ├── providers/                   # 6 大核心业务响应式状态管理 (Provider)
+│   ├── services/                    # 认证、门店、房态、预约、收银、会员、考勤、轮询服务
+│   ├── providers/                   # 核心业务响应式状态管理 (Provider)
 │   ├── widgets/                     # 经营指标卡片、房态卡片、状态徽章等复用组件
 │   └── views/                       # 核心业务界面与模态弹窗
 │
@@ -73,7 +72,7 @@ seahorse_app/
 
 | 脚本名称 | 适用操作系统 | 说明与功能 |
 |:---|:---|:---|
-| **`build_menu.bat`** | Windows | 🚀 **全平台综合控制台**：交互式菜单，输入数字 1~5 即可选择构建 Android、HarmonyOS、iOS 或清理依赖 |
+| **`build_menu.bat`** | Windows | 🚀 **全平台综合控制台**：交互式菜单，输入数字 1~6 即可选择构建 Android、HarmonyOS、iOS 或清理依赖 |
 | **`build_android.bat`** | Windows | 📱 **Android 一键打包**：双击即可自动执行 `flutter pub get`、构建 `app-release.apk` 并在完成后自动定位文件夹 |
 | **`build_harmonyos.bat`**| Windows | 🔷 **鸿蒙 NEXT 一键打包**：自动检测 OpenHarmony Flutter SDK，支持 `flutter build hap` 与本地 `hvigorw` 双模式编译 |
 | **`build_ios.bat`** | Windows | 🍏 **iOS 跨端构建引导**：自动拉取依赖并提供 Mac 编译、Xcode 联调或 CI/CD 云端构建操作指引 |
@@ -123,10 +122,8 @@ seahorse_app/
 
 ---
 
-## 四、网络连接与离线双引擎说明
+## 五、网络连接与多租户通信说明
 
 1. **后端 Spring Boot 联动**：
-   - 默认配置连接 `http://localhost:8082/api`（局域网调试真机时，可在 `lib/core/network/api_client.dart` 中调整为服务器局域网 IP，如 `http://192.168.x.x:8082/api`）；
-   - 请求头自动附加 `Authorization: Bearer <token>` 与 `X-Store-Id: <storeId>`，权限与多租户严格隔离。
-2. **离线自洽体验模式**：
-   - 内置完整的 `MockData` 引擎，支持断网离线单机闭环演示所有业务流程。
+   - 生产默认网关 `https://fwpt.cn/api`（双机热备 `http://39.97.158.22/api`），本地联调可在登录页连接设置切换为 `http://127.0.0.1:8082/api`；
+   - 请求头自动注入 `Authorization: Bearer <token>`、`X-Tenant-Id: <tenantId>` 与 `X-Store-Id: <storeId>`，实现权限与多租户隔离。

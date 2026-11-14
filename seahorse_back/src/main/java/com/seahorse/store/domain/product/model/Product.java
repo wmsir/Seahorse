@@ -63,6 +63,10 @@ public class Product {
     @Column(name = "is_available")
     private Boolean available;
 
+    @Version
+    @Column(nullable = false)
+    private Long version; // JPA 乐观锁版本号
+
     @CreatedDate
     private LocalDateTime createdAt;
 

@@ -18,17 +18,11 @@ class StaffPerformanceTab extends StatefulWidget {
 class _StaffPerformanceTabState extends State<StaffPerformanceTab> {
   final StaffService _staffService = StaffService();
   bool _isOnDuty = true;
+  bool _isUpdatingDuty = false;
+  int? _currentStaffId;
   bool _isLoadingCommissions = false;
   List<Map<String, dynamic>> _commissionRecords = [];
   String? _lastStoreId;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadPerformance();
-    });
-  }
 
   @override
   void didChangeDependencies() {
@@ -46,13 +40,38 @@ class _StaffPerformanceTabState extends State<StaffPerformanceTab> {
     try {
       final auth = context.read<AuthProvider>();
       final store = context.read<StoreProvider>();
-      final list = await _staffService.getStaffCommissions(
-        employeeName: auth.realName,
-        storeId: store.currentStoreId,
-      );
+      final results = await Future.wait([
+        _staffService.getStaffCommissions(
+          employeeName: auth.realName,
+          storeId: store.currentStoreId,
+        ),
+        _staffService.getStaffList(storeId: store.currentStoreId),
+      ]);
+      final list = results[0] as List<Map<String, dynamic>>;
+      final staffList = results[1] as List;
+      int? matchedId;
+      bool? matchedDuty;
+      for (final dynamic item in staffList) {
+        final sUsername = (item.username ?? '').toString();
+        final sPhone = (item.phone ?? '').toString();
+        final sRealName = (item.realName ?? '').toString();
+        if ((auth.username.isNotEmpty && (sUsername == auth.username || sPhone == auth.username)) ||
+            (auth.realName.isNotEmpty && sRealName == auth.realName)) {
+          matchedId = item.id as int?;
+          final st = (item.status ?? 'ACTIVE').toString().toUpperCase();
+          matchedDuty = st != 'REST' && st != 'OFF_DUTY' && st != 'DISABLED' && st != 'INACTIVE';
+          break;
+        }
+      }
       if (mounted) {
         setState(() {
           _commissionRecords = list;
+          if (matchedId != null) {
+            _currentStaffId = matchedId;
+          }
+          if (matchedDuty != null) {
+            _isOnDuty = matchedDuty;
+          }
           _isLoadingCommissions = false;
         });
       }
@@ -94,15 +113,15 @@ class _StaffPerformanceTabState extends State<StaffPerformanceTab> {
       (sum, r) => sum + ((r['commissionAmount'] as num?)?.toDouble() ?? 0.0),
     );
 
-    // 检索当前正在服务的工位 (优先匹配技师姓名或本店占用房态)
+    // 检索当前正在服务的工位 (严格匹配当前员工姓名或账号，绝不误展示其他员工工位)
     final occupiedSpaces = spaceProv.spaces.where((s) => s.status == SpaceStatus.occupied).toList();
     SpaceModel? activeServingSpace;
-    try {
-      activeServingSpace = occupiedSpaces.firstWhere(
-        (s) => s.currentTechnicianName == displayName || s.currentTechnicianName == auth.username,
-      );
-    } catch (_) {
-      activeServingSpace = occupiedSpaces.isNotEmpty ? occupiedSpaces.first : null;
+    for (final s in occupiedSpaces) {
+      if ((auth.realName.isNotEmpty && s.currentTechnicianName == auth.realName) ||
+          (auth.username.isNotEmpty && s.currentTechnicianName == auth.username)) {
+        activeServingSpace = s;
+        break;
+      }
     }
 
     return RefreshIndicator(
@@ -196,15 +215,40 @@ class _StaffPerformanceTabState extends State<StaffPerformanceTab> {
                         Switch(
                           value: _isOnDuty,
                           activeColor: Colors.green,
-                          onChanged: (val) {
-                            setState(() => _isOnDuty = val);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(val ? '已将个人状态切换为：🟢 空闲在岗' : '已将个人状态切换为：🟡 暂离休息'),
-                                duration: const Duration(seconds: 1),
-                              ),
-                            );
-                          },
+                          onChanged: _isUpdatingDuty
+                              ? null
+                              : (val) async {
+                                  final prev = _isOnDuty;
+                                  setState(() {
+                                    _isOnDuty = val;
+                                    _isUpdatingDuty = true;
+                                  });
+                                  bool ok = true;
+                                  if (_currentStaffId != null && _currentStaffId! > 0) {
+                                    ok = await _staffService.updateStaffStatus(
+                                      _currentStaffId!,
+                                      val ? 'ACTIVE' : 'REST',
+                                    );
+                                  }
+                                  if (!mounted) return;
+                                  setState(() => _isUpdatingDuty = false);
+                                  if (!ok) {
+                                    setState(() => _isOnDuty = prev);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('同步在岗状态至服务器失败，请稍后重试'),
+                                        backgroundColor: AppColors.error,
+                                      ),
+                                    );
+                                    return;
+                                  }
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(val ? '已同步状态为：🟢 空闲在岗' : '已同步状态为：🟡 暂离休息'),
+                                      duration: const Duration(seconds: 1),
+                                    ),
+                                  );
+                                },
                         ),
                       ],
                     ),

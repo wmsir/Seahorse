@@ -901,13 +901,20 @@ class _PlatformAdminViewState extends State<PlatformAdminView> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
-        String currentStatus = t['status'] ?? 'ACTIVE';
-        String currentPlan = t['plan'] ?? 'STANDARD';
-        String currentPlanName = t['planName'] ?? '标准版套餐';
-        String currentExpire = t['expireDate'] ?? '2027-12-31';
-        int storeLimit = t['storeLimit'] ?? (t['stores'] is List ? (t['stores'] as List).length : 1);
-        if (storeLimit < 1) storeLimit = 1;
-        int storageQuotaGb = t['storageQuotaGb'] ?? 10;
+        final String originalStatus = (t['status'] ?? 'ACTIVE').toString();
+        final String originalPlan = (t['plan'] ?? 'PROFESSIONAL').toString();
+        final String originalExpire = (t['expireDate'] ?? '2027-12-31').toString();
+        int initialStoreLimit = t['storeLimit'] ?? (t['stores'] is List ? (t['stores'] as List).length : 1);
+        if (initialStoreLimit < 1) initialStoreLimit = 1;
+        final int originalStoreLimit = initialStoreLimit;
+        final int originalStorageQuota = (t['storageQuotaGb'] is num) ? (t['storageQuotaGb'] as num).toInt() : 10;
+
+        String currentStatus = originalStatus;
+        String currentPlan = originalPlan == 'STANDARD' ? 'PROFESSIONAL' : originalPlan;
+        String currentPlanName = (t['planName'] ?? '专业成长版').toString();
+        String currentExpire = originalExpire;
+        int storeLimit = initialStoreLimit;
+        int storageQuotaGb = originalStorageQuota;
         final contactName = t['contactName'] ?? '未登记负责人';
         final contactPhone = t['contactPhone'] ?? '13800000000';
         final tenantName = t['tenantName'] ?? '租户企业';
@@ -1071,40 +1078,40 @@ class _PlatformAdminViewState extends State<PlatformAdminView> {
                               onSelect: () {
                                 setModalState(() {
                                   currentPlan = 'TRIAL';
-                                  currentPlanName = '体验版套餐';
+                                  currentPlanName = '基础体验版';
                                 });
                               },
                             ),
                             _buildPlanChoiceChip(
-                              label: '🌱 标准版 (STANDARD)',
-                              planKey: 'STANDARD',
-                              currentPlan: currentPlan,
-                              onSelect: () {
-                                setModalState(() {
-                                  currentPlan = 'STANDARD';
-                                  currentPlanName = '标准版套餐';
-                                });
-                              },
-                            ),
-                            _buildPlanChoiceChip(
-                              label: '⭐ 专业版 (PROFESSIONAL)',
+                              label: '⭐ 专业成长版 (PROFESSIONAL)',
                               planKey: 'PROFESSIONAL',
                               currentPlan: currentPlan,
                               onSelect: () {
                                 setModalState(() {
                                   currentPlan = 'PROFESSIONAL';
-                                  currentPlanName = '专业版套餐';
+                                  currentPlanName = '专业成长版';
                                 });
                               },
                             ),
                             _buildPlanChoiceChip(
-                              label: '👑 旗舰企业版 (ENTERPRISE)',
+                              label: '🚀 旗舰连锁版 (FLAGSHIP)',
+                              planKey: 'FLAGSHIP',
+                              currentPlan: currentPlan,
+                              onSelect: () {
+                                setModalState(() {
+                                  currentPlan = 'FLAGSHIP';
+                                  currentPlanName = '旗舰连锁版';
+                                });
+                              },
+                            ),
+                            _buildPlanChoiceChip(
+                              label: '👑 集团企业版 (ENTERPRISE)',
                               planKey: 'ENTERPRISE',
                               currentPlan: currentPlan,
                               onSelect: () {
                                 setModalState(() {
                                   currentPlan = 'ENTERPRISE';
-                                  currentPlanName = '旗舰企业版';
+                                  currentPlanName = '集团企业版';
                                 });
                               },
                             ),
@@ -1230,13 +1237,14 @@ class _PlatformAdminViewState extends State<PlatformAdminView> {
                                   DropdownButton<int>(
                                     value: storageQuotaGb,
                                     underline: const SizedBox(),
-                                    items: const [
-                                      DropdownMenuItem(value: 5, child: Text('5 GB (基础档)')),
-                                      DropdownMenuItem(value: 10, child: Text('10 GB (推荐档)')),
-                                      DropdownMenuItem(value: 20, child: Text('20 GB (进阶档)')),
-                                      DropdownMenuItem(value: 50, child: Text('50 GB (豪华档)')),
-                                      DropdownMenuItem(value: 100, child: Text('100 GB (海量档)')),
-                                    ],
+                                    items: ([...{5, 10, 20, 50, 100, 200, 1024, storageQuotaGb}]..sort())
+                                        .map(
+                                          (gb) => DropdownMenuItem<int>(
+                                            value: gb,
+                                            child: Text(gb >= 1024 ? '1 TB (集团档)' : '$gb GB'),
+                                          ),
+                                        )
+                                        .toList(),
                                     onChanged: (v) {
                                       if (v != null) setModalState(() => storageQuotaGb = v);
                                     },
@@ -1367,26 +1375,47 @@ class _PlatformAdminViewState extends State<PlatformAdminView> {
                                 t['storeLimit'] = storeLimit;
                                 t['storageQuotaGb'] = storageQuotaGb;
 
-                                try {
-                                  await ApiClient().dio.post(
-                                    '/vendor/tenant/$tenantId/toggle-status',
-                                    data: {'status': currentStatus},
-                                  );
-                                } catch (_) {}
+                                if (currentPlan != originalPlan || currentExpire != originalExpire) {
+                                  try {
+                                    await ApiClient().dio.post(
+                                      '/vendor/renew',
+                                      data: {
+                                        'tenantId': tenantId,
+                                        'plan': currentPlan,
+                                        'storeLimit': storeLimit,
+                                      },
+                                    );
+                                  } catch (_) {}
+                                }
 
-                                try {
-                                  await ApiClient().dio.post(
-                                    '/vendor/renew',
-                                    data: {
-                                      'tenantId': tenantId,
-                                      'plan': currentPlan,
-                                      'expireDate': currentExpire,
-                                    },
-                                  );
-                                } catch (_) {}
+                                if (storeLimit != originalStoreLimit || storageQuotaGb != originalStorageQuota) {
+                                  try {
+                                    await ApiClient().dio.post(
+                                      '/vendor/adjust-limits',
+                                      data: {
+                                        'tenantId': tenantId,
+                                        'storeLimit': storeLimit,
+                                        'storageQuotaGb': storageQuotaGb,
+                                      },
+                                    );
+                                  } catch (_) {}
+                                }
 
-                                Navigator.pop(ctx);
-                                setState(() {});
+                                if (currentStatus != originalStatus || currentStatus == 'DISABLED') {
+                                  try {
+                                    await ApiClient().dio.post(
+                                      '/vendor/tenant/$tenantId/toggle-status',
+                                      data: {'status': currentStatus},
+                                    );
+                                  } catch (_) {}
+                                }
+
+                                if (ctx.mounted) {
+                                  Navigator.pop(ctx);
+                                }
+                                if (mounted) {
+                                  setState(() {});
+                                }
 
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
@@ -2093,6 +2122,7 @@ class _PlatformAdminViewState extends State<PlatformAdminView> {
     List<Map<String, dynamic>> searchResults = [];
     bool isSearching = false;
     bool hasSearched = false;
+    bool autoSearchScheduled = false;
     String? searchError;
 
     showModalBottomSheet(
@@ -2147,7 +2177,8 @@ class _PlatformAdminViewState extends State<PlatformAdminView> {
             }
 
             // 如果有初始手机号且未检索过，自动触发一次查询
-            if (initialPhone != null && initialPhone.isNotEmpty && !hasSearched && !isSearching) {
+            if (initialPhone != null && initialPhone.isNotEmpty && !hasSearched && !isSearching && !autoSearchScheduled) {
+              autoSearchScheduled = true;
               WidgetsBinding.instance.addPostFrameCallback((_) => doSearch());
             }
 
@@ -2438,7 +2469,11 @@ class _PlatformAdminViewState extends State<PlatformAdminView> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        phoneController.dispose();
+      });
+    });
   }
 
 }

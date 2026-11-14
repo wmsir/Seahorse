@@ -345,7 +345,11 @@ class _CameraScannerViewState extends State<CameraScannerView> with SingleTicker
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        textController.dispose();
+      });
+    });
   }
 
   @override

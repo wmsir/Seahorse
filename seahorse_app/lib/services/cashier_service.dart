@@ -216,12 +216,6 @@ class CashierService {
           throw Exception(errMsg);
         }
       }
-
-      if (spaceId != null) {
-        try {
-          await _client.dio.post('/space/$spaceId/reset');
-        } catch (_) {}
-      }
     } catch (e) {
       final errStr = e.toString();
       if (errStr.contains('余额不足') || errStr.contains('储值') || errStr.contains('次卡') || errStr.contains('金额不足')) {

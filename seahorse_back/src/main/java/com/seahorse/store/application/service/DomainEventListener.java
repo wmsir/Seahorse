@@ -6,11 +6,12 @@ import com.seahorse.store.domain.commission.model.CommissionRecord;
 import com.seahorse.store.domain.event.BillingCompletedEvent;
 import com.seahorse.store.domain.event.ItemAppendedEvent;
 import com.seahorse.store.domain.iam.model.Store;
-import com.seahorse.store.domain.product.model.Product;
-import com.seahorse.store.domain.product.model.ProductBom;
 import com.seahorse.store.domain.session.model.PerformerShare;
 import com.seahorse.store.domain.session.model.SessionLineItem;
-import com.seahorse.store.infrastructure.repository.*;
+import com.seahorse.store.infrastructure.repository.CommissionRecordRepository;
+import com.seahorse.store.infrastructure.repository.MemberRepository;
+import com.seahorse.store.infrastructure.repository.PerformerShareRepository;
+import com.seahorse.store.infrastructure.repository.StoreRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
@@ -29,8 +30,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class DomainEventListener {
 
-    private final ProductRepository productRepository;
-    private final ProductBomRepository productBomRepository;
     private final PerformerShareRepository performerShareRepository;
     private final CommissionRecordRepository commissionRecordRepository;
     private final StoreRepository storeRepository;
@@ -45,56 +44,13 @@ public class DomainEventListener {
                 event.getSession().getSessionNo(), event.getBatch().getBatchNo());
 
         Store store = storeRepository.findByStoreId(event.getSession().getStoreId()).orElse(null);
-        String industry = store != null ? store.getIndustry().name() : "BEAUTY";
+        String industry = (store != null && store.getIndustry() != null) ? store.getIndustry().name() : "BEAUTY";
 
-        java.util.Map<Long, List<ProductBom>> bomsByServiceId = new java.util.HashMap<>();
-        java.util.Map<Long, Product> materialMap = new java.util.HashMap<>();
-        if (!"RESTAURANT".equals(industry) && event.getLineItems() != null && !event.getLineItems().isEmpty()) {
-            java.util.Set<Long> serviceProductIds = new java.util.LinkedHashSet<>();
+        // 餐饮档口小票机打印模拟（商品与服务 BOM 耗材库存统一在结账完成时对有效未退单品项扣减，避免重复扣减及退菜漏回滚）
+        if ("RESTAURANT".equals(industry) && event.getLineItems() != null) {
             for (SessionLineItem item : event.getLineItems()) {
-                if (item.getProductId() != null) {
-                    serviceProductIds.add(item.getProductId());
-                }
-            }
-            if (!serviceProductIds.isEmpty()) {
-                List<ProductBom> allBoms = productBomRepository.findByServiceProductIdIn(serviceProductIds);
-                java.util.Set<Long> materialIds = new java.util.LinkedHashSet<>();
-                for (ProductBom bom : allBoms) {
-                    if (bom != null && bom.getServiceProductId() != null) {
-                        bomsByServiceId.computeIfAbsent(bom.getServiceProductId(), k -> new ArrayList<>()).add(bom);
-                        if (bom.getMaterialProductId() != null) {
-                            materialIds.add(bom.getMaterialProductId());
-                        }
-                    }
-                }
-                if (!materialIds.isEmpty()) {
-                    for (Product mat : productRepository.findAllById(materialIds)) {
-                        if (mat != null && mat.getId() != null) {
-                            materialMap.put(mat.getId(), mat);
-                        }
-                    }
-                }
-            }
-        }
-
-        for (SessionLineItem item : event.getLineItems()) {
-            if ("RESTAURANT".equals(industry)) {
-                // 餐饮档口小票机打印模拟
                 log.info(">>> [外设调度-后厨打印机] 档口出票: 桌台={}, 菜品={}, 数量={}, 忌口备注=[{}]",
                         event.getSession().getSpaceName(), item.getProductName(), item.getQuantity(), item.getModifiers());
-            } else {
-                // 美业或汽修：联动 BOM 原料配方自动扣减库房耗材
-                List<ProductBom> boms = bomsByServiceId.getOrDefault(item.getProductId(), java.util.Collections.emptyList());
-                for (ProductBom bom : boms) {
-                    Product mat = materialMap.get(bom.getMaterialProductId());
-                    if (mat != null) {
-                        int deductTotal = bom.getConsumeQuantity().multiply(BigDecimal.valueOf(item.getQuantity())).intValue();
-                        mat.deductStock(deductTotal);
-                        productRepository.save(mat);
-                        log.info(">>> [商品库存-BOM耗材扣减] 服务项=[{}] 消耗原料=[{}], 扣减库存={}, 剩余库存={}",
-                                item.getProductName(), bom.getMaterialName(), deductTotal, mat.getStock());
-                    }
-                }
             }
         }
 
@@ -159,47 +115,24 @@ public class DomainEventListener {
         log.info("【事件触发】结算完成事件: orderNo={}, 订单总额={}",
                 event.getOrder().getOrderNo(), event.getOrder().getActualAmount());
 
-        // 1. 全渠道即时消费动账通知 (微信公众号/服务号、支付宝生活号)
+        // 1. 全渠道即时消费动账通知 (会员累计消费/积分/等级已在 BillingCheckoutAppService 事务内完成单次更新)
         com.seahorse.store.domain.member.model.Member member = null;
         try {
             if (event.getOrder().getMemberId() != null) {
                 member = memberRepository.findById(event.getOrder().getMemberId()).orElse(null);
             } else if (event.getOrder().getCustomerPhone() != null && !event.getOrder().getCustomerPhone().trim().isEmpty()) {
-                member = memberRepository.findByPhone(event.getOrder().getCustomerPhone().trim()).orElse(null);
-            }
-            if (member != null) {
-                // 实时更新会员累计消费与成长积分 (1元积1分)
-                java.math.BigDecimal actual = event.getOrder().getActualAmount() != null ? event.getOrder().getActualAmount() : java.math.BigDecimal.ZERO;
-                java.math.BigDecimal oldSpent = member.getTotalSpent() != null ? member.getTotalSpent() : java.math.BigDecimal.ZERO;
-                member.setTotalSpent(oldSpent.add(actual));
-
-                int oldPoints = member.getPoints() != null ? member.getPoints() : 0;
-                int addPoints = actual.intValue();
-                int newPoints = oldPoints + addPoints;
-                member.setPoints(newPoints);
-
-                int visits = member.getVisitCount() != null ? member.getVisitCount() : 0;
-                member.setVisitCount(visits + 1);
-                member.setLastVisitTime(java.time.LocalDateTime.now());
-
-                // 依据阶梯成长积分自动平滑晋级
-                if (newPoints >= 3500) {
-                    member.setLevel(com.seahorse.store.domain.member.enums.MemberLevel.DIAMOND);
-                } else if (newPoints >= 2000) {
-                    member.setLevel(com.seahorse.store.domain.member.enums.MemberLevel.PLATINUM);
-                } else if (newPoints >= 800) {
-                    member.setLevel(com.seahorse.store.domain.member.enums.MemberLevel.GOLD);
-                } else if (newPoints >= 300) {
-                    member.setLevel(com.seahorse.store.domain.member.enums.MemberLevel.SILVER);
+                String phone = event.getOrder().getCustomerPhone().trim();
+                String orderTenantId = event.getOrder().getTenantId();
+                if (orderTenantId != null && !orderTenantId.trim().isEmpty()) {
+                    member = memberRepository.findByTenantIdAndPhone(orderTenantId, phone).orElse(null);
                 }
-
-                memberRepository.save(member);
-                log.info("【会员资产更新成功】会员={}, 订单实收=￥{}, 新累计消费=￥{}, 新积分={}, 到店频次={}, 当前等级={}",
-                        member.getName(), actual, member.getTotalSpent(), member.getPoints(), member.getVisitCount(), member.getLevel());
+                if (member == null) {
+                    member = memberRepository.findByPhone(phone).orElse(null);
+                }
             }
             channelNotificationAppService.sendConsumeNotification(event.getOrder(), event.getPaymentRecords(), member);
         } catch (Exception ex) {
-            log.error("消费动账全渠道即时推送及会员资产更新触发异常", ex);
+            log.error("消费动账全渠道即时推送触发异常", ex);
         }
 
         // 2. 异步解析并沉淀员工工时提成 (若有关联会话工单)

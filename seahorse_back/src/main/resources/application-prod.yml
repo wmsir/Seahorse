@@ -1,0 +1,21 @@
+# ==============================================================================
+# 海马智慧门店 (Seahorse Smart Store) - 生产运行环境配置文件 (application-prod.yml)
+# ==============================================================================
+
+# 生产环境数据源连接池配置 (默认连接容器编排 MySQL 数据库，支持生产环境变量优先覆盖)
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://seahorse-mysql:3306/seahorse_store?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true} # 生产数据库连接 URL
+    username: ${SPRING_DATASOURCE_USERNAME} # 生产数据库连接用户名
+    password: ${SPRING_DATASOURCE_PASSWORD} # 生产数据库连接密码
+    driver-class-name: com.mysql.cj.jdbc.Driver # MySQL官方 8.x JDBC 驱动类
+  jpa:
+    show-sql: false # 生产环境关闭控制台 SQL 实时打印，降低磁盘与控制台 IO 损耗提升并发吞吐量
+    hibernate:
+      ddl-auto: validate # 生产环境严格校验数据库表结构与实体模型一致性
+
+# 生产环境日志输出控制
+logging:
+  level:
+    com.seahorse.store: INFO # 生产环境海马核心业务包日志级别设为 INFO
+    org.springframework.web: WARN # 生产环境 Web 框架层日志设为 WARN，拦截无关噪音

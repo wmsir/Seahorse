@@ -55,16 +55,16 @@ class _MemberDetailDialogState extends State<MemberDetailDialog> with SingleTick
     String matchCode = 'REGULAR';
     final raw = widget.member.rawLevel.toUpperCase();
     final name = widget.member.levelName;
-    if (raw.contains('DIAMOND') || name.contains('钻')) {
+    if (raw.contains('DIAMOND') || name.contains('钻') || name.contains('黑金')) {
       matchCode = 'DIAMOND';
-    } else if (raw.contains('PLATINUM') || name.contains('白金')) {
+    } else if (raw.contains('PLATINUM') || name.contains('白金') || name.contains('铂金')) {
       matchCode = 'PLATINUM';
+    } else if (raw == 'VIP' || (raw.contains('VIP') && !raw.contains('GOLD')) || name.contains('尊享')) {
+      matchCode = 'VIP';
     } else if (raw.contains('GOLD') || name.contains('金')) {
       matchCode = 'GOLD';
     } else if (raw.contains('SILVER') || name.contains('银')) {
       matchCode = 'SILVER';
-    } else if (raw.contains('VIP')) {
-      matchCode = 'VIP';
     }
     _selectedLevel = matchCode;
 
@@ -194,12 +194,13 @@ class _MemberDetailDialogState extends State<MemberDetailDialog> with SingleTick
             ),
             onPressed: () async {
               final delta = int.tryParse(deltaCtrl.text.trim()) ?? 0;
+              final reason = reasonCtrl.text.trim();
               if (delta == 0) return;
               Navigator.pop(ctx);
               final ok = await context.read<MemberProvider>().adjustPoints(
                 widget.member.id,
                 delta,
-                reasonCtrl.text.trim(),
+                reason,
               );
               if (ok && mounted) {
                 setState(() {
@@ -215,7 +216,12 @@ class _MemberDetailDialogState extends State<MemberDetailDialog> with SingleTick
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        deltaCtrl.dispose();
+        reasonCtrl.dispose();
+      });
+    });
   }
 
   @override

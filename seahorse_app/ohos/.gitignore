@@ -1,0 +1,12 @@
+# HarmonyOS NEXT ephemeral signing materials & build caches (NEVER COMMIT)
+signing/
+*.p12
+*.cer
+*.p7b
+.hvigor/
+oh_modules/
+build/
+entry/.preview/
+entry/build/
+entry/oh_modules/
+har/

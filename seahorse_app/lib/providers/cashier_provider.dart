@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/constants/constants.dart';
+import '../core/storage/local_storage.dart';
 import '../models/order_model.dart';
 import '../models/product_model.dart';
 import '../services/cashier_service.dart';
@@ -56,9 +57,12 @@ class CashierProvider extends ChangeNotifier {
     return rawTotalAmount - discountAmount;
   }
 
-  CashierProvider() {
-    loadProducts();
-    loadCategories();
+  CashierProvider({bool autoLoad = false}) {
+    final hasToken = (LocalStorage.getString('seahorse_token') ?? '').isNotEmpty;
+    if (autoLoad || hasToken) {
+      loadProducts();
+      loadCategories();
+    }
   }
 
   Future<bool> loadProducts({String? storeId}) async {

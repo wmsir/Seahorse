@@ -33,8 +33,12 @@ class _MainNavigationViewState extends State<MainNavigationView> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
       final store = context.read<StoreProvider>();
+      await store.loadStores();
+      if (!mounted) return;
+      store.reloadAllProviders(context);
       final storeId = store.currentStoreId.isNotEmpty ? store.currentStoreId : 'S001';
       NotificationPollService().startPolling(storeId: storeId);
       NotificationPollService().onAlertCallback = (title, message) {
@@ -128,7 +132,10 @@ class _MainNavigationViewState extends State<MainNavigationView> {
 
   @override
   void dispose() {
-    NotificationPollService().stopPolling();
+    final poll = NotificationPollService();
+    poll.onAlertCallback = null;
+    poll.onNoticeCallback = null;
+    poll.stopPolling();
     super.dispose();
   }
 

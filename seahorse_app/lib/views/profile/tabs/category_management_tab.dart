@@ -32,7 +32,7 @@ class _CategoryManagementTabState extends State<CategoryManagementTab> {
         if (mounted) {
           final s = context.read<StoreProvider>();
           context.read<CashierProvider>().loadCategories(
-            industry: s.currentStore?.industry.name,
+            industry: s.currentStore?.industry.code,
             storeId: s.currentStoreId,
             tenantId: s.currentStore?.tenantId,
           );
@@ -73,7 +73,7 @@ class _CategoryManagementTabState extends State<CategoryManagementTab> {
       await cashier.saveCategoryToServer({
         'name': name,
         'tenantId': store.currentStore?.tenantId,
-        'industry': store.currentStore?.industry.name ?? 'GENERAL',
+        'industry': store.currentStore?.industry.code ?? 'GENERAL',
         'sortOrder': cashier.categories.length + 1,
         'available': true,
       });
@@ -164,7 +164,7 @@ class _CategoryManagementTabState extends State<CategoryManagementTab> {
                 if (catId != null) 'id': catId,
                 'name': newName,
                 'tenantId': store.currentStore?.tenantId,
-                'industry': store.currentStore?.industry.name ?? 'GENERAL',
+                'industry': store.currentStore?.industry.code ?? 'GENERAL',
                 'sortOrder': category['sortOrder'] ?? 1,
                 'available': true,
               }, oldName: oldName);
@@ -182,7 +182,11 @@ class _CategoryManagementTabState extends State<CategoryManagementTab> {
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        editCtrl.dispose();
+      });
+    });
   }
 
   void _showDeleteCategoryDialog(Map<String, dynamic> category) {
@@ -287,7 +291,7 @@ class _CategoryManagementTabState extends State<CategoryManagementTab> {
 
     return RefreshIndicator(
       onRefresh: () async {
-        await cashier.loadCategories(industry: store.currentStore?.industry.name);
+        await cashier.loadCategories(industry: store.currentStore?.industry.code);
         await cashier.loadProducts();
       },
       child: ListView(
@@ -345,7 +349,7 @@ class _CategoryManagementTabState extends State<CategoryManagementTab> {
                     IconButton(
                       icon: const Icon(Icons.refresh, color: Colors.white70),
                       onPressed: () => cashier.loadCategories(
-                        industry: store.currentStore?.industry.name,
+                        industry: store.currentStore?.industry.code,
                         storeId: store.currentStoreId,
                         tenantId: store.currentStore?.tenantId,
                       ),

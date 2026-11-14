@@ -4,7 +4,7 @@
 > **状态**：正式发布 (Approved)  
 > **系统代号**：Seahorse (海马智慧门店)  
 > **核心宗旨**：“海马会员，记住每位好客。全场景履约，让门店经营稳赚增效。”  
-> **适配行业**：美容美发美甲 (BEAUTY)、餐饮轻食正餐 (RESTAURANT)、汽车养护维修 (AUTO)、专营名品零售 (RETAIL)
+> **适配行业（7大标准业态 `IndustryType`）**：美容美发美甲 (`BEAUTY`)、餐饮轻食正餐 (`RESTAURANT`)、汽车养护维修 (`AUTO`)、专营名品零售 (`RETAIL`)、足疗推拿养生 (`FOOT_SPA`)、新中式茶馆棋牌 (`TEA_HOUSE`)、宠物洗护医疗 (`PET`)
 
 ---
 
@@ -30,11 +30,11 @@
 | 统一术语 (Term) | 英文标识 (Identifier) | 严格领域定义与业务内涵 |
 | :--- | :--- | :--- |
 | **在场会话** | `ServiceSession` | 顾客物理到达门店、占用特定工位资源至结账离店的完整业务履约生命周期聚合。 |
-| **工位/空间** | `ServiceSpace` | 承载在场服务的物理设施，支持多行业别名：美发镜台/美甲位、餐饮散台/包厢、汽修举升机工位、零售体验台。 |
+| **工位/空间** | `ServiceSpace` | 承载在场服务的物理设施，支持 7 大业态别名：美发镜台/美甲位、餐饮散台/包厢、汽修举升机工位、零售体验台、足浴养生包厢、茶室棋牌包间、宠物洗护诊室。 |
 | **批次追加** | `OrderBatch` | 一次在场履约过程中由顾客主扫或员工发起的动态消费明细追加单元（如加菜、加精油、加零配件）。 |
 | **海马体常态记忆** | `CustomerHippocampusProfile` | 会员专属常态偏好切片，开单秒级呼出，消除重复交代成本。 |
-| **双轨储值金** | `DualBalanceAccount` | 会员账户中物理隔离的`本金 (Principal)`与`赠送金 (Gift)`资金池，支持等比分摊与优先扣本金。 |
-| **防超扣锁机制** | `AntiOverdrawLock` | 基于数据库乐观锁版本控制（CAS）与分布式互斥排队，确保次卡与储值资金在多并发扣减时零差错。 |
+| **双轨储值金** | `DualBalanceAccount` | 会员账户中物理隔离的`本金 (Principal)`与`赠送金 (Gift)`资金池，支持等比分摊与优先扣本金，内置 `@Version` 乐观锁版本控制。 |
+| **防超扣锁机制** | `AntiOverdrawLock` | 基于 JPA `@Version` 乐观锁版本控制（CAS，覆盖 `DualBalanceAccount` 与 `Product`）防止次卡、储值资金与商品库存在高并发扣减时超扣超卖。 |
 | **一人多店执业** | `MultiStorePractice` | 员工账号与多个授权执业门店的一对多绑定，登录自选工作台，严格遵循页签权限物理隔离。 |
 | **BOM物料配方** | `ProductBomRecipe` | 每一个收费服务项目对应的标准原物料消耗配额（如染发膏克数、全合成机油升数），收银时自动核销扣减。 |
 | **全口径成本** | `CostCenterLedger` | 包含固定成本（房租能耗、折旧）、变动成本（BOM耗材、营销补贴）与人工成本（底薪+提成自动汇总）的利润账本。 |
@@ -256,10 +256,10 @@
 - **聚合根 (Aggregate Root)**: `StaffOrganizationPractice`
 - **内部实体 (Entities)**:
   - `Tenant`: 顶级商户企业（开通套餐类型：体验版/专业版/旗舰版、扣减模式配置）。
-  - `Store`: 执业物理门店（所属行业：美业/餐饮/汽修/零售、空间别名、附加费名称）。
+  - `Store`: 执业物理门店（所属行业 7 大标准枚举 `IndustryType`：`BEAUTY` / `RESTAURANT` / `AUTO` / `RETAIL` / `FOOT_SPA` / `TEA_HOUSE` / `PET`、空间别名、附加费名称）。
   - `StaffMember`: 员工档案实体（真实姓名、手机号/账号、岗位名称、所属部门、基础底薪、提成率）。
   - `PracticeAssignment`: 多店兼职执业关系（员工允许执业的多个 `storeId` 列表、各个门店的工作台可见页签 `allowedMenuPaths`）。
-  - `JobApplication`: 招聘应聘全生命周期记录（候选人信息、应聘岗位、面试时间/形式/考官、面试通知短信副本、录用决策）。
+  - `JobApplication`: 招聘应聘全生命周期记录（候选人信息、应聘岗位、面试时间/形式/考官、面试通知短信副本、录用决策，持久化于 `sh_job_application`）。
 - **核心业务行为 (Domain Behaviors)**:
   - `authorizeMultiStorePractice(staffId, List<StoreId> stores, List<MenuPath> menus)`: 为员工授权兼职执业多店，并绑定页签权限。
   - `hireCandidateAndCreateAccount(JobApplication app)`: 候选人面试通过（`PASSED`）后，一键办理入职，系统自动依据门店行业指派部门，并创建系统登录账号（初始密码 `123456`），实现“招聘-面试-录用-开号”无缝闭环。
@@ -268,16 +268,16 @@
 
 ### 2.8 聚合 8：商品物料与配方 BOM 聚合根 (`ProductBomRecipe`)
 
-统筹管理零售实物、计量服务项目以及组合套餐的物料标准配方定额。
+统筹管理零售实物、计量服务项目以及原料耗材的标准配方定额。
 
 - **聚合根 (Aggregate Root)**: `ProductBomRecipe`
 - **内部实体与值对象**:
-  - `ProductEntity`: 商品/服务主档（标牌售价、会员专享价、库存、提成率、在售状态、单位、耗时）。
-  - `BomIngredient`: 配方消耗原料行项（原料SKU、原料名称、标准单次消耗量、计量单位、单位进价成本）。
-  - `ProductType`: `SERVICE` (服务项目), `RETAIL` (实物商品), `COMBO` (组合套餐)。
+  - `Product`: 商品/服务主档（标牌售价、成本价、库存、默认提成金额/比例、在售状态、单位、耗时、`@Version version` 乐观锁版本号）。
+  - `ProductBom`: 配方消耗原料行项（原料SKU、原料名称、标准单次消耗量、计量单位）。
+  - `ProductType`: `SERVICE` (计量服务项目), `PHYSICAL` (实物零售商品/套餐载体), `MATERIAL` (BOM配方原料耗材)。
 - **核心业务行为 (Domain Behaviors)**:
-  - `defineBomRecipe(productId, List<BomIngredient> ingredients)`: 为高附加值服务配置物料标准定额。
-  - `deductIngredientsOnCheckout(productId, quantity)`: 结算确认时按标准量扣除物料库存，若低于安全库存阈值自动上报缺货预警。
+  - `defineBomRecipe(productId, List<ProductBom> ingredients)`: 为高附加值服务配置物料标准定额。
+  - `deductIngredientsOnCheckout(productId, quantity)`: 履约/结算确认时按标准量原子扣除物料库存（含 `@Version` 乐观锁保护），若低于安全库存阈值自动上报缺货预警。
 
 ---
 
@@ -288,15 +288,15 @@
 采用策略模式（Strategy Pattern）与适配器模式，彻底屏蔽各第三方收单机构报文协议差异：
 
 ```
-                              +---------------------------------------+
-                              |   统一支付防腐接口 (PaymentGateway)    |
-                              +---------------------------------------+
-                                  ▲               ▲               ▲
-                                  │               │               │
-            ┌─────────────────────┴──────┐ ┌──────┴──────┐ ┌──────┴─────────────────────┐
-            │ WechatPayStrategy          │ │AlipayStrategy│ │ CashPayStrategy           │
-            │ (JSAPI/被扫条码/退款幂等)  │ │(当面付条码) │ │ (现金找零/脉冲开钱箱驱动) │
-            └────────────────────────────┘ └─────────────┘ └────────────────────────────┘
+                                   +-----------------------------------------+
+                                   |     统一支付防腐接口 (PaymentGateway)    |
+                                   +-----------------------------------------+
+                    ▲                   ▲                   ▲                   ▲
+                    │                   │                   │                   │
+    ┌───────────────┴──────┐ ┌──────────┴─────┐ ┌───────────┴──────┐ ┌──────────┴───────────────┐
+    │ WechatPayStrategy    │ │ AlipayStrategy │ │ UnionPayStrategy │ │ Cash / StoredValue /     │
+    │ (JSAPI/被扫条码)     │ │ (当面付条码)   │ │ (银联云闪付/刷卡)│ │ TimeCardPayStrategy      │
+    └──────────────────────┘ └────────────────┘ └──────────────────┘ └──────────────────────────┘
 ```
 
 ### 3.2 独立热敏打印沙箱 (`PrintSandboxHardwareACL`)
@@ -453,6 +453,12 @@ export class MarketingCareDomainEngine {
 
 ## 7. 架构演进与全生命周期交付保障
 
-1. **测试数据自洽与行业隔离规范**：全系统严格根据商户设定的行业类型（美业、餐饮、汽修、零售）提供自洽的默认职位、商品清单与空间别名，全流程绝无不相关业务脏数据。
-2. **容灾与高可用韧性**：系统前端集成优雅离线演示兜底机制，无论在断网还是局域网单机状态下，均可无阻碍畅享完整的开单加项、会员查询、收银结算与角色切换流程。
+1. **测试数据自洽与 7 大行业隔离规范**：全系统严格根据商户设定的行业类型（`BEAUTY` 美业、`RESTAURANT` 餐饮、`AUTO` 汽修、`RETAIL` 零售、`FOOT_SPA` 足疗养生、`TEA_HOUSE` 茶馆棋牌、`PET` 宠物门店）提供自洽的默认职位、商品清单与空间别名，全流程绝无不相关业务脏数据。
+2. **容灾与高可用韧性**：系统前端集成优雅离线演示兜底机制，无论在断网还是局域网单机状态下，均可无阻碍畅享完整的开单加项、会员查询与组合收银结算流程。
 3. **安全审计底线**：所有针对会员资金、提成和员工账号的关键变更均产生不可篡改的日志流水，构建全链路可审计的生产级 SaaS 商业闭环。
+4. **全平台原生客户端矩阵与自动化 CI/CD 交付**：
+   - **Web 收银与运营工作台** (`seahorse_web_front/`): Vue 3 + Vite + TypeScript + Element Plus；
+   - **Windows & macOS 原生桌面客户端** (`seahorse_desktop/`): Rust + Tauri v2，支持系统托盘常驻、多环境 API 网关切换与离线配置持久化；
+   - **Android / iOS / HarmonyOS NEXT 移动端 APP** (`seahorse_app/`): Flutter 3.x 跨端架构，覆盖全平台移动开单、预约排班、考勤打卡与平台运维；
+   - **顾客端微信小程序** (`seahorse_mini_program/`): 支持桌台/包厢扫码点单、在场动态追加与“海马体”会员档案自助查询；
+   - **GitHub Actions 云端自动构建流水线** (`.github/workflows/build-seahorse-clients.yml`): 一键并行编译产出 Windows NSIS/MSI、macOS Universal DMG、Android APK、iOS IPA 与 HarmonyOS NEXT HAP 安装包。

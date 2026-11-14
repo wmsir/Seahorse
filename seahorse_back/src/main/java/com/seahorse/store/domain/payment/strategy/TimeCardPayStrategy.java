@@ -32,10 +32,12 @@ public class TimeCardPayStrategy implements PaymentChannelStrategy {
         Long skuId = context.getTimeCardSkuId();
         int count = context.getTimeCardDeductCount() != null ? context.getTimeCardDeductCount() : 1;
 
+        java.time.LocalDate today = java.time.LocalDate.now();
         List<TimeCardBucket> buckets = timeCardBucketRepository.findByMemberIdAndStatus(memberId, com.seahorse.store.domain.member.enums.TimeCardStatus.ACTIVE.name());
         TimeCardBucket targetBucket = buckets.stream()
-                .filter(b -> skuId == null || b.getSkuId().equals(skuId))
-                .filter(b -> b.getRemainingTimes() >= count)
+                .filter(b -> skuId == null || skuId == 0L || b.getSkuId() == null || b.getSkuId() == 0L || b.getSkuId().equals(skuId))
+                .filter(b -> b.getExpireDate() == null || !b.getExpireDate().isBefore(today))
+                .filter(b -> b.getRemainingTimes() != null && b.getRemainingTimes() >= count)
                 .findFirst()
                 .orElse(null);
 

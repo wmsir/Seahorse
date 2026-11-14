@@ -322,7 +322,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { registerMerchantApi, loginApi } from '../api'
 import { useSystemDataStore } from '../stores/systemDataStore'
@@ -358,7 +358,7 @@ const enteringDashboard = ref(false)
 const registeredTenantData = ref<any>(null)
 
 // 行业字典
-const industryList = [
+const industryList: Array<{ code: 'BEAUTY' | 'RESTAURANT' | 'AUTO' | 'RETAIL'; name: string; icon: string; desc: string }> = [
   { code: 'BEAUTY', name: '美容美发美甲', icon: '💇', desc: '海马体偏好/技师排班/划卡' },
   { code: 'RESTAURANT', name: '餐饮轻食正餐', icon: '🍲', desc: '扫码点餐/桌台包厢/厨房打单' },
   { code: 'AUTO', name: '汽车养护维修', icon: '🚗', desc: '车牌识别/工位施工/配件出库' },
@@ -465,6 +465,15 @@ onMounted(() => {
   }
 })
 
+let smsTimer: ReturnType<typeof setInterval> | null = null
+
+onUnmounted(() => {
+  if (smsTimer) {
+    clearInterval(smsTimer)
+    smsTimer = null
+  }
+})
+
 const handleSendSms = () => {
   if (!regForm.value.contactPhone || !/^1[3-9]\d{9}$/.test(regForm.value.contactPhone.trim())) {
     ElMessage.warning('请输入有效的11位手机号码')
@@ -472,10 +481,12 @@ const handleSendSms = () => {
   }
   regForm.value.smsCode = '888888'
   smsCountDown.value = 60
-  const timer = setInterval(() => {
+  if (smsTimer) clearInterval(smsTimer)
+  smsTimer = setInterval(() => {
     smsCountDown.value--
-    if (smsCountDown.value <= 0) {
-      clearInterval(timer)
+    if (smsCountDown.value <= 0 && smsTimer) {
+      clearInterval(smsTimer)
+      smsTimer = null
     }
   }, 1000)
   ElMessage.success('短信验证码已发送！测试环境已自动填入 [888888]')
@@ -549,7 +560,7 @@ const handleRegisterTenant = async () => {
 
     registeredTenantData.value = payload
     registerSuccess.value = true
-    ElMessage.success('🎉 恭喜！SaaS 租户开通成功，已为您赋予 30 天超长免费全功能试用特权！')
+    ElMessage.success(`🎉 恭喜！SaaS 租户开通成功，已为您赋予 ${trialDays.value} 天超长免费全功能试用特权！`)
   } catch (e: any) {
     ElMessage.error(e.message || '租户入驻注册失败，请稍后重试')
   } finally {
@@ -560,34 +571,32 @@ const handleRegisterTenant = async () => {
 const handleEnterDashboard = async () => {
   enteringDashboard.value = true
   try {
-    const res: any = await loginApi(regForm.value.contactPhone, regForm.value.adminPassword)
-    localStorage.setItem('seahorse_token', res.token || 'tenant_token_' + Date.now())
-    localStorage.setItem('seahorse_user', regForm.value.adminRealName)
-    localStorage.setItem('seahorse_role', 'TENANT_ADMIN')
+    const res: any = await loginApi({
+      username: regForm.value.contactPhone.trim(),
+      password: regForm.value.adminPassword.trim()
+    })
+    if (!res?.token) {
+      ElMessage.error('获取登录令牌失败，请返回登录页使用注册手机号登录')
+      router.push('/login')
+      return
+    }
+    localStorage.setItem('seahorse_token', res.token)
+    localStorage.setItem('seahorse_user', res.realName || regForm.value.adminRealName)
+    localStorage.setItem('seahorse_username', res.username || regForm.value.contactPhone.trim())
+    localStorage.setItem('seahorse_role', res.role || 'TENANT_ADMIN')
     localStorage.setItem('seahorse_is_new_tenant', 'true')
-    localStorage.setItem('seahorse_tenant_id', res?.tenantId || ('T_' + Date.now()))
-    localStorage.setItem('seahorse_tenant_name', regForm.value.tenantName)
-    localStorage.setItem('seahorse_store_name', regForm.value.initialStoreName)
+    localStorage.setItem('seahorse_tenant_id', res.tenantId || '')
+    localStorage.setItem('seahorse_store_id', res.storeId || 'S001')
+    localStorage.setItem('seahorse_tenant_name', res.tenantName || regForm.value.tenantName)
+    localStorage.setItem('seahorse_store_name', res.storeName || regForm.value.initialStoreName)
     localStorage.removeItem('seahorse_user_menu_paths')
     localStorage.removeItem('seahorse_allowed_stores')
     localStorage.removeItem('seahorse_staff_id')
     ElMessage.success('欢迎进入海马智慧门店 SaaS 工作台！')
     router.push('/dashboard')
-  } catch (e) {
-    // 降级使用本地工作台
-    const fallbackTenantId = 'T_' + Date.now()
-    localStorage.setItem('seahorse_token', 'local_token_' + Date.now())
-    localStorage.setItem('seahorse_user', regForm.value.adminRealName)
-    localStorage.setItem('seahorse_role', 'TENANT_ADMIN')
-    localStorage.setItem('seahorse_is_new_tenant', 'true')
-    localStorage.setItem('seahorse_tenant_id', fallbackTenantId)
-    localStorage.setItem('seahorse_tenant_name', regForm.value.tenantName)
-    localStorage.setItem('seahorse_store_name', regForm.value.initialStoreName)
-    localStorage.removeItem('seahorse_user_menu_paths')
-    localStorage.removeItem('seahorse_allowed_stores')
-    localStorage.removeItem('seahorse_staff_id')
-    ElMessage.success('已直接进入门店工作台！')
-    router.push('/dashboard')
+  } catch (e: any) {
+    ElMessage.warning('租户已开通，请使用注册手机号与密码登录工作台')
+    router.push('/login')
   } finally {
     enteringDashboard.value = false
   }

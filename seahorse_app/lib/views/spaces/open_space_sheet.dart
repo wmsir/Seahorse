@@ -116,7 +116,11 @@ class _OpenSpaceSheetState extends State<OpenSpaceSheet> {
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.dispose();
+      });
+    });
   }
 
   void _submit() async {

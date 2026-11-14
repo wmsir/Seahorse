@@ -70,18 +70,6 @@ public class StoredValuePayStrategy implements PaymentChannelStrategy {
             BigDecimal[] deducted = account.deduct(amount, mode);
             dualBalanceAccountRepository.save(account);
 
-            final BigDecimal remainingTotal = account.getTotalBalance();
-            // 同步持久化会员累计消费与到店统计
-            memberRepository.findById(memberId).ifPresent(m -> {
-                m.setBalance(remainingTotal);
-                BigDecimal spent = m.getTotalSpent() != null ? m.getTotalSpent() : BigDecimal.ZERO;
-                m.setTotalSpent(spent.add(amount));
-                int visits = m.getVisitCount() != null ? m.getVisitCount() : 0;
-                m.setVisitCount(visits + 1);
-                m.setLastVisitTime(java.time.LocalDateTime.now());
-                memberRepository.save(m);
-            });
-
             log.info("【储值支付成功】会员ID={}, 扣减模式={}, 扣减本金={}, 扣减赠金={}, 剩余总额={}",
                     memberId, mode.getTitle(), deducted[0], deducted[1], account.getTotalBalance());
 

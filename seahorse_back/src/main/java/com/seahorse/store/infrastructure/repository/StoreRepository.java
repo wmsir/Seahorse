@@ -2,6 +2,7 @@ package com.seahorse.store.infrastructure.repository;
 
 import com.seahorse.store.domain.iam.model.Store;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
@@ -15,4 +16,7 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
     List<Store> findByTenantId(String tenantId);
     List<Store> findByTenantIdIn(Collection<String> tenantIds);
     List<Store> findByPhoneContaining(String phone);
+
+    @Query("SELECT s.industry, COUNT(s) FROM Store s WHERE s.status IS NULL OR UPPER(s.status) <> 'DELETED' GROUP BY s.industry")
+    List<Object[]> countActiveGroupByIndustry();
 }

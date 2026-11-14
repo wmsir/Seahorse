@@ -8,6 +8,9 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 
 import App from './App.vue'
 import router from './router'
+import { initDesktopApiConfig } from './utils/systemConfig'
+
+void initDesktopApiConfig()
 
 const app = createApp(App)
 

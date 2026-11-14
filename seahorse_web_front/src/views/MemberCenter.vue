@@ -198,7 +198,7 @@
         <div class="profile-hero-card">
           <div class="hero-left">
             <el-avatar :size="54" style="background-color: #0284c7; font-size: 20px;">
-              {{ currentProfile.member.name.substring(0, 1) }}
+              {{ (currentProfile.member?.name || '客').substring(0, 1) }}
             </el-avatar>
             <div>
               <div class="hero-name">
@@ -732,7 +732,7 @@
           <div style="text-align: right;">
             <el-tag size="small" type="success" effect="dark">{{ formatLevelName(qrMember.level, qrMember.levelName) }}</el-tag>
             <div style="font-size: 12px; color: #059669; font-weight: 600; margin-top: 4px;">
-              余额 ￥{{ (qrMember.totalBalance != null ? qrMember.totalBalance : (qrMember.balance || 0)).toFixed(2) }}
+              余额 ￥{{ Number(qrMember.totalBalance != null ? qrMember.totalBalance : (qrMember.balance || 0)).toFixed(2) }}
             </div>
           </div>
         </div>
@@ -808,7 +808,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, computed, reactive, nextTick } from 'vue'
+import { onMounted, onUnmounted, ref, computed, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import QRCode from 'qrcode'
 import {
@@ -831,6 +831,19 @@ const router = useRouter()
 const systemData = useSystemDataStore()
 const storeConfig = useStoreConfig()
 
+const getSafeMembersWithStats = (): any[] => {
+  try {
+    return systemData.membersWithStats || []
+  } catch {
+    return (systemData.members || []).map((m: any) => ({
+      ...m,
+      totalBalance: Number(m.totalBalance ?? m.balance ?? 0),
+      principalBalance: Number(m.principalBalance ?? m.balance ?? 0),
+      giftBalance: Number(m.giftBalance ?? 0)
+    }))
+  }
+}
+
 const handleQuickSimulateFollow = async (row: any, channel: string = 'WECHAT_MP') => {
   if (channel === 'WECHAT_MP' && row.wechatFollowStatus) {
     ElMessage.info(`会员 ${row.name} 已关注微信公众号 (OpenID: ${row.wechatOpenId || '已绑定'})`)
@@ -842,11 +855,11 @@ const handleQuickSimulateFollow = async (row: any, channel: string = 'WECHAT_MP'
   }
 
   try {
-    const res = await simulateFollowApi({
+    const res: any = await simulateFollowApi({
       phone: row.phone,
       channel
     })
-    if (res && res.data) {
+    if (res) {
       ElNotification({
         title: '扫码关注激活成功',
         message: `会员 ${row.name} 已成功关注 ${channel === 'WECHAT_MP' ? '微信服务号' : '支付宝生活号'}，已激活消费动账即时通知！`,
@@ -871,7 +884,7 @@ const memberRegisterLink = computed(() => {
   const ind = encodeURIComponent(storeConfig.industry || '')
   const phone = encodeURIComponent(storeConfig.phone || '')
   const addr = encodeURIComponent(storeConfig.address || '')
-  const hours = encodeURIComponent(storeConfig.businessHours || storeConfig.openTime || '')
+  const hours = encodeURIComponent(storeConfig.businessHours || '')
   return `${origin}/seahorse/member-register?storeId=${sId}&storeName=${sName}&industry=${ind}&phone=${phone}&address=${addr}&businessHours=${hours}`
 })
 
@@ -1166,11 +1179,6 @@ const handleRemovePrefTag = (idx: number) => {
   editingStoreRegisterConfig.preferenceTags.splice(idx, 1)
 }
 
-const handleResetDefaultPrefTags = () => {
-  editingStoreRegisterConfig.preferenceTags = getDefaultPrefTags()
-  ElMessage.info('已载入当前行业的推荐常态偏好标签')
-}
-
 const handleAddChargeOption = () => {
   const nextId = Date.now()
   const count = editingStoreRegisterConfig.chargeOptions.length + 1
@@ -1443,7 +1451,7 @@ const loadMembers = async () => {
       }
 
       // 真实计算型会员画像数据源 (累计消费、到店频次、储值余额等由真实流水实时计算)
-      let list = systemData.membersWithStats
+      let list = getSafeMembersWithStats()
       const curTid = storeConfig.tenantId || localStorage.getItem('seahorse_tenant_id') || 'T001'
       list = list.filter((m: any) => !m.tenantId || m.tenantId === curTid)
       if (searchQuery.value.trim()) {
@@ -1529,6 +1537,7 @@ const formatLevelName = (level: string, levelName?: string) => {
   switch (level) {
     case 'DIAMOND': return '黑钻至尊卡'
     case 'PLATINUM': return '铂金尊享卡'
+    case 'VIP': return 'VIP尊享卡'
     case 'GOLD': return '黄金VIP卡'
     case 'SILVER': return '银卡会员'
     case 'REGULAR': return '普卡会员'
@@ -1608,25 +1617,6 @@ const getLevelBadgeStyle = (level: string, levelName?: string) => {
   }
 }
 
-const getLevelTag = (level: string) => {
-  switch (level) {
-    case 'DIAMOND':
-    case '黑钻会员':
-      return 'danger'
-    case 'PLATINUM':
-    case '白金会员':
-      return 'warning'
-    case 'GOLD':
-    case '金卡会员':
-      return 'success'
-    case 'SILVER':
-    case '银卡会员':
-      return 'primary'
-    default:
-      return 'info'
-  }
-}
-
 const handleOpenProfile = async (memberId: number) => {
   currentProfile.value = null
   profileLoading.value = true
@@ -1640,17 +1630,26 @@ const handleOpenProfile = async (memberId: number) => {
     if (profileData && profileData.member) {
       currentProfile.value = profileData
     } else {
-      const found = systemData.membersWithStats.find((m: any) => m.id === memberId) ||
-                    (systemData.membersWithStats.length > 0 ? systemData.membersWithStats[0] : null)
+      const statsList = getSafeMembersWithStats()
+      const found = statsList.find((m: any) => m.id === memberId) ||
+                    members.value.find((m: any) => m.id === memberId) ||
+                    null
       if (found) {
         currentProfile.value = {
           member: found,
-          dualAccount: {
-            principalBalance: found.principalBalance,
-            giftBalance: found.giftBalance,
-            totalBalance: found.totalBalance
+          dualBalance: {
+            principalBalance: Number(found.principalBalance ?? found.balance ?? 0).toFixed(2),
+            giftBalance: Number(found.giftBalance ?? 0).toFixed(2),
+            totalBalance: Number(found.totalBalance ?? found.balance ?? 0).toFixed(2),
+            deductMode: found.deductMode || 'PROPORTIONAL'
           },
-          timeCardBuckets: found.timeCards,
+          timeCards: (found.timeCards || []).map((tc: any) => ({
+            ...tc,
+            skuName: tc.skuName || tc.cardName || '次卡项目',
+            remainingTimes: tc.remainingTimes != null
+              ? tc.remainingTimes
+              : Math.max(0, Number(tc.totalTimes || 0) - Number(tc.usedTimes || 0))
+          })),
           preferences: (() => {
             const savedPrefsRaw = localStorage.getItem(`seahorse_member_preferences_${found.id}`) ||
                                   localStorage.getItem(`seahorse_member_preferences_${found.phone}`)
@@ -1791,25 +1790,31 @@ const handleConfirmRegister = async () => {
     ElMessage.warning('请填写姓名与手机号')
     return
   }
+  const regName = registerForm.value.name.trim()
+  const regPhone = registerForm.value.phone.trim()
   try {
+    let cloudSynced = false
     try {
-      await registerMemberApi(registerForm.value)
-      ElMessage.success('新会员注册成功！已实时同步至云端数据库。')
+      await registerMemberApi({
+        ...registerForm.value,
+        name: regName,
+        phone: regPhone,
+        storeId: storeConfig.currentStoreId || 'S001'
+      })
+      cloudSynced = true
     } catch (err: any) {
       console.warn('registerMemberApi error:', err)
-      ElMessage.success('新会员注册成功！')
     }
 
     systemData.registerMember({
-      name: registerForm.value.name,
-      phone: registerForm.value.phone,
+      name: regName,
+      phone: regPhone,
       gender: registerForm.value.gender as any,
       initialPrincipal: registerForm.value.initialPrincipal,
       initialGift: registerForm.value.initialGift
     })
 
     openRegisterDialog.value = false
-    await loadMembers()
 
     // 新人开卡自动派发优惠券闭环
     const cfg = getWelcomeConfig()
@@ -1835,8 +1840,8 @@ const handleConfirmRegister = async () => {
         receiveTime: new Date().toISOString().slice(0, 19).replace('T', ' ')
       }
 
-      const phoneKey = `seahorse_member_coupons_${registerForm.value.phone}`
-      const nameKey = `seahorse_member_coupons_${registerForm.value.name}`
+      const phoneKey = `seahorse_member_coupons_${regPhone}`
+      const nameKey = `seahorse_member_coupons_${regName}`
       const existing = JSON.parse(localStorage.getItem(phoneKey) || '[]')
       existing.unshift(issuedCoupon)
       localStorage.setItem(phoneKey, JSON.stringify(existing))
@@ -1844,15 +1849,23 @@ const handleConfirmRegister = async () => {
 
       ElNotification({
         title: '🎉 会员开卡成功并自动发放优惠券',
-        message: `已自动为【${registerForm.value.name}】发放迎新券【${cfg.couponName}】(立减￥${cfg.amount}，有效期至 ${expireStr})，已放入其专属卡包！`,
+        message: `已自动为【${regName}】发放迎新券【${cfg.couponName}】(立减￥${cfg.amount}，有效期至 ${expireStr})，已放入其专属卡包！`,
         type: 'success',
         duration: 5000
       })
     } else {
-      ElMessage.success('会员开卡成功！')
+      ElMessage.success(cloudSynced ? '新会员注册成功！已实时同步至云端数据库。' : '会员开卡成功！')
     }
 
-    loadMembers()
+    registerForm.value = {
+      name: '',
+      phone: '',
+      gender: 'FEMALE',
+      deductMode: 'PROPORTIONAL',
+      initialPrincipal: 0,
+      initialGift: 0
+    }
+    await loadMembers()
   } catch (e) {
     console.error(e)
   }
@@ -1863,19 +1876,34 @@ const handleConfirmAddPref = async () => {
     ElMessage.warning('请填写记忆特征内容')
     return
   }
+  const targetMemberId = currentProfile.value?.member?.id
+  if (!targetMemberId) {
+    ElMessage.warning('未找到当前会员档案')
+    return
+  }
   try {
-    prefForm.value.memberId = currentProfile.value.member.id
+    prefForm.value.memberId = targetMemberId
     await savePreferenceApi(prefForm.value)
     ElMessage.success('海马体记忆档案更新成功！')
     openAddPrefDialog.value = false
-    currentProfile.value = await getMemberProfileApi(currentProfile.value.member.id)
-  } catch (e) {
+    prefForm.value.tagValue = ''
+    prefForm.value.notes = ''
+    currentProfile.value = await getMemberProfileApi(targetMemberId)
+  } catch (e: any) {
     console.error(e)
+    ElMessage.error(e?.message || '保存记忆档案失败')
   }
 }
 
 onMounted(() => {
   loadMembers()
+})
+
+onUnmounted(() => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
 })
 </script>
 

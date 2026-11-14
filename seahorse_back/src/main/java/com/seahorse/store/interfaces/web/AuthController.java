@@ -56,6 +56,24 @@ public class AuthController {
     private final com.seahorse.store.application.service.AuditLogAppService auditLogAppService;
     private final jakarta.servlet.http.HttpServletRequest request;
 
+    @org.springframework.beans.factory.annotation.Value("${spring.profiles.active:dev}")
+    private String activeProfile;
+
+    private static final java.security.SecureRandom RESET_RANDOM = new java.security.SecureRandom();
+    private final java.util.concurrent.ConcurrentHashMap<Long, ResetCodeEntry> resetCodeCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static class ResetCodeEntry {
+        private final String code;
+        private final java.time.Instant expireAt;
+        private int attempts;
+
+        private ResetCodeEntry(String code, java.time.Instant expireAt) {
+            this.code = code;
+            this.expireAt = expireAt;
+            this.attempts = 0;
+        }
+    }
+
     @Data
     public static class LoginRequest {
         private String username;
@@ -69,6 +87,112 @@ public class AuthController {
     public static class MemberLoginRequest {
         private String phone;
         private String password;
+    }
+
+    @Data
+    public static class SendResetCodeRequest {
+        private String account;
+    }
+
+    @Data
+    public static class ResetPasswordByCodeRequest {
+        private String account;
+        private String code;
+        private String newPassword;
+    }
+
+    @Operation(summary = "忘记密码-发送找回密码验证码 (公开接口)")
+    @PostMapping("/send-reset-code")
+    public ApiResponse<Map<String, Object>> sendResetCode(@RequestBody SendResetCodeRequest req) {
+        Employee emp = resolveEmployeeByAccount(req != null ? req.getAccount() : null);
+        String code = String.format("%06d", RESET_RANDOM.nextInt(1_000_000));
+        resetCodeCache.put(emp.getId(), new ResetCodeEntry(code, java.time.Instant.now().plusSeconds(300)));
+
+        String phone = emp.getPhone() != null ? emp.getPhone().trim() : "";
+        String maskedPhone = phone.length() >= 7
+                ? phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4)
+                : "已绑定账号";
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("account", emp.getUsername());
+        data.put("maskedPhone", maskedPhone);
+        data.put("expireSeconds", 300);
+        if (!"prod".equalsIgnoreCase(activeProfile)) {
+            data.put("devCode", code);
+            data.put("code", code);
+        }
+        return ApiResponse.success("验证码已发送，5分钟内有效", data);
+    }
+
+    @Operation(summary = "忘记密码-通过验证码重置登录密码 (公开接口)")
+    @PostMapping("/reset-password")
+    public ApiResponse<Map<String, Object>> resetPasswordByCode(@RequestBody ResetPasswordByCodeRequest req) {
+        if (req == null || req.getCode() == null || req.getCode().trim().isEmpty()) {
+            throw new ServiceException(400, "请输入6位验证码");
+        }
+        if (req.getNewPassword() == null || req.getNewPassword().trim().length() < 6) {
+            throw new ServiceException(400, "新密码长度不能少于6位字符");
+        }
+
+        Employee emp = resolveEmployeeByAccount(req.getAccount());
+        ResetCodeEntry entry = resetCodeCache.get(emp.getId());
+        if (entry == null || java.time.Instant.now().isAfter(entry.expireAt)) {
+            resetCodeCache.remove(emp.getId());
+            throw new ServiceException(400, "验证码已过期或不存在，请重新获取");
+        }
+        entry.attempts++;
+        if (entry.attempts > 5) {
+            resetCodeCache.remove(emp.getId());
+            throw new ServiceException(429, "验证码错误次数过多，请重新获取验证码");
+        }
+        if (!entry.code.equals(req.getCode().trim())) {
+            throw new ServiceException(400, "验证码不正确，请核对后重试");
+        }
+
+        resetCodeCache.remove(emp.getId());
+        emp.setPassword(passwordEncoder.encode(req.getNewPassword().trim()));
+        employeeRepository.save(emp);
+
+        auditLogAppService.recordLog(
+                emp.getTenantId(),
+                null,
+                emp.getStoreId(),
+                null,
+                emp.getId(),
+                emp.getUsername(),
+                emp.getRealName(),
+                "自助找回重置密码",
+                "SECURITY",
+                getClientIp(request),
+                getClientDevice(request),
+                "SUCCESS",
+                "通过验证码校验完成自助密码重置"
+        );
+
+        Map<String, Object> res = new HashMap<>();
+        res.put("username", emp.getUsername());
+        res.put("updated", true);
+        return ApiResponse.success("密码重置成功，请使用新密码登录", res);
+    }
+
+    private Employee resolveEmployeeByAccount(String rawAccount) {
+        if (rawAccount == null || rawAccount.trim().isEmpty()) {
+            throw new ServiceException(400, "请输入登录账号或绑定手机号");
+        }
+        String account = rawAccount.trim();
+        Employee emp = employeeRepository.findByUsername(account)
+                .filter(e -> !Boolean.TRUE.equals(e.getIsDeleted()) && !"DELETED".equalsIgnoreCase(e.getStatus()))
+                .orElse(null);
+        if (emp == null) {
+            emp = employeeRepository.findByPhone(account).stream()
+                    .filter(e -> !Boolean.TRUE.equals(e.getIsDeleted()) && !"DELETED".equalsIgnoreCase(e.getStatus()))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (emp == null) {
+            throw new ServiceException(404, "未找到该账号或绑定手机号对应的员工档案");
+        }
+        return emp;
     }
 
     @Operation(summary = "获取公开SaaS会员套餐版本与试用期定价配置")
@@ -211,8 +335,8 @@ public class AuthController {
                 .map(s -> LoginResponseVO.StoreItemVO.builder()
                         .storeId(s.getStoreId())
                         .storeName(s.getStoreName())
-                        .industry(s.getIndustry().name())
-                        .industryDesc(s.getIndustry().getDescription())
+                        .industry(s.getIndustry() != null ? s.getIndustry().name() : "BEAUTY")
+                        .industryDesc(s.getIndustry() != null ? s.getIndustry().getDescription() : "美业服务")
                         .address(s.getAddress())
                         .phone(s.getPhone())
                         .build())
@@ -243,8 +367,8 @@ public class AuthController {
                 .storeId(effectiveStoreId)
                 .storeName(storeName)
                 .industry(industry)
-                .plan(sub != null ? sub.getPlan().name() : (isPlatformDev ? "ENTERPRISE" : "PROFESSIONAL"))
-                .planName(sub != null ? sub.getPlan().getDescription() : (isPlatformDev ? "平台开发运维端" : "专业成长版"))
+                .plan(sub != null && sub.getPlan() != null ? sub.getPlan().name() : (isPlatformDev ? "ENTERPRISE" : "PROFESSIONAL"))
+                .planName(sub != null && sub.getPlan() != null ? sub.getPlan().getDescription() : (isPlatformDev ? "平台开发运维端" : "专业成长版"))
                 .deductMode(tenant != null && tenant.getDeductMode() != null ? tenant.getDeductMode().name() : DeductMode.PROPORTIONAL.name())
                 .storageQuotaGb(sub != null ? sub.getStorageQuotaGb() : (isPlatformDev ? 9999 : 50))
                 .expireDate(sub != null ? sub.getExpireDate() : null)

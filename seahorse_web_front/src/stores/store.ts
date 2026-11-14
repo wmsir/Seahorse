@@ -1,13 +1,22 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getCurrentIndustryApi, getTenantStoresApi, getCurrentSubscriptionApi } from '../api'
-import { unlockTenant, syncAndUnlockTenantQuota } from '../utils/tenantQuotaService'
+import { syncAndUnlockTenantQuota } from '../utils/tenantQuotaService'
 
 export interface StoreItem {
   storeId: string
   storeName: string
+  name?: string
   industry: string
   industryDesc: string
+  industryCategoryName?: string
+  industryCategoryId?: number | null
+  industryCategoryGroup?: string
+  address?: string
+  phone?: string
+  slogan?: string
+  businessHours?: string
+  status?: string
 }
 
 export const useStoreConfig = defineStore('storeConfig', () => {
@@ -26,11 +35,12 @@ export const useStoreConfig = defineStore('storeConfig', () => {
   const spaceAlias = ref(localStorage.getItem('seahorse_custom_space_alias') || getDefaultSpaceAlias('BEAUTY'))
   const appendActionAlias = ref('加护理')
   const defaultFeeName = ref('造型费')
-  const isNewTenant = localStorage.getItem('seahorse_is_new_tenant') === 'true'
-  const storeName = ref(localStorage.getItem('seahorse_store_name') ?? (isNewTenant ? '' : '海马智慧门店 (旗舰体验中心)'))
-  const currentStoreId = ref(localStorage.getItem('seahorse_store_id') ?? (isNewTenant ? '' : 'S001'))
-  const tenantId = ref(localStorage.getItem('seahorse_tenant_id') ?? (isNewTenant ? '' : 'T001'))
-  const tenantName = ref(localStorage.getItem('seahorse_tenant_name') ?? (isNewTenant ? '' : '海马智慧连锁集团'))
+  const isNewTenantFlag = localStorage.getItem('seahorse_is_new_tenant') === 'true'
+  const isNewTenant = ref(isNewTenantFlag)
+  const storeName = ref(localStorage.getItem('seahorse_store_name') ?? (isNewTenantFlag ? '' : '海马智慧门店 (旗舰体验中心)'))
+  const currentStoreId = ref(localStorage.getItem('seahorse_store_id') ?? (isNewTenantFlag ? '' : 'S001'))
+  const tenantId = ref(localStorage.getItem('seahorse_tenant_id') ?? (isNewTenantFlag ? '' : 'T001'))
+  const tenantName = ref(localStorage.getItem('seahorse_tenant_name') ?? (isNewTenantFlag ? '' : '海马智慧连锁集团'))
   const plan = ref(localStorage.getItem('seahorse_plan') || 'FLAGSHIP')
   const expireDate = ref(localStorage.getItem('seahorse_expire_date') || '')
   const status = ref(localStorage.getItem('seahorse_tenant_status') || 'ACTIVE')
@@ -93,6 +103,7 @@ export const useStoreConfig = defineStore('storeConfig', () => {
           localStorage.setItem('seahorse_store_name', data.storeName)
         }
         if (data.storeId && data.storeName) {
+          isNewTenant.value = false
           localStorage.removeItem('seahorse_is_new_tenant')
         }
         if (data.deductMode) {
@@ -153,6 +164,7 @@ export const useStoreConfig = defineStore('storeConfig', () => {
         stores.value = list
         localStorage.setItem('seahorse_stores_data', JSON.stringify(list))
         if (list.length > 0) {
+          isNewTenant.value = false
           localStorage.removeItem('seahorse_is_new_tenant')
           const matched = list.find((s: any) => s.storeId === currentStoreId.value) || list[0]
           if (matched) {
@@ -216,7 +228,7 @@ export const useStoreConfig = defineStore('storeConfig', () => {
           status.value = res.status
           localStorage.setItem('seahorse_tenant_status', res.status)
         }
-        if (res.tenantName && !isNewTenant) {
+        if (res.tenantName && !isNewTenant.value) {
           tenantName.value = res.tenantName
           localStorage.setItem('seahorse_tenant_name', res.tenantName)
         }
@@ -251,6 +263,7 @@ export const useStoreConfig = defineStore('storeConfig', () => {
     status,
     expireDate,
     isTrial,
+    isNewTenant,
     trialDaysRemaining,
     deductMode,
     industryCategoryId,

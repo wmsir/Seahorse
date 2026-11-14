@@ -7,7 +7,6 @@ import com.seahorse.store.common.ServiceException;
 import com.seahorse.store.context.TenantContext;
 import com.seahorse.store.domain.common.constant.CommonConstants;
 import com.seahorse.store.domain.event.ItemAppendedEvent;
-import com.seahorse.store.domain.event.SessionOpenedEvent;
 import com.seahorse.store.domain.iam.model.Store;
 import com.seahorse.store.domain.member.model.Member;
 import com.seahorse.store.domain.product.model.Product;
@@ -128,8 +127,6 @@ public class ServiceSessionAppService {
         space.occupy(session.getId());
         spaceRepository.save(space);
 
-        // 发布开单领域事件（触发迎宾播报或LED投屏）
-        eventPublisher.publishEvent(new SessionOpenedEvent(this, session));
         log.info("【开单履约成功】会话号={}, 空间={}, 顾客={}", sessionNo, space.getSpaceName(), customerName);
 
         return session;
@@ -204,8 +201,11 @@ public class ServiceSessionAppService {
                 for (AppendItemsCommand.PerformerShareParam p : itemParam.getPerformers()) {
                     BigDecimal ratio = p.getShareRatio() != null ? p.getShareRatio() : BigDecimal.ONE;
                     BigDecimal perf = subtotal.multiply(ratio);
-                    BigDecimal commRate = product.getDefaultCommission() != null ? product.getDefaultCommission() : BigDecimal.valueOf(0.15);
-                    BigDecimal comm = perf.multiply(commRate);
+                    BigDecimal commConfig = product.getDefaultCommission() != null ? product.getDefaultCommission() : BigDecimal.valueOf(0.15);
+                    // 兼容一口价固定提成金额(>1元)与百分比提成比例(0~1)两种配置形态
+                    BigDecimal comm = commConfig.compareTo(BigDecimal.ONE) > 0
+                            ? commConfig.multiply(BigDecimal.valueOf(qty)).multiply(ratio)
+                            : perf.multiply(commConfig);
 
                     PerformerShare share = PerformerShare.builder()
                             .lineItemId(lineItem.getId())

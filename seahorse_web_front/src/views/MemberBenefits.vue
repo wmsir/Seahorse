@@ -369,42 +369,60 @@ const displayIndustryName = computed(() => {
   }
 })
 
-// 会员卡等级权益配置
+// 会员卡等级权益配置（严格对齐后端 MemberLevel 6 级标准）
 const memberTierCards = ref([
   {
     code: 'REGULAR',
     name: '普卡会员',
     icon: '🥉',
-    discountText: '享 9.8 折',
+    discountText: '无折扣',
     desc: '进店开卡激活即享，享有常态海马体偏好记忆与消费积分礼遇。',
-    perks: ['消费积分累积', '生日立减礼包', '海马体熟客档案'],
+    perks: ['消费积分累积', '生日专属关怀', '海马体熟客档案'],
     bgClass: 'tier-bronze'
   },
   {
     code: 'SILVER',
     name: '银卡会员',
     icon: '🥈',
-    discountText: '享 9.2 折',
-    desc: '首充即享超值优惠，项目及商品均享 9.2 折特权。',
-    perks: ['9.2折全单优惠', '专属茶饮服务', '优先免排队预约'],
+    discountText: '享 9.5 折',
+    desc: '首充激活超值礼遇，门店服务与项目尊享 95 折会员优惠。',
+    perks: ['95折会员优惠', '专属茶饮服务', '优先免排队预约'],
     bgClass: 'tier-silver'
   },
   {
     code: 'GOLD',
     name: '金卡会员',
     icon: '🥇',
-    discountText: '享 8.5 折',
-    desc: '主力推荐尊享卡，享受 8.5 折与指定主理人专属服务。',
-    perks: ['8.5折尊享特权', '积分1.5倍累加', '包厢免费升级', '技术总监点单'],
+    discountText: '享 9.0 折',
+    desc: '主力推荐热门等级，享受全场 90 折与金牌技师优先排班。',
+    perks: ['90折尊享特权', '生日月专属礼券', '指定金牌技师'],
     bgClass: 'tier-gold'
   },
   {
+    code: 'VIP',
+    name: 'VIP尊享卡',
+    icon: '🌟',
+    discountText: '享 8.8 折',
+    desc: '进阶忠实贵宾礼遇，享 88 折优待与节日私享定制礼盒。',
+    perks: ['88折贵宾优待', '积分加速累积', '节日定制礼盒'],
+    bgClass: 'tier-vip'
+  },
+  {
     code: 'PLATINUM',
-    name: '白金黑钻卡',
+    name: '白金会员',
+    icon: '💠',
+    discountText: '享 8.5 折',
+    desc: '高阶尊崇白金身份，全场享 85 折及独立私密包厢免费升级。',
+    perks: ['85折白金特权', '独立私享包厢', '亲友同行同折'],
+    bgClass: 'tier-platinum'
+  },
+  {
+    code: 'DIAMOND',
+    name: '黑钻至尊卡',
     icon: '💎',
-    discountText: '享 7.5 ~ 8 折',
-    desc: '至尊贵宾尊贵特权，全店最高折扣权益与私人管家一对一。',
-    perks: ['至尊7.5折底价', '充值超额赠金', 'VIP专属包厢', '免费泊车洗车'],
+    discountText: '享 8.0 折',
+    desc: '顶格黑钻贵宾礼遇，全店享最高 80 折权益与总监一对一管家服务。',
+    perks: ['80折顶格底价', '总监免服务费', 'VIP专属管家'],
     bgClass: 'tier-diamond'
   }
 ])
@@ -480,17 +498,43 @@ onMounted(async () => {
     console.log('获取远端门店信息回退本地资料', e)
   }
 
+  const parseArrayField = (val: any): any[] => {
+    if (Array.isArray(val)) return val
+    if (typeof val === 'string' && val.trim()) {
+      try {
+        const parsed = JSON.parse(val)
+        return Array.isArray(parsed) ? parsed : []
+      } catch {
+        return []
+      }
+    }
+    return []
+  }
+
   try {
     const cfgRes: any = await getStoreRegisterConfigApi(sId)
     if (cfgRes) {
-      if (Array.isArray(cfgRes.preferenceTags) && cfgRes.preferenceTags.length > 0) {
-        storePreferenceTags.value = cfgRes.preferenceTags
+      const tags = parseArrayField(cfgRes.preferenceTags)
+      if (tags.length > 0) {
+        storePreferenceTags.value = tags
       }
-      if (Array.isArray(cfgRes.chargeOptions) && cfgRes.chargeOptions.length > 0) {
-        chargeOptions.value = cfgRes.chargeOptions
+      const opts = parseArrayField(cfgRes.chargeOptions)
+      if (opts.length > 0) {
+        chargeOptions.value = opts
       }
     }
-  } catch {}
+  } catch {
+    try {
+      const localCfg = localStorage.getItem(`seahorse_store_register_config_${sId}`)
+      if (localCfg) {
+        const parsed = JSON.parse(localCfg)
+        const tags = parseArrayField(parsed?.preferenceTags)
+        if (tags.length > 0) storePreferenceTags.value = tags
+        const opts = parseArrayField(parsed?.chargeOptions)
+        if (opts.length > 0) chargeOptions.value = opts
+      }
+    } catch {}
+  }
 })
 </script>
 
@@ -763,6 +807,12 @@ onMounted(async () => {
 }
 .tier-gold {
   background: linear-gradient(135deg, #b45309, #d97706);
+}
+.tier-vip {
+  background: linear-gradient(135deg, #be185d, #db2777);
+}
+.tier-platinum {
+  background: linear-gradient(135deg, #5b21b6, #7c3aed);
 }
 .tier-diamond {
   background: linear-gradient(135deg, #0f172a, #334155);

@@ -17,11 +17,11 @@ ON DUPLICATE KEY UPDATE `store_name` = VALUES(`store_name`);
 -- 2. 员工账号 (默认密码: 123456 -> BCrypt hash)
 INSERT INTO `sh_employee` (`id`, `tenant_id`, `store_id`, `username`, `password`, `real_name`, `phone`, `role`, `default_commission_rate`, `status`)
 VALUES 
-(1, 'T001', 'S001', 'admin', '$2a$10$w857jO8F8r8eB5.FjHjCMe7Wz3m5R2F8pGj6VwB5x8s8x8s8x8s8x', '老板/总管理员', '13800000001', 'SUPER_ADMIN', 0.0000, 'ACTIVE'),
-(2, 'T001', 'S001', 'manager', '$2a$10$w857jO8F8r8eB5.FjHjCMe7Wz3m5R2F8pGj6VwB5x8s8x8s8x8s8x', '李店长', '13800000002', 'STORE_MANAGER', 0.0500, 'ACTIVE'),
-(3, 'T001', 'S001', 'cashier', '$2a$10$w857jO8F8r8eB5.FjHjCMe7Wz3m5R2F8pGj6VwB5x8s8x8s8x8s8x', '小美前台收银', '13800000003', 'CASHIER', 0.0200, 'ACTIVE'),
-(4, 'T001', 'S001', 'tony', '$2a$10$w857jO8F8r8eB5.FjHjCMe7Wz3m5R2F8pGj6VwB5x8s8x8s8x8s8x', '托尼发型总监', '13800000004', 'TECHNICIAN', 0.2500, 'ACTIVE'),
-(5, 'T001', 'S001', 'kevin', '$2a$10$w857jO8F8r8eB5.FjHjCMe7Wz3m5R2F8pGj6VwB5x8s8x8s8x8s8x', '凯文机修大工', '13800000005', 'TECHNICIAN', 0.2000, 'ACTIVE')
+(1, 'T001', 'S001', 'admin', '$2a$10$Fuj3oPehgF0lxl0nborbV.5xFkcaBRy0EDSSxwkXTSUfXbsJ/dZyK', '老板/总管理员', '13800000001', 'SUPER_ADMIN', 0.0000, 'ACTIVE'),
+(2, 'T001', 'S001', 'manager', '$2a$10$Fuj3oPehgF0lxl0nborbV.5xFkcaBRy0EDSSxwkXTSUfXbsJ/dZyK', '李店长', '13800000002', 'STORE_MANAGER', 0.0500, 'ACTIVE'),
+(3, 'T001', 'S001', 'cashier', '$2a$10$Fuj3oPehgF0lxl0nborbV.5xFkcaBRy0EDSSxwkXTSUfXbsJ/dZyK', '小美前台收银', '13800000003', 'CASHIER', 0.0200, 'ACTIVE'),
+(4, 'T001', 'S001', 'tony', '$2a$10$Fuj3oPehgF0lxl0nborbV.5xFkcaBRy0EDSSxwkXTSUfXbsJ/dZyK', '托尼发型总监', '13800000004', 'TECHNICIAN', 0.2500, 'ACTIVE'),
+(5, 'T001', 'S001', 'kevin', '$2a$10$Fuj3oPehgF0lxl0nborbV.5xFkcaBRy0EDSSxwkXTSUfXbsJ/dZyK', '凯文机修大工', '13800000005', 'TECHNICIAN', 0.2000, 'ACTIVE')
 ON DUPLICATE KEY UPDATE `real_name` = VALUES(`real_name`);
 
 -- 3. 空间工位与桌台

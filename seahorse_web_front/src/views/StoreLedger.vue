@@ -102,7 +102,7 @@
           <!-- 筛选与搜索工具栏 -->
           <div class="filter-row">
             <div class="filter-capsules">
-              <el-radio-group v-model="categoryFilter" size="default">
+              <el-radio-group v-model="categoryFilter" size="default" @change="currentPage = 1">
                 <el-radio-button label="ALL">全部开支 ({{ activeExpenseList.length }})</el-radio-button>
                 <el-radio-button label="RENT">🏢 房租物业水电</el-radio-button>
                 <el-radio-button label="SUPPLY">🧴 耗材备货采购</el-radio-button>
@@ -121,6 +121,7 @@
                 value-format="YYYY-MM"
                 style="width: 140px;"
                 clearable
+                @change="currentPage = 1"
               />
               <el-input
                 v-model="searchKeyword"
@@ -128,6 +129,8 @@
                 prefix-icon="Search"
                 clearable
                 style="width: 220px;"
+                @input="currentPage = 1"
+                @clear="currentPage = 1"
               />
             </div>
           </div>
@@ -488,8 +491,20 @@ watch(() => [route.path, route.query.tab], () => {
   syncTabFromRoute()
 })
 
+const formatLocalDate = (d: Date = new Date()): string => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+const currentStoreId = computed(() => {
+  return localStorage.getItem('seahorse_store_id') || systemData.stores[0]?.storeId || 'S001'
+})
+
 const currentStoreName = computed(() => {
-  return systemData.stores[0]?.storeName || '海马智慧门店旗舰店'
+  const matched = systemData.stores.find(s => s.storeId === currentStoreId.value)
+  return matched?.storeName || localStorage.getItem('seahorse_store_name') || systemData.stores[0]?.storeName || '海马智慧门店旗舰店'
 })
 
 const currentIndustryName = computed(() => {
@@ -581,14 +596,14 @@ const filteredExpenses = computed(() => {
     if (categoryFilter.value !== 'ALL' && exp.category !== categoryFilter.value) {
       return false
     }
-    if (dateFilter.value && !exp.date.startsWith(dateFilter.value)) {
+    if (dateFilter.value && !(exp.date || '').startsWith(dateFilter.value)) {
       return false
     }
     if (searchKeyword.value.trim()) {
       const kw = searchKeyword.value.trim().toLowerCase()
       const matchTitle = (exp.title || '').toLowerCase().includes(kw)
       const matchHandler = (exp.handler || '').toLowerCase().includes(kw)
-      const matchNo = (exp.expenseNo || '').toLowerCase().includes(kw)
+      const matchNo = ((exp as any).expenseNo || '').toLowerCase().includes(kw)
       if (!matchTitle && !matchHandler && !matchNo) return false
     }
     return true
@@ -627,8 +642,32 @@ const handleDeleteExpense = (id: number) => {
   }).then(() => {
     const idx = systemData.expenses.findIndex(e => e.id === id)
     if (idx !== -1) {
+      const removed: any = systemData.expenses[idx]
       systemData.expenses.splice(idx, 1)
-      ElMessage.success('开支记录已删除！')
+
+      // 联动扣减全口径成本中心与科目预算
+      if (removed.costItemId) {
+        systemData.deleteCostItem(removed.costItemId)
+      } else {
+        const matchedCost = systemData.costItems.find(
+          c => !c.isAutoSync && c.name === removed.title && Number(c.amount) === Number(removed.amount) && c.date === removed.date
+        )
+        if (matchedCost) {
+          systemData.deleteCostItem(matchedCost.id)
+        }
+      }
+
+      const bItem = budgetList.value.find((b: any) => b.category === removed.category)
+      if (bItem) {
+        bItem.used = Math.max(0, Number(((bItem.used || 0) - Number(removed.amount || 0)).toFixed(2)))
+        persistBudgets()
+      }
+
+      const maxPage = Math.max(1, Math.ceil(filteredExpenses.value.length / pageSize.value))
+      if (currentPage.value > maxPage) {
+        currentPage.value = maxPage
+      }
+      ElMessage.success('开支记录已删除，成本核算已同步扣减！')
     }
   }).catch(() => {})
 }
@@ -669,22 +708,28 @@ const initBudgets = () => {
 }
 const budgetList = ref(initBudgets())
 
+const persistBudgets = () => {
+  try {
+    localStorage.setItem('seahorse_store_budgets', JSON.stringify(budgetList.value))
+  } catch (e) {}
+}
+
 const getBudgetStatusType = (used: number, limit: number) => {
-  const ratio = used / limit
+  const ratio = limit > 0 ? used / limit : 0
   if (ratio > 1) return 'danger'
   if (ratio > 0.8) return 'warning'
   return 'success'
 }
 
 const getBudgetStatusText = (used: number, limit: number) => {
-  const ratio = used / limit
+  const ratio = limit > 0 ? used / limit : 0
   if (ratio > 1) return '已超支'
   if (ratio > 0.8) return '临近预算'
   return '预算健康'
 }
 
 const getProgressBarStatus = (used: number, limit: number) => {
-  const ratio = used / limit
+  const ratio = limit > 0 ? used / limit : 0
   if (ratio > 1) return 'exception'
   if (ratio > 0.8) return 'warning'
   return 'success'
@@ -697,6 +742,7 @@ const handleEditBudget = (b: any) => {
     inputErrorMessage: '请输入合法的正整数金额'
   }).then(({ value }) => {
     b.limit = Number(value)
+    persistBudgets()
     ElMessage.success(`【${b.categoryName}】月度预算已更新为 ￥${Number(value).toLocaleString()}！`)
   }).catch(() => {})
 }
@@ -713,7 +759,7 @@ const expenseForm = ref({
   amount: 1000,
   nature: 'FIXED',
   paymentMethod: 'WECHAT',
-  date: new Date().toISOString().substring(0, 10),
+  date: formatLocalDate(),
   handler: '店长',
   invoiceNo: '',
   note: ''
@@ -735,6 +781,7 @@ const handleCategoryChange = (cat: string) => {
 }
 
 const handleOpenAddExpense = () => {
+  const realOperator = localStorage.getItem('seahorse_real_name') || localStorage.getItem('seahorse_username') || '店长'
   expenseForm.value = {
     category: 'RENT',
     categoryName: '房租物业水电',
@@ -742,8 +789,8 @@ const handleOpenAddExpense = () => {
     amount: 500,
     nature: 'FIXED',
     paymentMethod: 'WECHAT',
-    date: new Date().toISOString().substring(0, 10),
-    handler: '李店长',
+    date: formatLocalDate(),
+    handler: realOperator,
     invoiceNo: `FP${Date.now().toString().slice(-6)}`,
     note: ''
   }
@@ -755,30 +802,17 @@ const handleConfirmAddExpense = () => {
     ElMessage.warning('请输入款项具体事由！')
     return
   }
-  if (expenseForm.value.amount <= 0) {
+  if (!expenseForm.value.amount || Number(expenseForm.value.amount) <= 0) {
     ElMessage.warning('开支金额必须大于0！')
     return
   }
 
   submitting.value = true
   try {
-    // 1. 写入日常支出流水
-    const newExp = {
-      id: Date.now(),
-      expenseNo: `EXP${new Date().toISOString().substring(0, 10).replace(/-/g, '')}${Math.floor(Math.random() * 900 + 100)}`,
-      category: expenseForm.value.category,
-      categoryName: expenseForm.value.categoryName,
-      title: expenseForm.value.title,
-      amount: expenseForm.value.amount,
-      date: expenseForm.value.date,
-      handler: expenseForm.value.handler,
-      paymentMethod: expenseForm.value.paymentMethod,
-      invoiceNo: expenseForm.value.invoiceNo,
-      note: expenseForm.value.note
-    }
-    systemData.expenses.unshift(newExp as any)
+    const expDate = expenseForm.value.date || formatLocalDate()
+    const amountVal = Number(expenseForm.value.amount)
 
-    // 2. 自动同步沉淀至全口径成本核算台账 (实现去冗余单入口)
+    // 1. 自动同步沉淀至全口径成本核算台账 (实现去冗余单入口)
     const costCatMap: Record<string, any> = {
       RENT: 'RENT_UTILITY',
       SUPPLY: 'MATERIAL',
@@ -787,21 +821,45 @@ const handleConfirmAddExpense = () => {
       DEPRECIATION: 'DEPRECIATION',
       OTHER: 'ADMIN_MISC'
     }
-    systemData.addCostItem({
-      name: expenseForm.value.title,
+    const createdCost = systemData.addCostItem({
+      name: expenseForm.value.title.trim(),
       category: costCatMap[expenseForm.value.category] || 'ADMIN_MISC',
       categoryName: expenseForm.value.categoryName,
       nature: expenseForm.value.nature as any,
-      amount: expenseForm.value.amount,
-      month: expenseForm.value.date.substring(0, 7),
-      date: expenseForm.value.date,
-      storeId: 'S001',
+      amount: amountVal,
+      month: expDate.substring(0, 7),
+      date: expDate,
+      storeId: currentStoreId.value,
       handler: expenseForm.value.handler,
       invoiceNo: expenseForm.value.invoiceNo,
       notes: expenseForm.value.note || '来自门店账本日常开支记账录入'
     })
 
-    ElMessage.success(`已成功记入一笔开销【￥${expenseForm.value.amount}】并自动核算入成本中心！`)
+    // 2. 写入日常支出流水并关联成本中心记录 ID
+    const newExp = {
+      id: Date.now(),
+      costItemId: createdCost.id,
+      expenseNo: `EXP${expDate.replace(/-/g, '')}${Math.floor(Math.random() * 900 + 100)}`,
+      category: expenseForm.value.category,
+      categoryName: expenseForm.value.categoryName,
+      title: expenseForm.value.title.trim(),
+      amount: amountVal,
+      date: expDate,
+      handler: expenseForm.value.handler,
+      paymentMethod: expenseForm.value.paymentMethod,
+      invoiceNo: expenseForm.value.invoiceNo,
+      note: expenseForm.value.note
+    }
+    systemData.expenses.unshift(newExp as any)
+
+    // 3. 联动累加月度科目预算执行额并持久化
+    const bItem = budgetList.value.find((b: any) => b.category === expenseForm.value.category)
+    if (bItem) {
+      bItem.used = Number(((bItem.used || 0) + amountVal).toFixed(2))
+      persistBudgets()
+    }
+
+    ElMessage.success(`已成功记入一笔开销【￥${amountVal.toFixed(2)}】并自动核算入成本中心！`)
     addExpenseVisible.value = false
   } finally {
     submitting.value = false
@@ -835,7 +893,7 @@ const handleExportLedgerCsv = () => {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `${currentStoreName.value}_门店开支账本明细_${new Date().toISOString().slice(0, 10)}.csv`
+  link.download = `${currentStoreName.value}_门店开支账本明细_${formatLocalDate()}.csv`
   link.click()
   URL.revokeObjectURL(url)
   ElMessage.success(`已导出 ${list.length} 笔门店账本明细 CSV 文件！`)

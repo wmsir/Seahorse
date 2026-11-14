@@ -1,17 +1,34 @@
 @echo off
-title º£ÂíÖÇ»ÛÉÌÒµ - Ç°¶Ë¹¤³Ì (Vue 3 + Vite: 3000)
+chcp 65001 >nul
+title æµ·é©¬æ™ºæ…§å•†ä¸š - å‰ç«¯å·¥ç¨‹ (Vue 3 + Vite: 3000)
+set "SEAHORSE_ENV_FILE=%~dp0..\..\.env"
+if exist "%SEAHORSE_ENV_FILE%" (
+    echo [INFO] æ£€æµ‹åˆ°æœ¬åœ°é…ç½®æ–‡ä»¶ .envï¼Œæ­£åœ¨è‡ªåŠ¨åŠ è½½éç©ºç¯å¢ƒå˜é‡...
+    for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%SEAHORSE_ENV_FILE%") do (
+        if not "%%~B"=="" set "%%A=%%~B"
+    )
+)
 cd /d "%~dp0..\..\seahorse_web_front"
 
-set "PATH=C:\Program Files\nodejs;%PATH%"
+if exist "C:\Program Files\nodejs\npm.cmd" (
+    set "PATH=C:\Program Files\nodejs;%PATH%"
+)
+
+where npm.cmd >nul 2>nul
+if %errorlevel% neq 0 (
+    echo [ERROR] æœªæ‰¾åˆ° Node.js ^(npm.cmd^)ï¼Œè¯·å®‰è£… Node.js 18+ å¹¶é…ç½®è‡³ PATH ç¯å¢ƒå˜é‡ã€‚
+    pause
+    exit /b 1
+)
 
 echo =====================================================================
-echo  ÕıÔÚÆô¶¯º£ÂíÖÇ»ÛÉÌÒµ Web Ç°¶Ë (Vite: 3000)...
-echo  ¹¤×÷Ä¿Â¼: %CD%
+echo  æ­£åœ¨å¯åŠ¨æµ·é©¬æ™ºæ…§å•†ä¸š Web å‰ç«¯ (Vite: 3000)...
+echo  å·¥ä½œç›®å½•: %CD%
 echo =====================================================================
 
 call npm.cmd run dev
 if %errorlevel% neq 0 (
     echo.
-    echo [ERROR] Ç°¶Ë¹¤³ÌÒì³£ÍË³ö£¬ÍË³öÂë: %errorlevel%
+    echo [ERROR] å‰ç«¯å·¥ç¨‹å¼‚å¸¸é€€å‡ºï¼Œé€€å‡ºç : %errorlevel%
     pause
 )

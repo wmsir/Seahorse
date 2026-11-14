@@ -309,11 +309,12 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSystemDataStore, allSystemMenus } from '../stores/systemDataStore'
 import { useStoreConfig } from '../stores/store'
+import { resolveApiUrl } from '../utils/systemConfig'
 import { ElMessage } from 'element-plus'
 
 // 员工自助入职申请 API (后端持久化接口，无需登录 JWT)
 const selfRegisterStaffApi = async (data: any) => {
-  const res = await fetch('/api/merchant/staff/self-register', {
+  const res = await fetch(resolveApiUrl('/api/merchant/staff/self-register'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
@@ -502,7 +503,7 @@ const getIndustryPresetPositions = (ind: string) => {
       { id: 1, postName: '茶楼掌柜/店长', role: 'STORE_MANAGER', department: '店务管理部', preset: 'MANAGER', baseSalary: 6500, salaryRange: '￥6500-10000元/月', description: '统筹茶室日常营运、茶礼接待与雅间环境调度', requirements: '茶室经营经验', isRecruiting: true },
       { id: 2, postName: '资深茶艺师/侍茶师', role: 'TECHNICIAN', department: '茶艺服务部', preset: 'TECHNICIAN', baseSalary: 5500, salaryRange: '￥5500-8500元/月', description: '负责名优茶冲泡品饮演示、茶道文化讲解与茶礼服务', requirements: '持有茶艺师资格或经验', isRecruiting: true },
       { id: 3, postName: '雅间管家/茶礼服务员', role: 'TECHNICIAN', department: '前厅接待部', preset: 'TECHNICIAN', baseSalary: 4800, salaryRange: '￥4800-7000元/月', description: '负责茶室雅座包厢布景备茶、续水与茶点呈递', requirements: '举止端庄，礼貌周到', isRecruiting: true },
-      { id: 4, postName: '前台收银员', role: 'CASHIER', department: '前台客服部', preset: 'CASHIER', baseSalary: 4500, salaryRange: '￥4500-6000元/月', description: '负责到店接待、茶室消费开单与收银交班', requirements: '细致认真', isRecruiting: true }
+      { id: 4, postName: '前台收银员', role: 'CASHIER', department: '前台客服部', preset: 'CASHIER', baseSalary: 4500, salaryRange: '￥4500-6000元/月', description: '负责到店接待、茶室消费开单与收银结算', requirements: '细致认真', isRecruiting: true }
     ]
   } else if (ind === 'PET') {
     return [
@@ -664,17 +665,26 @@ const getPostPermissionDesc = (post: any) => {
   }
 }
 
+const safeDecode = (val: unknown): string => {
+  const str = String(val ?? '')
+  try {
+    return decodeURIComponent(str)
+  } catch {
+    return str
+  }
+}
+
 // 异步拉取门店云端真实档案与部门在招岗位
 const fetchStoreDetail = async (storeId: string) => {
   try {
-    const res = await fetch(`/api/space/public/store-detail?storeId=${encodeURIComponent(storeId)}`)
+    const res = await fetch(resolveApiUrl(`/api/space/public/store-detail?storeId=${encodeURIComponent(storeId)}`))
     if (res.ok) {
       const data = await res.json()
       if (data && data.code === 200 && data.data) {
         remoteStoreDetail.value = data.data
         // 自动对齐部门与在招岗位
         if (Array.isArray(data.data.positions) && data.data.positions.length > 0) {
-          const targetPost = route.query.post ? decodeURIComponent(String(route.query.post)) : ''
+          const targetPost = route.query.post ? safeDecode(route.query.post) : ''
           const matched = targetPost ? data.data.positions.find((p: any) => p.postName === targetPost) : null
           // 优先挑选指定岗位；未指定时优先推荐一线专业技术/服务岗位（避免直接锁定店长）
           const chosen = matched || data.data.positions.find((p: any) => p.role === 'TECHNICIAN' || !p.postName.includes('店长')) || data.data.positions[0]
@@ -727,7 +737,7 @@ onMounted(async () => {
   if (route.query.realName || route.query.phone || route.query.candidateId) {
     isCandidateOnboarding.value = true
     if (route.query.realName) {
-      staffForm.value.realName = decodeURIComponent(String(route.query.realName))
+      staffForm.value.realName = safeDecode(route.query.realName)
     }
     if (route.query.phone) {
       staffForm.value.phone = String(route.query.phone)
@@ -859,7 +869,7 @@ const handleSubmitStaff = async () => {
       const cId = String(route.query.candidateId)
       try {
         const tenantId = encodeURIComponent(storeConfig.tenantId || remoteStoreDetail.value?.tenantId || 'DEFAULT')
-        fetch(`/api/job-application/${cId}/status?tenantId=${tenantId}`, {
+        fetch(resolveApiUrl(`/api/job-application/${cId}/status?tenantId=${tenantId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

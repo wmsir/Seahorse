@@ -1510,7 +1510,7 @@ import { useSystemDataStore, type SpaceEntity } from '../stores/systemDataStore'
 import { useStoreConfig } from '../stores/store'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import QRCode from 'qrcode'
-import { Loading, DocumentCopy, Download, Printer, VideoPlay, Calendar, ShoppingBag, Goods } from '@element-plus/icons-vue'
+import { Loading, DocumentCopy, Download, Printer, VideoPlay, Calendar, ShoppingBag } from '@element-plus/icons-vue'
 import {
   getSpacesApi,
   getTenantStoresApi,
@@ -1529,7 +1529,8 @@ import {
   getCommonRemarksApi,
   getStaffDisplayModeApi,
   searchMembersApi,
-  getCategoriesApi
+  getCategoriesApi,
+  updateStoreApi
 } from '../api'
 
 const selectedActionSpace = ref<any>(null)
@@ -1639,11 +1640,8 @@ const handleOpenAssignAptDialog = async (space: any) => {
   assignAptDialogVisible.value = true
   try {
     const res: any = await getAppointmentsApi({ storeId: selectedStoreId.value || 'S001' })
-    if (res && res.code === 200 && Array.isArray(res.data)) {
-      pendingAppointmentsList.value = res.data.filter((a: any) => a.status === 'PENDING')
-    } else {
-      pendingAppointmentsList.value = []
-    }
+    const list = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : [])
+    pendingAppointmentsList.value = list.filter((a: any) => a.status === 'PENDING')
   } catch (_) {
     pendingAppointmentsList.value = []
   }
@@ -1738,7 +1736,14 @@ const existingSessionAmount = ref(0)
 const existingSessionCustomerName = ref('')
 const existingSessionCustomerPhone = ref('')
 
-const addOrderForm = ref({
+const addOrderForm = ref<{
+  memberId: number | null
+  customerName: string
+  customerPhone: string
+  guestCount: number
+  notes: string
+}>({
+  memberId: null,
   customerName: '散客顾客',
   customerPhone: '',
   guestCount: 2,
@@ -2236,6 +2241,18 @@ const handleSaveStoreInfo = async () => {
     const sAddr = editStoreForm.value.address.trim()
     const sPhone = editStoreForm.value.phone.trim()
 
+    // 0. 同步持久化至后端门店档案表
+    try {
+      await updateStoreApi({
+        storeId: sId,
+        storeName: sName,
+        address: sAddr,
+        phone: sPhone
+      })
+    } catch (e) {
+      console.warn('updateStoreApi 同步异常，保留本地同步:', e)
+    }
+
     // 1. 同步更新 systemDataStore 中的门店
     const sysStore = systemData.stores.find(s => s.storeId === sId)
     if (sysStore) {
@@ -2382,7 +2399,7 @@ const loadSpaces = async () => {
         capacity: item.capacity || 4,
         floorZone: item.floorZone || '一楼养生区',
         currentSessionId: item.currentSessionId || null,
-        qrCodeUrl: item.qrCodeUrl || `${window.location.origin}/mall?store=${item.storeId || sId || 'S001'}&spaceCode=${item.spaceCode}`,
+        qrCodeUrl: item.qrCodeUrl || `${window.location.origin}/seahorse/table-order?tenantId=${encodeURIComponent(localStorage.getItem('seahorse_tenant_id') || 'T001')}&storeId=${encodeURIComponent(item.storeId || sId || 'S001')}&spaceCode=${encodeURIComponent(item.spaceCode || '')}`,
         minConsumeAmount: item.minConsumeAmount || 0,
         hourlyFee: item.hourlyFee || 0,
         facilities: typeof item.facilities === 'string' ? item.facilities.split(',').filter(Boolean) : (item.facilities || []),
@@ -2407,11 +2424,15 @@ const loadSpaces = async () => {
   }
 }
 
+let initialMountCompleted = false
+
 watch(selectedStoreId, () => {
   refreshStoreZones()
   selectedZone.value = 'ALL'
-  loadSpaces()
-}, { immediate: true })
+  if (initialMountCompleted) {
+    loadSpaces()
+  }
+})
 
 // 当前门店的空间列表 (优先匹配当前选中门店，若按门店过滤为空但租户已有空间，自动兜底展示所有空间，彻底杜绝假空状态)
 const currentStoreSpaces = computed(() => {
@@ -2718,7 +2739,7 @@ const handleSaveSpaceForm = async () => {
       ? spaceFormData.value.facilities.join(',')
       : (spaceFormData.value.facilities || '')
 
-    const qrUrl = spaceFormData.value.qrCodeUrl || `${window.location.origin}/mall?store=${selectedStoreId.value}&spaceCode=${spaceFormData.value.spaceCode}`
+    const qrUrl = spaceFormData.value.qrCodeUrl || `${window.location.origin}/seahorse/table-order?tenantId=${encodeURIComponent(localStorage.getItem('seahorse_tenant_id') || 'T001')}&storeId=${encodeURIComponent(selectedStoreId.value || 'S001')}&spaceCode=${encodeURIComponent(spaceFormData.value.spaceCode || '')}`
 
     const payload: any = {
       ...spaceFormData.value,
@@ -2905,7 +2926,7 @@ const handleConfirmBatchCreate = async () => {
       hourlyFee: 0,
       facilities: '独立洗手间,新风系统,功夫茶台,隔音静音',
       notes: '批量快速预设生成',
-      qrCodeUrl: `${window.location.origin}/mall?store=${selectedStoreId.value}&spaceCode=${item.code}`
+      qrCodeUrl: `${window.location.origin}/seahorse/table-order?tenantId=${encodeURIComponent(localStorage.getItem('seahorse_tenant_id') || 'T001')}&storeId=${encodeURIComponent(selectedStoreId.value || 'S001')}&spaceCode=${encodeURIComponent(item.code || '')}`
     }))
 
     // 1. 调用批量接口保存入库
@@ -3248,11 +3269,14 @@ const refreshData = async () => {
 }
 
 onMounted(async () => {
+  refreshStoreZones()
   await loadStores()
   if (!selectedStoreId.value && availableStores.value.length > 0) {
     selectedStoreId.value = availableStores.value[0].storeId
   }
+  refreshStoreZones()
   await loadSpaces()
+  initialMountCompleted = true
   await loadStoreMemberList()
   await loadCategories()
 })

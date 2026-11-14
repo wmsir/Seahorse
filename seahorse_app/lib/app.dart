@@ -25,7 +25,7 @@ class SeahorseApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => MemberProvider()),
       ],
       child: MaterialApp(
-        title: '海马智慧门店管家',
+        title: '海马智慧门店',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,

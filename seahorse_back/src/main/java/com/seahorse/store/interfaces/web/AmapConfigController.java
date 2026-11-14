@@ -26,6 +26,15 @@ public class AmapConfigController {
     private final AmapConfigRepository amapConfigRepository;
     private final RestTemplate restTemplate = new RestTemplate();
 
+    @org.springframework.beans.factory.annotation.Value("${seahorse.amap.web-key:${SEAHORSE_AMAP_WEB_KEY:}}")
+    private String defaultAmapWebKey;
+
+    @org.springframework.beans.factory.annotation.Value("${seahorse.amap.js-key:${SEAHORSE_AMAP_JS_KEY:}}")
+    private String defaultAmapJsKey;
+
+    @org.springframework.beans.factory.annotation.Value("${seahorse.amap.security-code:${SEAHORSE_AMAP_SECURITY_CODE:}}")
+    private String defaultAmapSecurityCode;
+
     @Data
     public static class AmapConfigDTO {
         private String webApiKey;
@@ -45,15 +54,19 @@ public class AmapConfigController {
         if (tenantId == null || tenantId.isEmpty()) {
             tenantId = "T001";
         }
+        final String finalTenantId = tenantId;
+        final String defaultStoreId = TenantContext.getStoreId() != null && !TenantContext.getStoreId().isEmpty()
+                ? TenantContext.getStoreId()
+                : "S001";
 
-        AmapConfig config = amapConfigRepository.findByTenantId(tenantId)
+        AmapConfig config = amapConfigRepository.findByTenantId(finalTenantId)
                 .orElseGet(() -> {
                     AmapConfig def = AmapConfig.builder()
-                            .tenantId("T001")
-                            .storeId("S001")
-                            .webApiKey("216aceb246ab68fbd8abb38f6cb24582")
-                            .jsApiKey("216aceb246ab68fbd8abb38f6cb24582")
-                            .securityCode("a959cdbdf4b90d3ce9d3552521c0d0b9")
+                            .tenantId(finalTenantId)
+                            .storeId(defaultStoreId)
+                            .webApiKey(defaultAmapWebKey != null ? defaultAmapWebKey : "")
+                            .jsApiKey(defaultAmapJsKey != null ? defaultAmapJsKey : "")
+                            .securityCode(defaultAmapSecurityCode != null ? defaultAmapSecurityCode : "")
                             .allowedRadiusMeters(500)
                             .storeLongitude(108.953400)
                             .storeLatitude(34.265500)
@@ -63,11 +76,15 @@ public class AmapConfigController {
                     return amapConfigRepository.save(def);
                 });
 
-        // 若历史记录仍为旧默认占位Key，自动升级为当前官方正式生效Key
-        if (config.getWebApiKey() == null || "18641bc3861da69d654c86e0da324c16".equals(config.getWebApiKey())) {
-            config.setWebApiKey("216aceb246ab68fbd8abb38f6cb24582");
-            config.setJsApiKey("216aceb246ab68fbd8abb38f6cb24582");
-            config.setSecurityCode("a959cdbdf4b90d3ce9d3552521c0d0b9");
+        if ((config.getWebApiKey() == null || config.getWebApiKey().trim().isEmpty())
+                && defaultAmapWebKey != null && !defaultAmapWebKey.trim().isEmpty()) {
+            config.setWebApiKey(defaultAmapWebKey.trim());
+            if (defaultAmapJsKey != null && !defaultAmapJsKey.trim().isEmpty()) {
+                config.setJsApiKey(defaultAmapJsKey.trim());
+            }
+            if (defaultAmapSecurityCode != null && !defaultAmapSecurityCode.trim().isEmpty()) {
+                config.setSecurityCode(defaultAmapSecurityCode.trim());
+            }
             config = amapConfigRepository.save(config);
         }
 

@@ -7,6 +7,7 @@ class LocalStorage {
   static Future<void> init() async {
     try {
       _prefs = await SharedPreferences.getInstance();
+      _memoryCache.clear();
     } catch (e) {
       // Fallback to memory cache for environments where native shared_prefs is initializing
       print('LocalStorage initialized with memory fallback: $e');

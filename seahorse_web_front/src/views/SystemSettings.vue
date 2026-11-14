@@ -2906,12 +2906,12 @@
                     <div style="font-size: 13px; color: #334155; line-height: 1.6; margin-top: 6px;">
                       系统采用<b>两级协同配置体系</b>，技术层与门店运营层清晰划分：
                       <br />
-                      <b>1. 平台中台技术配置层 (开发商端): </b>由系统开发维护人在 <b>中台管理中心 -> 消息推送模板配置中心 (/vendor-console)</b> 进行微信开放平台与支付宝开放平台的行业模板库申领（如 <code>OPENTM206215005</code>、<code>OPENTM413385970</code>），维护底层接口与通信凭据。
+                      <b>1. 平台中台技术配置层 (开发商端): </b>由系统开发维护人在 <b>中台管理中心 -> 消息推送模板配置中心 (/vendor-developer-notif)</b> 进行微信开放平台与支付宝开放平台的行业模板库申领（如 <code>OPENTM206215005</code>、<code>OPENTM413385970</code>），维护底层接口与通信凭据。
                       <br />
                       <b>2. 门店租户业务运营层 (即当前配置面板): </b>租户在此<b>直观查验每个 Template ID 对应的卡片结构、每个占位字段（keyword1~5）映射的系统动态数据字段</b>，并可按需修改欢迎语（First）、尾部温馨提示（Remark）及点击跳转的小程序/H5链接！
                     </div>
                   </div>
-                  <el-button type="primary" plain @click="$router.push('/vendor-console')">
+                  <el-button v-if="isPlatformAdmin" type="primary" plain @click="$router.push('/vendor-developer-notif')">
                     🛠️ 前往中台开发者中心
                   </el-button>
                 </div>
@@ -3212,12 +3212,7 @@
                   default-first-option
                   placeholder="选择或直接输入"
                   style="flex: 1;"
-                  @change="(val: any) => {
-                    if (val && !departmentsList.includes(val)) {
-                      departmentsList.push(val)
-                      localStorage.setItem('seahorse_store_departments', JSON.stringify(departmentsList))
-                    }
-                  }"
+                  @change="handlePostDepartmentSelectChange"
                 >
                   <el-option
                     v-for="dept in departmentsList"
@@ -4820,7 +4815,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus'
 import { Picture, Download, Printer, Compass, Refresh, Share, Document, Plus, Edit, Delete } from '@element-plus/icons-vue'
@@ -4840,10 +4835,22 @@ import { scanAudio } from '../utils/barcodeScanner'
 import { useStoreConfig } from '../stores/store'
 import { injectFootSpaMockData } from '../mock/mockFootSpaData'
 import { getSmsPackagesList } from '../utils/tenantQuotaService'
+import { resolveApiUrl, isPlatformAdminRole, isManagerOrAboveRole } from '../utils/systemConfig'
 
 const route = useRoute()
 const systemData = useSystemDataStore()
 const storeConfig = useStoreConfig()
+
+const buildAuthFetchHeaders = (extra: Record<string, string> = {}): Record<string, string> => {
+  const headers: Record<string, string> = { ...extra }
+  const token = localStorage.getItem('seahorse_token')
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const tenantId = storeConfig.tenantId || localStorage.getItem('seahorse_tenant_id')
+  if (tenantId && !headers['X-Tenant-Id']) headers['X-Tenant-Id'] = tenantId
+  const storeId = storeConfig.currentStoreId || localStorage.getItem('seahorse_store_id')
+  if (storeId && !headers['X-Store-Id']) headers['X-Store-Id'] = storeId
+  return headers
+}
 const determineActiveTab = () => {
   if (route.path.includes('payment') || route.name === 'PaymentSettings') {
     return 'payment'
@@ -4865,24 +4872,16 @@ const isStandaloneJobPosts = computed(() => route.path.includes('job-posts') || 
 
 // 平台开发与超级管理员专属权限判定（仅 admin、PLATFORM_DEVELOPER 等能看平台底层 Key 与全网总控配置）
 const isPlatformAdmin = computed(() => {
-  const u = (localStorage.getItem('seahorse_username') || '').toLowerCase().trim()
-  const r = (localStorage.getItem('seahorse_role') || '').toUpperCase().trim()
-  return u === 'admin' || r === 'PLATFORM_DEVELOPER' || r === 'PLATFORM_ADMIN' || r === 'PLATFORM_SUPER_ADMIN'
+  const u = localStorage.getItem('seahorse_username') || ''
+  const r = localStorage.getItem('seahorse_role') || ''
+  return isPlatformAdminRole(r, u)
 })
 
-// 权限判定：超级管理员能看 API Key 与配置支付通道与硬件；普通员工无操作权限
+// 权限判定：超级管理员/老板/店长能配置门店参数；普通员工无操作权限
 const isSuperAdmin = computed(() => {
   const u = (localStorage.getItem('seahorse_username') || '').toLowerCase().trim()
   const r = (localStorage.getItem('seahorse_role') || '').toUpperCase().trim()
-  // 1. 平台超级管理员或系统开发商 (admin / PLATFORM_DEVELOPER / PLATFORM_ADMIN)
-  if (u === 'admin' || r === 'PLATFORM_DEVELOPER' || r === 'PLATFORM_ADMIN' || r === 'PLATFORM_SUPER_ADMIN') {
-    return true
-  }
-  // 2. 租户老板 / 企业管理员 / 店长 (具备门店经营与支付通道配置特权)
-  if (u === 'boss' || r === 'SUPER_ADMIN' || r === 'TENANT_ADMIN' || r === 'ADMIN' || r === 'STORE_MANAGER' || r === 'MERCHANT_ADMIN' || r === 'BOSS') {
-    return true
-  }
-  return false
+  return isManagerOrAboveRole(r, u) || u === 'boss' || r === 'ADMIN' || r === 'BOSS'
 })
 
 const activeTab = ref(determineActiveTab())
@@ -4903,11 +4902,11 @@ const pingDialogVisible = ref(false)
 const pingLoading = ref(false)
 const pingReport = ref<any>(null)
 
-// 🗺️ 高德地图与考勤定位服务配置
+// 🗺️ 高德地图与考勤定位服务配置 (密钥从服务端配置或环境变量读取，禁止硬编码密钥)
 const amapForm = ref({
-  webApiKey: '216aceb246ab68fbd8abb38f6cb24582',
-  jsApiKey: '216aceb246ab68fbd8abb38f6cb24582',
-  securityCode: 'a959cdbdf4b90d3ce9d3552521c0d0b9',
+  webApiKey: import.meta.env.VITE_AMAP_WEB_KEY || '',
+  jsApiKey: import.meta.env.VITE_AMAP_JS_KEY || '',
+  securityCode: import.meta.env.VITE_AMAP_SECURITY_CODE || '',
   allowedRadiusMeters: 500,
   storeLongitude: 108.953400,
   storeLatitude: 34.265500,
@@ -4926,28 +4925,41 @@ const mapSearchKeyword = ref('')
 const mapLoadFailed = ref(false)
 const mapLoadErrorMsg = ref('')
 
+let amapSdkLoadingPromise: Promise<any> | null = null
+
 const loadAmapSdk = (): Promise<any> => {
-  return new Promise((resolve, reject) => {
-    if ((window as any).AMap) {
-      resolve((window as any).AMap)
-      return
-    }
+  if ((window as any).AMap) {
+    return Promise.resolve((window as any).AMap)
+  }
+  if (amapSdkLoadingPromise) {
+    return amapSdkLoadingPromise
+  }
+  const key = (amapForm.value.jsApiKey || amapForm.value.webApiKey || import.meta.env.VITE_AMAP_JS_KEY || import.meta.env.VITE_AMAP_WEB_KEY || '').trim()
+  if (!key) {
+    return Promise.reject(new Error('尚未配置高德地图开放平台 Key，请先在平台地图设置中填写 Key'))
+  }
+  amapSdkLoadingPromise = new Promise((resolve, reject) => {
     // 注入高德安全密钥 (必须在脚本请求前设置)
-    ;(window as any)._AMapSecurityConfig = {
-      securityJsCode: amapForm.value.securityCode || 'a959cdbdf4b90d3ce9d3552521c0d0b9',
+    const secCode = (amapForm.value.securityCode || import.meta.env.VITE_AMAP_SECURITY_CODE || '').trim()
+    if (secCode) {
+      ;(window as any)._AMapSecurityConfig = {
+        securityJsCode: secCode,
+      }
     }
-    const key = amapForm.value.jsApiKey || amapForm.value.webApiKey || '216aceb246ab68fbd8abb38f6cb24582'
     const script = document.createElement('script')
     script.type = 'text/javascript'
     script.src = `https://webapi.amap.com/maps?v=2.0&key=${key}&plugin=AMap.Geocoder,AMap.PlaceSearch,AMap.Geolocation`
     script.onload = () => {
+      amapSdkLoadingPromise = null
       resolve((window as any).AMap)
     }
-    script.onerror = (e) => {
+    script.onerror = () => {
+      amapSdkLoadingPromise = null
       reject(new Error('高德地图 JS SDK 脚本加载失败，请检查网络或开放平台 Key 配置'))
     }
     document.head.appendChild(script)
   })
+  return amapSdkLoadingPromise
 }
 
 const updateMapCenterAndMarker = (lng: number, lat: number, fetchAddress = false) => {
@@ -5122,14 +5134,16 @@ const loadAmapConfig = async () => {
 
   // 2. 从后端拉取系统缺省参考配置
   try {
-    const res = await fetch('/api/config/amap')
+    const res = await fetch(resolveApiUrl('/api/config/amap'), {
+      headers: buildAuthFetchHeaders()
+    })
     if (res.ok) {
       const data = await res.json()
       if (data.code === 200 && data.data) {
         Object.assign(amapForm.value, data.data)
         // 普通租户门店名称自动对齐本租户首店名称
         if (!isSuperAdmin.value && systemData.stores && systemData.stores.length > 0) {
-          amapForm.value.storeName = systemData.stores[0].name
+          amapForm.value.storeName = systemData.stores[0].storeName || systemData.stores[0].name || amapForm.value.storeName
         }
       }
     }
@@ -5152,9 +5166,9 @@ const handleSaveAmapConfig = async () => {
 
     // 2. 超级管理员同步提交至后端配置中心作为参考底座
     if (isSuperAdmin.value) {
-      await fetch('/api/config/amap', {
+      await fetch(resolveApiUrl('/api/config/amap'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthFetchHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(amapForm.value),
       })
     }
@@ -5173,7 +5187,9 @@ const handleTestAmapApiKey = async () => {
   }
   testingAmap.value = true
   try {
-    const res = await fetch(`/api/config/amap/test?key=${encodeURIComponent(amapForm.value.webApiKey)}`)
+    const res = await fetch(resolveApiUrl(`/api/config/amap/test?key=${encodeURIComponent(amapForm.value.webApiKey)}`), {
+      headers: buildAuthFetchHeaders()
+    })
     const data = await res.json()
     if (data.code === 200) {
       const platform = data.data?.platform || 'Web服务'
@@ -5436,6 +5452,7 @@ const getCurrentStoreDetails = () => {
     || '以客为尊，品质服务每一天'
 
   return {
+    storeId: saved?.storeId || currentStore?.storeId || (currentStore as any)?.id || storeConfig.currentStoreId || 'S001',
     storeName: name,
     phone: phone,
     businessHours: saved?.businessHours || ['09:30', '21:30'],
@@ -5611,7 +5628,7 @@ const syncPositionsAndDepartmentsToServer = async () => {
 const loadRemotePositionsAndDepartments = async (storeId?: string) => {
   const curStoreId = storeId || storeConfig.currentStoreId || localStorage.getItem('seahorse_store_id') || 'S001'
   try {
-    const res = await fetch(`/api/space/public/store-detail?storeId=${encodeURIComponent(curStoreId)}`)
+    const res = await fetch(resolveApiUrl(`/api/space/public/store-detail?storeId=${encodeURIComponent(curStoreId)}`))
     if (res.ok) {
       const json = await res.json()
       if (json && json.code === 200 && json.data) {
@@ -5863,8 +5880,9 @@ interface JobApplication {
   id: string
   postId: number
   postName: string
+  department?: string
   candidateName: string
-  gender: '男' | '女'
+  gender: '男' | '女' | 'MALE' | 'FEMALE'
   age: number
   phone: string
   education: string
@@ -6174,6 +6192,15 @@ const handleTogglePostStatus = (row: any) => {
   ElMessage.success(`岗位【${row.postName}】已${row.status === 'ACTIVE' ? '启用' : '停用'}`)
 }
 
+const handlePostDepartmentSelectChange = (val: any) => {
+  if (val && !departmentsList.value.includes(val)) {
+    departmentsList.value.push(val)
+    const curStoreId = storeConfig.currentStoreId || localStorage.getItem('seahorse_store_id') || 'S001'
+    localStorage.setItem(`seahorse_departments_${curStoreId}`, JSON.stringify(departmentsList.value))
+    localStorage.setItem('seahorse_store_departments', JSON.stringify(departmentsList.value))
+  }
+}
+
 const handleToggleRecruitStatus = (row: any) => {
   syncPositionsAndDepartmentsToServer()
   if (row.isRecruiting) {
@@ -6182,6 +6209,8 @@ const handleToggleRecruitStatus = (row: any) => {
     ElMessage.info(`岗位【${row.postName}】已暂停对外招聘。`)
   }
 }
+
+const handleToggleRecruiting = (row: any) => handleToggleRecruitStatus(row)
 
 const handleDeletePost = (row: any) => {
   ElMessageBox.confirm(`确定要删除岗位【${row.postName}】吗？删除后相关员工需重新指派岗位。`, '安全提示', {
@@ -6476,10 +6505,10 @@ const fetchRemoteApplications = async (showTip = false) => {
   syncingApplications.value = true
   const tenantId = encodeURIComponent(storeConfig.tenantId || localStorage.getItem('seahorse_tenant_id') || 'DEFAULT')
   try {
-    const res = await fetch(`/api/job-application/list?tenantId=${tenantId}`, {
-      headers: {
+    const res = await fetch(resolveApiUrl(`/api/job-application/list?tenantId=${tenantId}`), {
+      headers: buildAuthFetchHeaders({
         'X-Tenant-Id': tenantId
-      }
+      })
     })
     if (res.ok) {
       const data = await res.json()
@@ -6511,6 +6540,8 @@ const fetchRemoteApplications = async (showTip = false) => {
     ElMessage.info(`简历数据已按本地最新台账刷新 (共 ${applicationsList.value.length} 份)`)
   }
 }
+
+const refreshApplications = () => fetchRemoteApplications(true)
 
 watch(postSubTab, (val) => {
   if (val === 'APPLICATIONS') {
@@ -7138,7 +7169,7 @@ const handleHireCandidate = (applicant: JobApplication) => {
           postName: applicant.postName,
           role: isMgr ? 'STORE_MANAGER' : isCashier ? 'CASHIER' : 'TECHNICIAN',
           department: postObj?.department || defaultDept,
-          gender: applicant.gender || 'FEMALE',
+          gender: (applicant.gender === '男' || applicant.gender === 'MALE') ? 'MALE' : 'FEMALE',
           baseSalary: postObj?.baseSalary || 4500,
           hasSystemAccount: true,
           accountUsername: applicant.phone,
@@ -7189,9 +7220,9 @@ const handleConfirmReject = () => {
   // 同步云端数据库状态
   try {
     const tenantId = encodeURIComponent(storeConfig.tenantId || localStorage.getItem('seahorse_tenant_id') || 'DEFAULT')
-    fetch(`/api/job-application/${targetRejectApplicant.value.id}/status?tenantId=${tenantId}`, {
+    fetch(resolveApiUrl(`/api/job-application/${targetRejectApplicant.value.id}/status?tenantId=${tenantId}`), {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthFetchHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         status: 'REJECTED',
         rejectReason: rejectReasonText.value
@@ -7541,9 +7572,9 @@ const currentTargetGroupMembers = computed(() => {
       return allMembers.filter(m => {
         if (m.birthday) {
           const parts = m.birthday.split('-')
-          if (parts.length >= 2 && parseInt(parts[1]) === currentMonth) return true
+          if (parts.length >= 2 && parseInt(parts[1], 10) === currentMonth) return true
         }
-        return (m.id % 2 === 0)
+        return false
       })
     default:
       return allMembers
@@ -7926,7 +7957,7 @@ const currentOperatorName = computed(() => {
 const receiptSampleQrDataUrl = ref('')
 const generateSampleQrCode = async () => {
   try {
-    const text = printerForm.value.qrCodeText || `${window.location.origin}/seahorse/member-portal`
+    const text = printerForm.value.qrCodeText || buildMemberBenefitsUrl(storeConfig.currentStoreId || 'S001')
     receiptSampleQrDataUrl.value = await QRCode.toDataURL(text, {
       width: 140,
       margin: 1,
@@ -8105,7 +8136,7 @@ const handlePrintTestReceipt = () => {
 // =========================================================================
 // 7. 全渠道消息推送与公众号配置模块 (店务端使用与拓客水牌)
 // =========================================================================
-const notifSubTab = ref<'STAND' | 'GUIDE' | 'PREVIEW' | 'SIMULATOR' | 'STRATEGY' | 'LOGS'>('STAND')
+const notifSubTab = ref<'STAND' | 'GUIDE' | 'PREVIEW' | 'SIMULATOR' | 'STRATEGY' | 'TEMPLATE_CONFIG' | 'LOGS'>('STAND')
 const savingNotif = ref(false)
 const simulatingFollow = ref(false)
 const sendingTest = ref(false)
@@ -8444,9 +8475,10 @@ const executePrintStand = () => {
 
 const loadNotificationConfig = async () => {
   try {
-    const res = await getNotificationConfigApi()
-    if (res && res.data) {
-      notifConfig.value = { ...notifConfig.value, ...res.data }
+    const res: any = await getNotificationConfigApi()
+    const payload = res?.data ?? res
+    if (payload && typeof payload === 'object') {
+      notifConfig.value = { ...notifConfig.value, ...payload }
     }
   } catch (err) {
     console.warn('获取公众号推送配置失败，使用默认配置', err)
@@ -8456,12 +8488,8 @@ const loadNotificationConfig = async () => {
 const handleSaveNotifConfig = async () => {
   savingNotif.value = true
   try {
-    const res = await saveNotificationConfigApi(notifConfig.value)
-    if (res && res.code === 200) {
-      ElMessage.success('门店动账推送业务设置已成功保存并立即生效！')
-    } else {
-      ElMessage.success('门店动账推送业务设置已保存')
-    }
+    await saveNotificationConfigApi(notifConfig.value)
+    ElMessage.success('门店动账推送业务设置已成功保存并立即生效！')
   } catch (err: any) {
     ElMessage.error(err?.message || '保存失败')
   } finally {
@@ -8472,9 +8500,10 @@ const handleSaveNotifConfig = async () => {
 const loadNotificationLogs = async () => {
   loadingLogs.value = true
   try {
-    const res = await getNotificationLogsApi()
-    if (res && res.data) {
-      notifLogs.value = res.data
+    const res: any = await getNotificationLogsApi()
+    const list = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : null)
+    if (list) {
+      notifLogs.value = list
     }
   } catch (err) {
     console.warn('加载推送流水失败', err)
@@ -8495,12 +8524,13 @@ const handleSimulateFollow = async () => {
   }
   simulatingFollow.value = true
   try {
-    const res = await simulateFollowApi({
+    const res: any = await simulateFollowApi({
       phone: simulatePhone.value.trim(),
       channel: simulateChannel.value
     })
-    if (res && res.data) {
-      lastFollowResult.value = res.data
+    const payload = res?.data ?? res
+    if (payload) {
+      lastFollowResult.value = payload
       ElNotification({
         title: '扫码关注绑定成功',
         message: `顾客 ${simulatePhone.value} 已成功关注 ${simulateChannel.value === 'WECHAT_MP' ? '微信公众号' : '支付宝生活号'}，获赠50积分并激活消费动账推送！`,
@@ -8519,12 +8549,13 @@ const handleSimulateFollow = async () => {
 const handleSendTestNotif = async () => {
   sendingTest.value = true
   try {
-    const res = await sendTestNotificationApi({
+    const res: any = await sendTestNotificationApi({
       channel: testForm.value.channel,
       msgType: testForm.value.msgType,
       targetPhone: testForm.value.targetPhone
     })
-    if (res && res.data) {
+    const payload = res?.data ?? res
+    if (payload !== undefined) {
       ElMessage.success('测试消息已成功下发 (沙箱全真模拟或官方API已提交)！')
       loadNotificationLogs()
     }
@@ -8554,16 +8585,46 @@ const formatJson = (val: string) => {
   }
 }
 
+let applicationsPollTimer: ReturnType<typeof setInterval> | null = null
+
+const isRecruitmentApplicationsActive = () => {
+  if (typeof document !== 'undefined' && document.hidden) return false
+  return (activeTab.value === 'post' || isStandaloneJobPosts.value) && postSubTab.value === 'APPLICATIONS'
+}
+
 onMounted(() => {
-  fetchRemoteApplications()
-  // 30秒自动后台轮询一次云端投递简历
-  setInterval(() => {
-    fetchRemoteApplications(false)
+  if (activeTab.value === 'post' || isStandaloneJobPosts.value) {
+    fetchRemoteApplications()
+  }
+  // 30秒自动后台轮询一次云端投递简历（仅在招聘人才库页签激活且页面可见时触发）
+  applicationsPollTimer = setInterval(() => {
+    if (isRecruitmentApplicationsActive()) {
+      fetchRemoteApplications(false)
+    }
   }, 30000)
   loadNotificationConfig()
   loadNotificationLogs()
   generateStoreQrCodes()
   loadAmapConfig()
+})
+
+onUnmounted(() => {
+  if (applicationsPollTimer) {
+    clearInterval(applicationsPollTimer)
+    applicationsPollTimer = null
+  }
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('seahorse-recharge-packages-updated', refreshSettingsSmsPackages)
+  }
+  if (mapInstance) {
+    try {
+      mapInstance.destroy?.()
+    } catch (e) {}
+    mapInstance = null
+    markerInstance = null
+    circleInstance = null
+    geocoderInstance = null
+  }
 })
 
 const handleSaveAllSettings = () => {

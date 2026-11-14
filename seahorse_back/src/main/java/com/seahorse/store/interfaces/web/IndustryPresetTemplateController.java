@@ -8,7 +8,6 @@ import com.seahorse.store.domain.iam.model.IndustryPresetTemplate;
 import com.seahorse.store.infrastructure.repository.IndustryPresetTemplateRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,7 +30,6 @@ public class IndustryPresetTemplateController {
 
     private final IndustryPresetTemplateRepository templateRepository;
     private final ObjectMapper objectMapper;
-    private final HttpServletRequest request;
 
     @Operation(summary = "获取所有支持的行业预设列表概要")
     @GetMapping("/all")
@@ -304,7 +302,7 @@ public class IndustryPresetTemplateController {
                             createPost(1L, "茶楼掌柜/店长", "店务管理部", "STORE_MANAGER", "MANAGER", 6500, "￥6500-10000元/月", 0.08, "统筹茶室日常营运、茶礼接待与雅间环境调度", "具备中高端茶馆经营管理经验"),
                             createPost(2L, "资深茶艺师/侍茶师", "茶艺服务部", "TECHNICIAN", "TECHNICIAN", 5500, "￥5500-8500元/月", 0.18, "负责名优茶冲泡品饮演示、茶道文化讲解与茶礼服务", "持有中级以上茶艺师资格证"),
                             createPost(3L, "雅间管家/茶礼服务员", "前厅接待部", "TECHNICIAN", "TECHNICIAN", 4800, "￥4800-7000元/月", 0.12, "负责茶室雅座包厢布景备茶、续水与茶点呈递", "举止端庄，礼貌周到，具备服务礼仪"),
-                            createPost(4L, "前台收银员", "前台客服部", "CASHIER", "CASHIER", 4500, "￥4500-6000元/月", 0.03, "负责到店接待、茶室消费开单与收银交班", "细致认真，掌握结账系统操作")
+                            createPost(4L, "前台收银员", "前台客服部", "CASHIER", "CASHIER", 4500, "￥4500-6000元/月", 0.03, "负责到店接待、茶室消费开单与收银结算", "细致认真，掌握结账系统操作")
                     )));
                     t.setCardTemplatesJson(objectMapper.writeValueAsString(Arrays.asList(
                             createCard(1, "TIME_CARD", "次卡", "商务雅间 4小时包段 10次卡", 1500, 2000, "包含10次4小时中型商务雅间使用，附赠名优普洱茶1泡", 180, "emerald", 0.75),

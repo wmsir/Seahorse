@@ -42,7 +42,7 @@
           </div>
 
           <div style="margin-top: 24px; display: flex; justify-content: center;">
-            <el-button type="primary" plain icon="Edit" @click="openEditProfileDialog = true">
+            <el-button type="primary" plain icon="Edit" @click="handleOpenEditProfile">
               编辑个人基本信息
             </el-button>
           </div>
@@ -126,9 +126,10 @@
                     placeholder="搜索日志事件/操作人/IP/终端"
                     style="width: 260px;"
                     clearable
-                    @keyup.enter="loadAuditLogs"
+                    @clear="handleSearchAuditLogs"
+                    @keyup.enter="handleSearchAuditLogs"
                   />
-                  <el-button type="primary" icon="Search" @click="loadAuditLogs">查询</el-button>
+                  <el-button type="primary" icon="Search" @click="handleSearchAuditLogs">查询</el-button>
                 </div>
                 <div style="font-size: 12.5px; color: #64748b;">
                   当前{{ isSuperAdmin ? '平台全域' : (isTenantAdmin ? '租户全员' : `个人账号【${profile.realName || profile.username || '当前用户'}】`) }}共记录安全事件 <b>{{ totalLogs }}</b> 条
@@ -320,7 +321,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import {
   getUserProfileApi,
@@ -550,51 +551,9 @@ const logKeyword = ref('')
 const currentPage = ref(1)
 const pageSize = ref(10)
 
-let autoRecorded = false
-const autoRecordCurrentSessionLogin = async () => {
-  if (autoRecorded) return
-  autoRecorded = true
-  try {
-    const rawUser = profile.value?.username || localStorage.getItem('seahorse_username') || localStorage.getItem('seahorse_user') || 'user'
-    const cleanUser = rawUser.split(/[\(（【]/)[0].trim()
-    const rawRealName = profile.value?.realName || localStorage.getItem('seahorse_real_name') || cleanUser
-    const role = profile.value?.role || localStorage.getItem('seahorse_role') || 'STAFF'
-    await recordClientAuditLogApi({
-      action: '账号密码登录',
-      actionType: 'LOGIN',
-      username: cleanUser,
-      realName: rawRealName,
-      tenantId: profile.value?.tenantId || localStorage.getItem('seahorse_tenant_id') || 'T001',
-      storeId: profile.value?.storeId || localStorage.getItem('seahorse_store_id') || 'S001',
-      storeName: profile.value?.storeName || localStorage.getItem('seahorse_store_name') || '海马智慧门店',
-      status: 'SUCCESS',
-      notes: `登录成功 · 身份: ${role}`,
-      device: navigator.userAgent.includes('Mobile') ? '移动端手机浏览器' : 'Chrome 浏览器 (PC)'
-    })
-    const qp: any = { page: currentPage.value, size: pageSize.value }
-    if (!isTenantAdmin.value) qp.username = cleanUser
-    const res: any = await getAuditLogsApi(qp)
-    const pageData = res?.data !== undefined && res?.code ? res.data : (res?.data || res)
-    const list = pageData?.content || (Array.isArray(pageData) ? pageData : [])
-    if (list.length > 0) {
-      logs.value = list.map((item: any) => ({
-        id: item.id,
-        time: item.createdAt ? item.createdAt.replace('T', ' ').substring(0, 19) : '-',
-        action: item.action || '系统登录',
-        eventCode: item.actionType || 'LOGIN',
-        type: 'primary',
-        tenantId: item.tenantId,
-        storeId: item.storeId,
-        operatorName: item.realName || item.username || '系统用户',
-        ip: item.ip || '127.0.0.1',
-        device: item.device || 'Chrome / Web端',
-        status: '成功'
-      }))
-      totalLogs.value = pageData.totalElements != null ? pageData.totalElements : logs.value.length
-    }
-  } catch (err) {
-    console.warn('自动补充当前会话审计日志异常', err)
-  }
+const handleSearchAuditLogs = () => {
+  currentPage.value = 1
+  loadAuditLogs()
 }
 
 const loadAuditLogs = async () => {
@@ -657,7 +616,7 @@ const loadAuditLogs = async () => {
 // 真实记录安全事件审计日志并上报后端
 const recordAuditLog = async (
   action: string,
-  type: 'info' | 'primary' | 'warning' | 'danger' | 'success',
+  _type: 'info' | 'primary' | 'warning' | 'danger' | 'success',
   eventCode: string,
   status: '成功' | '拦截' | '失败' = '成功'
 ) => {
@@ -755,17 +714,26 @@ const handleSavePassword = async () => {
   })
 }
 
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+
 const handleSendCode = () => {
   if (!phoneForm.newPhone || !/^1[3-9]\d{9}$/.test(phoneForm.newPhone)) {
     ElMessage.warning('请先输入正确的11位新手机号码')
     return
   }
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
   countdown.value = 60
   phoneForm.verifyCode = '888888'
   ElMessage.success('【演示模式】验证码已模拟发送至新手机：888888')
-  const timer = setInterval(() => {
+  countdownTimer = setInterval(() => {
     countdown.value--
-    if (countdown.value <= 0) clearInterval(timer)
+    if (countdown.value <= 0 && countdownTimer) {
+      clearInterval(countdownTimer)
+      countdownTimer = null
+    }
   }, 1000)
 }
 
@@ -787,24 +755,38 @@ const handleSavePhone = async () => {
       phoneForm.verifyCode = ''
     } catch (e: any) {
       recordAuditLog('尝试更换密保手机失败', 'danger', 'PHONE', '失败')
-      ElMessage.error(e.message || '手机号更换失败')
     } finally {
       savingPhone.value = false
     }
   })
 }
 
+const handleOpenEditProfile = () => {
+  editProfileForm.realName = profile.value.realName || profile.value.username || ''
+  editProfileForm.gender = profile.value.gender || 'MALE'
+  openEditProfileDialog.value = true
+}
+
 const handleSaveProfile = async () => {
+  const trimmedName = editProfileForm.realName?.trim()
+  if (!trimmedName) {
+    ElMessage.warning('请输入真实姓名')
+    return
+  }
   savingProfile.value = true
   try {
-    await updateProfileInfoApi(editProfileForm)
+    await updateProfileInfoApi({
+      realName: trimmedName,
+      gender: editProfileForm.gender
+    })
     ElMessage.success('个人基本信息保存成功！')
-    recordAuditLog(`更新个人基本信息(姓名:${editProfileForm.realName})`, 'info', 'PROFILE', '成功')
+    recordAuditLog(`更新个人基本信息(姓名:${trimmedName})`, 'info', 'PROFILE', '成功')
     openEditProfileDialog.value = false
-    profile.value.realName = editProfileForm.realName
+    profile.value.realName = trimmedName
     profile.value.gender = editProfileForm.gender
+    localStorage.setItem('seahorse_real_name', trimmedName)
   } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
+    console.warn('保存个人基本信息失败:', e)
   } finally {
     savingProfile.value = false
   }
@@ -812,6 +794,13 @@ const handleSaveProfile = async () => {
 
 onMounted(() => {
   loadProfile()
+})
+
+onUnmounted(() => {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
 })
 </script>
 

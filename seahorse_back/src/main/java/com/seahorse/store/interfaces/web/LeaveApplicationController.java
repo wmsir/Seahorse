@@ -131,10 +131,15 @@ public class LeaveApplicationController {
             effTenantId = "T001";
         }
 
+        boolean canQueryGlobal = "PLATFORM".equalsIgnoreCase(TenantContext.getTenantId())
+                || "PLATFORM_DEVELOPER".equalsIgnoreCase(TenantContext.getRole());
         List<LeaveApplication> entities;
-        if ("PLATFORM".equalsIgnoreCase(effTenantId) || "ALL".equalsIgnoreCase(effTenantId)) {
+        if (canQueryGlobal && ("PLATFORM".equalsIgnoreCase(effTenantId) || "ALL".equalsIgnoreCase(effTenantId))) {
             entities = leaveApplicationRepository.findAllByOrderByCreatedAtDesc();
         } else {
+            if ("PLATFORM".equalsIgnoreCase(effTenantId) || "ALL".equalsIgnoreCase(effTenantId)) {
+                effTenantId = "T001";
+            }
             entities = new ArrayList<>(leaveApplicationRepository.findByTenantIdOrderByCreatedAtDesc(effTenantId));
             // 补充关联当前租户门店的单据（保证跨端多门店同步）
             List<Store> stores = storeRepository.findByTenantId(effTenantId);
@@ -253,6 +258,9 @@ public class LeaveApplicationController {
     @Operation(summary = "主管或店长审批请假申请")
     @PostMapping("/audit")
     public ApiResponse<LeaveApplicationDTO> auditLeave(@RequestBody AuditLeaveCommand cmd) {
+        if (cmd == null || cmd.getLeaveId() == null || cmd.getLeaveId().trim().isEmpty()) {
+            return ApiResponse.error(400, "请假单号不能为空");
+        }
         Optional<LeaveApplication> targetOpt = leaveApplicationRepository.findById(cmd.getLeaveId());
         if (targetOpt.isEmpty()) {
             return ApiResponse.error(404, "请假单据不存在");
@@ -355,6 +363,9 @@ public class LeaveApplicationController {
     @Operation(summary = "员工撤销/撤回请假申请")
     @PostMapping("/revoke")
     public ApiResponse<LeaveApplicationDTO> revokeLeave(@RequestBody RevokeLeaveCommand cmd) {
+        if (cmd == null || cmd.getLeaveId() == null || cmd.getLeaveId().trim().isEmpty()) {
+            return ApiResponse.error(400, "请假单号不能为空");
+        }
         Optional<LeaveApplication> targetOpt = leaveApplicationRepository.findById(cmd.getLeaveId());
         if (targetOpt.isEmpty()) {
             return ApiResponse.error(404, "请假单据不存在");
@@ -392,6 +403,9 @@ public class LeaveApplicationController {
     @Operation(summary = "编辑修改并重新提交请假申请")
     @PostMapping("/update")
     public ApiResponse<LeaveApplicationDTO> updateLeave(@RequestBody UpdateLeaveCommand cmd) {
+        if (cmd == null || cmd.getLeaveId() == null || cmd.getLeaveId().trim().isEmpty()) {
+            return ApiResponse.error(400, "请假单号不能为空");
+        }
         Optional<LeaveApplication> targetOpt = leaveApplicationRepository.findById(cmd.getLeaveId());
         if (targetOpt.isEmpty()) {
             return ApiResponse.error(404, "请假单据不存在");

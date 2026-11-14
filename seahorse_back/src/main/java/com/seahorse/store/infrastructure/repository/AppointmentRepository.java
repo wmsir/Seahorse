@@ -11,6 +11,7 @@ import java.util.Optional;
 public interface AppointmentRepository extends JpaRepository<Appointment, Long> {
     List<Appointment> findByStoreId(String storeId);
     List<Appointment> findByStoreIdAndAptDate(String storeId, String aptDate);
+    List<Appointment> findByStoreIdAndAptDateBetweenOrderByAptDateAscAptTimeAsc(String storeId, String startDate, String endDate);
     List<Appointment> findByTenantId(String tenantId);
     Optional<Appointment> findByAptNo(String aptNo);
 }

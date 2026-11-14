@@ -1,19 +1,42 @@
 @echo off
-title º£ÂíÖÇ»ÛÉÌÒµ - ºó¶ËÎ¢·şÎñ (Spring Boot: 8082)
+chcp 65001 >nul
+title æµ·é©¬æ™ºæ…§å•†ä¸š - åç«¯å¾®æœåŠ¡ (Spring Boot)
+set "SEAHORSE_ENV_FILE=%~dp0..\..\.env"
+if exist "%SEAHORSE_ENV_FILE%" (
+    echo [INFO] æ£€æµ‹åˆ°æœ¬åœ°é…ç½®æ–‡ä»¶ .envï¼Œæ­£åœ¨è‡ªåŠ¨åŠ è½½éç©ºç¯å¢ƒå˜é‡...
+    for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%SEAHORSE_ENV_FILE%") do (
+        if not "%%~B"=="" set "%%A=%%~B"
+    )
+)
+if not defined SERVER_PORT set "SERVER_PORT=8082"
 cd /d "%~dp0..\..\seahorse_back"
 
-set "JAVA_HOME=C:\Program Files\Java\jdk-17"
-set "PATH=C:\meng\software\apache-maven-3.9.11\bin;C:\Program Files\Java\jdk-17\bin;%PATH%"
+if exist "C:\Program Files\Java\jdk-17\bin\java.exe" (
+    set "JAVA_HOME=C:\Program Files\Java\jdk-17"
+)
+if defined JAVA_HOME (
+    set "PATH=%JAVA_HOME%\bin;%PATH%"
+)
+if exist "C:\meng\software\apache-maven-3.9.11\bin\mvn.cmd" (
+    set "PATH=C:\meng\software\apache-maven-3.9.11\bin;%PATH%"
+)
+
+where mvn.cmd >nul 2>nul
+if %errorlevel% neq 0 (
+    echo [ERROR] æœªæ‰¾åˆ° Maven ^(mvn.cmd^)ï¼Œè¯·å®‰è£… Maven 3.8+ å¹¶é…ç½®è‡³ PATH ç¯å¢ƒå˜é‡ã€‚
+    pause
+    exit /b 1
+)
 
 echo =====================================================================
-echo  ÕıÔÚÆô¶¯º£ÂíÖÇ»ÛÉÌÒµºó¶Ë·şÎñ (Spring Boot: 8082)...
-echo  ¹¤×÷Ä¿Â¼: %CD%
+echo  æ­£åœ¨å¯åŠ¨æµ·é©¬æ™ºæ…§å•†ä¸šåç«¯æœåŠ¡ (Spring Boot: %SERVER_PORT%)...
+echo  å·¥ä½œç›®å½•: %CD%
 echo  JAVA_HOME: %JAVA_HOME%
 echo =====================================================================
 
-call "C:\meng\software\apache-maven-3.9.11\bin\mvn.cmd" spring-boot:run
+call mvn.cmd spring-boot:run
 if %errorlevel% neq 0 (
     echo.
-    echo [ERROR] ºó¶Ë·şÎñÒì³£ÍË³ö£¬ÍË³öÂë: %errorlevel%
+    echo [ERROR] åç«¯æœåŠ¡å¼‚å¸¸é€€å‡ºï¼Œé€€å‡ºç : %errorlevel%
     pause
 )

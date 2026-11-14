@@ -101,6 +101,9 @@
             <el-col :span="6">
               <el-form-item label="扣卡密码">
                 <el-switch v-model="memberForm.cardPasswordEnabled" active-text="开启" inactive-text="关闭" />
+                <el-tag size="small" :type="memberForm.hasCardPassword ? 'success' : 'info'" style="margin-left: 8px;">
+                  {{ memberForm.hasCardPassword ? '已设密' : '未设密' }}
+                </el-tag>
               </el-form-item>
             </el-col>
             <el-col :span="6">
@@ -135,12 +138,15 @@
           <el-row :gutter="24">
             <el-col :span="12">
               <el-form-item label="推荐人">
-                <el-select v-model="memberForm.referrerName" style="width: 100%;" clearable placeholder="请选择推荐人 / 归属技师">
-                  <el-option label="托尼总监 (技师)" value="托尼总监" />
-                  <el-option label="李博 (资深发型师)" value="李博" />
-                  <el-option label="张建华 (发型助理)" value="张建华" />
-                  <el-option label="李店长" value="李店长" />
+                <el-select v-model="memberForm.referrerName" style="width: 100%;" filterable allow-create clearable placeholder="请选择推荐人 / 归属员工">
+                  <el-option
+                    v-for="s in storeStaffOptions"
+                    :key="s.id"
+                    :label="`${s.realName} (${s.roleLabel})`"
+                    :value="s.realName"
+                  />
                   <el-option label="老客转介绍" value="老客转介绍" />
+                  <el-option label="自主到店" value="自主到店" />
                 </el-select>
               </el-form-item>
             </el-col>
@@ -276,9 +282,13 @@
           <div class="b-card b-blue">
             <div class="b-lbl">扣减模式</div>
             <div class="b-val" style="font-size: 15px; margin-top: 6px;">
-              <el-tag type="success">按本金/赠金比例双轨扣减</el-tag>
+              <el-tag :type="profileData?.dualBalance?.deductMode === 'PRINCIPAL_FIRST' ? 'warning' : 'success'">
+                {{ profileData?.dualBalance?.deductMode === 'PRINCIPAL_FIRST' ? '优先扣减实充本金' : '按本金/赠金比例双轨扣减' }}
+              </el-tag>
             </div>
-            <div class="b-tip">消费结算优先按配比冲抵，退卡核退剩余本金</div>
+            <div class="b-tip">
+              {{ profileData?.dualBalance?.deductMode === 'PRINCIPAL_FIRST' ? '实充本金先扣完，不足部分再扣赠送金' : '消费结算优先按配比冲抵，退卡核退剩余本金' }}
+            </div>
           </div>
         </div>
 
@@ -566,7 +576,7 @@
         <el-table :data="memberNotifLogs" stripe border style="width: 100%;">
           <el-table-column prop="sentAt" label="发送时间" width="170">
             <template #default="{ row }">
-              {{ row.sentAt ? row.sentAt.replace('T', ' ').substring(0, 19) : '-' }}
+              {{ (row.sentAt || row.createdAt) ? String(row.sentAt || row.createdAt).replace('T', ' ').substring(0, 19) : '-' }}
             </template>
           </el-table-column>
           <el-table-column prop="channel" label="渠道" width="120" align="center">
@@ -592,8 +602,29 @@
         </el-table>
       </div>
 
+      <!-- 跟进记录 Tab -->
+      <div v-show="activeTab === 'follow_ups'" class="tab-content-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <span style="font-weight: 700; font-size: 14px; color: #1e293b;">📝 会员服务跟进记录 (共 {{ followUpRecords.length }} 条)</span>
+          <el-button type="primary" size="small" icon="Plus" @click="openFollowUpModal">新增跟进记录</el-button>
+        </div>
+        <el-table v-if="followUpRecords.length > 0" :data="followUpRecords" stripe border style="width: 100%;">
+          <el-table-column prop="createdAt" label="跟进时间" width="175" />
+          <el-table-column prop="type" label="跟进方式" width="130" align="center">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.type === 'PHONE' ? 'primary' : (row.type === 'WECHAT' ? 'success' : 'warning')">
+                {{ row.type === 'PHONE' ? '电话回访' : (row.type === 'WECHAT' ? '微信关怀' : '到店沟通') }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="content" label="沟通详情与反馈" min-width="280" />
+          <el-table-column prop="operator" label="记录人" width="130" />
+        </el-table>
+        <el-empty v-else description="暂无跟进记录，点击右上角【新增跟进记录】归档客户关怀日志。" />
+      </div>
+
       <!-- 其他Tab通用占位与明细表 -->
-      <div v-show="['card_change', 'points_records', 'reward_records', 'card_adjust', 'repay_records', 'follow_ups', 'storage_records'].includes(activeTab)" class="tab-content-panel">
+      <div v-show="['card_change', 'points_records', 'reward_records', 'card_adjust', 'repay_records', 'storage_records'].includes(activeTab)" class="tab-content-panel">
         <el-empty :description="getTabTitle(activeTab) + '明细暂无更多数据，记录将自动在此归档展示。'" />
       </div>
     </el-card>
@@ -608,10 +639,13 @@
           <el-input-number v-model="rechargeForm.giftAmount" :min="0" :step="50" style="width: 100%;" />
         </el-form-item>
         <el-form-item label="售卡提成员工">
-          <el-select v-model="rechargeForm.sellerEmployeeId" placeholder="选择归属提成技师/员工" clearable style="width: 100%;">
-            <el-option label="李博 (资深发型师)" :value="1" />
-            <el-option label="张建华 (发型助理)" :value="2" />
-            <el-option label="托尼总监" :value="4" />
+          <el-select v-model="rechargeForm.sellerEmployeeId" placeholder="选择归属提成技师/员工" filterable clearable style="width: 100%;">
+            <el-option
+              v-for="s in storeStaffOptions"
+              :key="s.id"
+              :label="`${s.realName} (${s.roleLabel})`"
+              :value="s.id"
+            />
           </el-select>
         </el-form-item>
       </el-form>
@@ -628,7 +662,13 @@
           <el-switch v-model="passwordForm.enabled" active-text="启用" inactive-text="关闭" />
         </el-form-item>
         <el-form-item label="新卡密码" v-if="passwordForm.enabled">
-          <el-input v-model="passwordForm.password" type="password" placeholder="请输入6位数字扣卡密码" maxlength="6" show-password />
+          <el-input
+            v-model="passwordForm.password"
+            type="password"
+            :placeholder="memberForm.hasCardPassword ? '已设置密码，留空则保持原密码不变' : '请输入6位数字扣卡密码'"
+            maxlength="6"
+            show-password
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -641,7 +681,7 @@
     <el-dialog v-model="pointsModalVisible" title="调整会员可用积分" width="420px" destroy-on-close>
       <el-form label-width="90px">
         <el-form-item label="当前积分">
-          <span style="font-size: 16px; font-weight: bold; color: #0284c7;">{{ memberForm.points || 100 }}</span>
+          <span style="font-size: 16px; font-weight: bold; color: #0284c7;">{{ memberForm.points ?? 0 }}</span>
         </el-form-item>
         <el-form-item label="积分增减" required>
           <el-input-number v-model="pointsForm.pointsDelta" :step="50" style="width: 100%;" />
@@ -821,7 +861,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import QRCode from 'qrcode'
 import {
@@ -835,7 +875,8 @@ import {
   getNotificationLogsApi,
   simulateFollowApi,
   getMemberOrdersApi,
-  getMemberRechargesApi
+  getMemberRechargesApi,
+  getMerchantStaffListApi
 } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSystemDataStore } from '../stores/systemDataStore'
@@ -956,16 +997,25 @@ const memberNotifLogs = ref<any[]>([])
 
 const loadMemberNotifLogs = async () => {
   try {
-    const res = await getNotificationLogsApi()
-    if (res && res.data) {
-      const p = memberForm.value.phone
-      const mId = Number(memberId.value)
-      memberNotifLogs.value = res.data.filter((l: any) =>
+    const mId = Number(memberId.value)
+    const res: any = await getNotificationLogsApi(mId > 0 ? { memberId: mId } : undefined)
+    let logs = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : [])
+    const p = memberForm.value.phone
+    if (logs.length === 0 && mId > 0 && p) {
+      const fallbackRes: any = await getNotificationLogsApi()
+      const allLogs = Array.isArray(fallbackRes) ? fallbackRes : (Array.isArray(fallbackRes?.data) ? fallbackRes.data : [])
+      logs = allLogs.filter((l: any) =>
+        (p && l.phone === p) ||
+        (memberForm.value.name && l.memberName === memberForm.value.name)
+      )
+    } else {
+      logs = logs.filter((l: any) =>
         (mId && l.memberId === mId) ||
         (p && l.phone === p) ||
-        (l.memberName && l.memberName === memberForm.value.name)
+        (memberForm.value.name && l.memberName === memberForm.value.name)
       )
     }
+    memberNotifLogs.value = logs
   } catch (err) {
     console.warn('获取会员推送日志失败', err)
   }
@@ -977,19 +1027,21 @@ const handleSimulateMemberFollow = async (channel: string = 'WECHAT_MP') => {
     return
   }
   try {
-    const res = await simulateFollowApi({
+    const res: any = await simulateFollowApi({
       phone: memberForm.value.phone,
       channel
     })
-    if (res && res.data) {
+    const payload = res?.data ?? res
+    if (payload) {
       ElMessage.success(`会员已成功关联并关注 ${channel === 'WECHAT_MP' ? '微信公众号' : '支付宝生活号'}！`)
-      if (res.data.member) {
-        memberForm.value.wechatOpenId = res.data.member.wechatOpenId
-        memberForm.value.wechatFollowStatus = res.data.member.wechatFollowStatus
-        memberForm.value.wechatFollowTime = res.data.member.wechatFollowTime
-        memberForm.value.alipayUserId = res.data.member.alipayUserId
-        memberForm.value.alipayFollowStatus = res.data.member.alipayFollowStatus
-        memberForm.value.alipayFollowTime = res.data.member.alipayFollowTime
+      const updatedMember = payload.member || payload
+      if (updatedMember && typeof updatedMember === 'object') {
+        if (updatedMember.wechatOpenId !== undefined) memberForm.value.wechatOpenId = updatedMember.wechatOpenId
+        if (updatedMember.wechatFollowStatus !== undefined) memberForm.value.wechatFollowStatus = updatedMember.wechatFollowStatus
+        if (updatedMember.wechatFollowTime !== undefined) memberForm.value.wechatFollowTime = updatedMember.wechatFollowTime
+        if (updatedMember.alipayUserId !== undefined) memberForm.value.alipayUserId = updatedMember.alipayUserId
+        if (updatedMember.alipayFollowStatus !== undefined) memberForm.value.alipayFollowStatus = updatedMember.alipayFollowStatus
+        if (updatedMember.alipayFollowTime !== undefined) memberForm.value.alipayFollowTime = updatedMember.alipayFollowTime
       }
       await loadMemberNotifLogs()
     }
@@ -1123,6 +1175,19 @@ const handleUseCoupon = (row: any) => {
   ElMessage.success(`优惠券【${row.name}】(立减￥${row.amount}) 已核销使用成功！`)
 }
 
+const getSafeMembersWithStats = (): any[] => {
+  try {
+    return systemData.membersWithStats || []
+  } catch {
+    return (systemData.members || []).map((m: any) => ({
+      ...m,
+      totalBalance: Number(m.totalBalance ?? m.balance ?? 0),
+      principalBalance: Number(m.principalBalance ?? m.balance ?? 0),
+      giftBalance: Number(m.giftBalance ?? 0)
+    }))
+  }
+}
+
 const loadMemberData = async () => {
   pageLoading.value = true
   try {
@@ -1131,15 +1196,20 @@ const loadMemberData = async () => {
       detail = await getMemberDetailApi(memberId.value)
     } catch (err) {}
 
+    let fallbackFound: any = null
     if (detail && detail.name) {
       memberForm.value = {
         ...detail,
+        hasCardPassword: Boolean(detail.hasCardPassword || detail.cardPassword),
         cardPasswordEnabled: Boolean(detail.cardPasswordEnabled),
         cardSignEnabled: Boolean(detail.cardSignEnabled)
       }
     } else {
-      const found = systemData.membersWithStats.find((m: any) => m.id === memberId.value) ||
-                    (systemData.membersWithStats.length > 0 ? systemData.membersWithStats[0] : null)
+      const statsList = getSafeMembersWithStats()
+      const found = statsList.find((m: any) => m.id === memberId.value) ||
+                    (systemData.members || []).find((m: any) => m.id === memberId.value) ||
+                    null
+      fallbackFound = found
       if (found) {
         memberForm.value = {
           id: found.id,
@@ -1147,13 +1217,14 @@ const loadMemberData = async () => {
           phone: found.phone,
           cardNo: found.memberNo,
           memberNo: found.memberNo,
+          hasCardPassword: false,
           cardPasswordEnabled: false,
           cardSignEnabled: false,
           gender: found.gender || 'UNKNOWN',
           discountName: found.levelName || '普通会员',
           referrerName: found.referrerId ? '老客推荐' : '自主到店',
           birthdayType: 'SOLAR',
-          birthday: '1995-08-18',
+          birthday: found.birthday || '',
           createdAt: found.registerTime || new Date().toISOString().slice(0, 10),
           rewardAmount: found.rewardBonus || 0,
           points: found.points || 0,
@@ -1161,7 +1232,7 @@ const loadMemberData = async () => {
           cardOpenCount: found.visitCount || 1,
           debtAmount: 0.00,
           wechatBound: true,
-          notes: found.notes || '高品质常客'
+          notes: found.notes || ''
         }
       } else {
         memberForm.value = {
@@ -1192,11 +1263,25 @@ const loadMemberData = async () => {
     try {
       const profile: any = await getMemberProfileApi(memberId.value)
       profileData.value = profile
-    } catch (err) {}
+    } catch (err) {
+      profileData.value = fallbackFound ? {
+        member: fallbackFound,
+        dualBalance: {
+          principalBalance: fallbackFound.principalBalance ?? fallbackFound.balance ?? 0,
+          giftBalance: fallbackFound.giftBalance ?? 0,
+          totalRecharged: fallbackFound.principalBalance ?? 0,
+          totalGiftGranted: fallbackFound.giftBalance ?? 0,
+          deductMode: fallbackFound.deductMode || 'PROPORTIONAL'
+        },
+        timeCards: demoTimeCards.value
+      } : null
+    }
 
     loadMemberCoupons()
     loadMemberNotifLogs()
     loadMemberVehicles()
+    loadFollowUpRecords()
+    loadStoreStaffOptions()
     loadConsumptionRecords()
     loadRechargeRecords()
   } catch (e) {
@@ -1252,13 +1337,25 @@ const handleConfirmRecharge = async () => {
 const passwordModalVisible = ref(false)
 const passwordForm = ref({ password: '', enabled: false })
 const openPasswordModal = () => {
+  passwordForm.value.password = ''
   passwordForm.value.enabled = Boolean(memberForm.value.cardPasswordEnabled)
   passwordModalVisible.value = true
 }
 const handleSavePassword = async () => {
+  if (passwordForm.value.enabled && !passwordForm.value.password.trim() && !memberForm.value.hasCardPassword) {
+    ElMessage.warning('首次开启扣卡密码验证时请输入6位数字密码')
+    return
+  }
   try {
-    await setMemberCardPasswordApi(memberId.value, passwordForm.value)
+    const payload: any = { enabled: passwordForm.value.enabled }
+    if (passwordForm.value.password.trim()) {
+      payload.password = passwordForm.value.password.trim()
+    }
+    await setMemberCardPasswordApi(memberId.value, payload)
     memberForm.value.cardPasswordEnabled = passwordForm.value.enabled
+    if (passwordForm.value.password.trim()) {
+      memberForm.value.hasCardPassword = true
+    }
     ElMessage.success('扣卡密码配置已更新')
     passwordModalVisible.value = false
   } catch (e) {
@@ -1301,12 +1398,89 @@ const openPointsExchangeModal = () => ElMessage.info('已开启积分商城与�
 const openRepaymentModal = () => ElMessage.success('当前会员无欠款需还款')
 const openStorageModal = () => ElMessage.info('暂无未领取的寄存产品')
 
-// 跟进记录
+// 门店真实员工选项（用于推荐人与售卡提成归属）
+const serverStaffOptions = ref<any[]>([])
+const loadStoreStaffOptions = async () => {
+  try {
+    const sId = localStorage.getItem('seahorse_store_id') || undefined
+    let res: any = null
+    if (sId) {
+      try {
+        res = await getMerchantStaffListApi(sId)
+      } catch (_) {}
+    }
+    let list: any[] = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : [])
+    if (list.length === 0) {
+      res = await getMerchantStaffListApi()
+      list = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : [])
+    }
+    const active = list.filter((s: any) =>
+      s.status !== 'DELETED' &&
+      s.status !== 'DISABLED' &&
+      s.role !== 'PLATFORM_DEVELOPER' &&
+      s.username !== 'admin'
+    )
+    if (active.length > 0) {
+      serverStaffOptions.value = active
+    }
+  } catch (_) {}
+}
+
+const storeStaffOptions = computed(() => {
+  const src = serverStaffOptions.value.length > 0
+    ? serverStaffOptions.value
+    : (systemData.staff || []).filter((s: any) => s.status !== 'DELETED' && s.status !== 'RESIGNED')
+  return src.map((s: any) => ({
+    id: s.id,
+    realName: s.realName || s.name || s.username || '员工',
+    roleLabel: s.postName || s.role || '在职员工'
+  }))
+})
+
+// 跟进记录（持久化存储）
 const followUpModalVisible = ref(false)
+const followUpRecords = ref<any[]>([])
 const followUpForm = ref({ type: 'PHONE', content: '' })
-const openFollowUpModal = () => { followUpModalVisible.value = true }
+
+const getFollowUpStorageKey = () => {
+  const mid = memberId.value || memberForm.value.id || memberForm.value.phone || 'default'
+  return `seahorse_member_followups_${mid}`
+}
+
+const loadFollowUpRecords = () => {
+  try {
+    const raw = localStorage.getItem(getFollowUpStorageKey())
+    followUpRecords.value = raw ? JSON.parse(raw) : []
+  } catch {
+    followUpRecords.value = []
+  }
+}
+
+const openFollowUpModal = () => {
+  followUpForm.value = { type: 'PHONE', content: '' }
+  followUpModalVisible.value = true
+}
+
 const handleSaveFollowUp = () => {
-  ElMessage.success('跟进记录已成功记入会员成长档案')
+  if (!followUpForm.value.content.trim()) {
+    ElMessage.warning('请填写沟通跟进内容')
+    return
+  }
+  const now = new Date()
+  const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+  const entry = {
+    id: Date.now(),
+    type: followUpForm.value.type,
+    content: followUpForm.value.content.trim(),
+    operator: localStorage.getItem('seahorse_user') || '门店管家',
+    createdAt: timeStr
+  }
+  followUpRecords.value.unshift(entry)
+  try {
+    localStorage.setItem(getFollowUpStorageKey(), JSON.stringify(followUpRecords.value))
+  } catch {}
+  activeTab.value = 'follow_ups'
+  ElMessage.success('跟进记录已成功归档至会员成长档案')
   followUpModalVisible.value = false
 }
 
@@ -1480,7 +1654,7 @@ const consumptionRecords = computed(() => {
       orderNo: c.orderNo,
       spaceName: c.items.map(i => i.productName).join(' + '),
       totalAmount: c.totalAmount,
-      actualAmount: c.totalAmount,
+      actualAmount: Math.max(0, Number(c.totalAmount || 0) - Number(c.couponDiscount || 0)),
       status: 'COMPLETED',
       createdAt: c.createTime
     }))
@@ -1508,6 +1682,14 @@ const rechargeRecords = computed(() => {
 
 onMounted(() => {
   loadMemberData()
+})
+
+watch(() => route.params.id, (newId) => {
+  const parsed = Number(newId)
+  if (parsed && parsed !== memberId.value) {
+    memberId.value = parsed
+    loadMemberData()
+  }
 })
 </script>
 

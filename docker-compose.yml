@@ -1,7 +1,6 @@
 # ==============================================================================
 # 海马智慧门店 (Seahorse Smart Store) - Docker Compose 一键容器化微服务编排
 # ==============================================================================
-version: '3.8'
 
 services:
   # MySQL 8.0 独立数据库服务 (若使用本地轻量容器数据库，取消注释挂载即可)
@@ -9,6 +8,7 @@ services:
     image: mysql:8.0 # 官方 MySQL 8.0 基础镜像
     container_name: seahorse-mysql # 数据库容器实例名称
     restart: always # 容器异常退出时自动恢复重启
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     environment:
       MYSQL_ROOT_PASSWORD: root123456 # 本地容器数据库超级管理员密码
       MYSQL_DATABASE: seahorse_store # 默认预创建数据库实例名称
@@ -17,8 +17,17 @@ services:
       - "3306:3306" # 映射宿主机物理端口 3306
     volumes:
       - mysql_data:/var/lib/mysql # MySQL 数据目录命名持久化卷
-      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql # 容器首次初始化执行全量建表DDL
-      - ./sql/init_data.sql:/docker-entrypoint-initdb.d/02_init_data.sql # 容器首次初始化执行演示种子数据DML
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro # 容器首次初始化执行全量建表DDL
+      - ./sql/init_data.sql:/docker-entrypoint-initdb.d/02_init_data.sql:ro # 容器首次初始化执行演示种子数据DML
+      - ./sql/migrations/V1.0.1__add_audit_and_member_indexes.sql:/docker-entrypoint-initdb.d/03_v1_0_1_audit_and_member_indexes.sql:ro
+      - ./sql/migrations/V1.0.2__add_performance_indexes.sql:/docker-entrypoint-initdb.d/04_v1_0_2_performance_indexes.sql:ro
+      - ./sql/migrations/V1.0.3__sync_domain_tables_and_optimistic_locking.sql:/docker-entrypoint-initdb.d/05_v1_0_3_sync_domain_tables_and_optimistic_locking.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
     networks:
       - seahorse-network # 加入海马系统专属内部桥接网络
 
@@ -30,14 +39,21 @@ services:
     container_name: seahorse-back # 后端业务服务容器名称
     restart: always # 自动重启策略
     environment:
-      SPRING_PROFILES_ACTIVE: prod # 默认指定生产环境运行配置
-      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://seahorse-mysql:3306/seahorse_store?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+      TZ: Asia/Shanghai
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod} # 默认指定生产环境运行配置
+      SERVER_PORT: ${SERVER_PORT:-8082} # 后端服务监听端口（默认 8082）
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://seahorse-mysql:3306/seahorse_store?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-root123456}
+      SEAHORSE_JWT_SECRET: ${SEAHORSE_JWT_SECRET:-seahorse-smart-store-secret-key-2026-super-secure-key-jwt-token-hash}
+      SEAHORSE_AMAP_WEB_KEY: ${SEAHORSE_AMAP_WEB_KEY:-}
+      SEAHORSE_AMAP_JS_KEY: ${SEAHORSE_AMAP_JS_KEY:-}
+      SEAHORSE_AMAP_SECURITY_CODE: ${SEAHORSE_AMAP_SECURITY_CODE:-}
     ports:
-      - "8082:8082" # 映射宿主机后端 API 接口访问端口 8082
+      - "${SERVER_PORT:-8082}:${SERVER_PORT:-8082}" # 映射宿主机后端 API 接口访问端口（默认 8082）
     depends_on:
-      - seahorse-mysql # 依赖数据库基础组件
+      seahorse-mysql:
+        condition: service_healthy # 等待数据库完成初始化并健康响应后再启动后端
     networks:
       - seahorse-network # 加入海马系统专属内部桥接网络
 

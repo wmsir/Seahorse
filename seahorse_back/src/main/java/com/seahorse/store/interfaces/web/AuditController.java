@@ -92,7 +92,15 @@ public class AuditController {
         if (!isTenantOrPlatformAdmin(currentRole, TenantContext.getTenantId(), currentUsername)) {
             return ApiResponse.error(403, "权限不足，清空日志仅限租户或平台管理员操作");
         }
-        String effectiveTenantId = (tenantId != null && !tenantId.trim().isEmpty()) ? tenantId.trim() : TenantContext.getTenantId();
+        boolean isPlatformAdmin = "PLATFORM".equalsIgnoreCase(TenantContext.getTenantId())
+                || "PLATFORM_DEVELOPER".equalsIgnoreCase(currentRole);
+        String effectiveTenantId = isPlatformAdmin
+                ? ((tenantId != null && !tenantId.trim().isEmpty()) ? tenantId.trim() : "PLATFORM")
+                : TenantContext.getTenantId();
+        if (effectiveTenantId == null || effectiveTenantId.trim().isEmpty()
+                || (!isPlatformAdmin && "PLATFORM".equalsIgnoreCase(effectiveTenantId))) {
+            return ApiResponse.error(403, "权限不足，非平台超级管理员不可清空全平台日志");
+        }
         auditLogAppService.clearLogs(effectiveTenantId);
         return ApiResponse.success("安全日志已成功清空", null);
     }

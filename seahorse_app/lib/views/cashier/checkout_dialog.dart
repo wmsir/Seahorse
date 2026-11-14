@@ -116,7 +116,6 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
         );
         return;
       }
-      _selectedMember!.balance -= cashier.payableAmount;
     }
 
     // 次卡抵扣判断
@@ -144,7 +143,7 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
     }
 
     final memberProv = context.read<MemberProvider>();
-    final targetSpaceId = cashier.selectedSpaceId;
+    final hadSelectedSpace = cashier.selectedSpaceId != null;
 
     late final dynamic order;
     try {
@@ -173,7 +172,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
     }
 
     if (_selectedMethod == PaymentMethod.memberCard && _selectedMember != null) {
-      memberProv.updateMemberBalance(_selectedMember!.id, _selectedMember!.balance);
+      final nextBalance = (_selectedMember!.balance - cashier.payableAmount).clamp(0.0, double.infinity);
+      _selectedMember!.balance = nextBalance;
+      memberProv.updateMemberBalance(_selectedMember!.id, nextBalance);
     }
     if (_selectedMethod == PaymentMethod.timesCard && _selectedMember != null && _selectedTimesCard != null) {
       await memberProv.deductTimesCard(_selectedMember!.id, _selectedTimesCard!.cardNo);
@@ -183,11 +184,10 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
     // 重新拉取服务端最新商品库存数据，保证云端与本地状态一致
     cashier.loadProducts();
 
-    // 释放展位并翻台恢复空闲
-    if (targetSpaceId != null) {
-      await spaceProv.cleanAndResetSpace(store.currentStoreId, targetSpaceId);
+    // 结算完成后同步刷新房态（保持后端落盘的 DIRTY 待清台复位状态，供店员清扫后手动复位）
+    if (hadSelectedSpace) {
+      await spaceProv.loadSpaces(store.currentStoreId);
     }
-    await spaceProv.loadSpaces(store.currentStoreId);
 
     if (mounted) {
       Navigator.pop(context);

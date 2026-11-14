@@ -67,7 +67,7 @@
           <template v-else-if="space.status === 'OCCUPIED'">
             <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
               <div class="action-hint text-active"><el-icon><View /></el-icon> 履约/加项</div>
-              <el-button size="small" type="primary" plain @click.stop="$router.push({ path: '/cashier', query: { sessionId: String(space.currentSessionId || space.id) } })">
+              <el-button size="small" type="primary" plain @click.stop="handleCardGoBilling(space)">
                 💳 结账
               </el-button>
             </div>
@@ -276,6 +276,29 @@
         <el-button type="primary" :loading="appending" @click="handleConfirmAppend">确认追加至账单</el-button>
       </template>
     </el-dialog>
+
+    <!-- 转包厢/工位弹窗 -->
+    <el-dialog v-model="transferDialogVisible" :title="'转' + storeConfig.spaceAlias + ' - ' + (activeSession?.spaceName || '')" width="460px">
+      <el-form label-width="105px">
+        <el-form-item :label="'当前' + storeConfig.spaceAlias">
+          <el-tag type="primary">{{ activeSession?.spaceCode }} · {{ activeSession?.spaceName }}</el-tag>
+        </el-form-item>
+        <el-form-item :label="'目标空闲' + storeConfig.spaceAlias" required>
+          <el-select v-model="targetTransferSpaceId" :placeholder="'请选择空闲' + storeConfig.spaceAlias" filterable style="width: 100%;">
+            <el-option
+              v-for="sp in idleTransferSpaces"
+              :key="sp.id"
+              :label="`${sp.spaceCode} · ${sp.spaceName} (${sp.floorZone || '主服务区'} · 容纳${sp.capacity || 1}位)`"
+              :value="sp.id"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="transferDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="transferring" @click="handleConfirmTransfer">确认转{{ storeConfig.spaceAlias }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -288,6 +311,8 @@ import {
   openSessionApi,
   appendItemsApi,
   getSessionDetailApi,
+  transferSpaceApi,
+  getMerchantStaffListApi,
   searchMembersApi,
   getMemberProfileApi,
   getProductsApi,
@@ -373,10 +398,45 @@ const selectedProductId = ref<number | null>(null)
 const appendQuantity = ref(1)
 const appendModifiers = ref('')
 const selectedEmployeeId = ref<number | null>(null)
-const employeeList = ref<any[]>([
-  { id: 4, realName: '托尼总监', role: 'TECHNICIAN' },
-  { id: 5, realName: '凯文大工', role: 'TECHNICIAN' }
-])
+const employeeList = ref<any[]>([])
+
+const loadStoreStaffList = async () => {
+  try {
+    const sId = storeConfig.currentStoreId || localStorage.getItem('seahorse_store_id') || undefined
+    let res: any = null
+    if (sId) {
+      try {
+        res = await getMerchantStaffListApi(sId)
+      } catch (_) {}
+    }
+    let list: any[] = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : [])
+    if (list.length === 0) {
+      res = await getMerchantStaffListApi()
+      list = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : [])
+    }
+    const active = list.filter((s: any) =>
+      s.status !== 'DELETED' &&
+      s.status !== 'DISABLED' &&
+      s.role !== 'PLATFORM_DEVELOPER' &&
+      s.username !== 'admin'
+    )
+    if (active.length > 0) {
+      employeeList.value = active.map((s: any) => ({
+        id: s.id,
+        realName: s.realName || s.name || s.username,
+        role: s.postName || s.role || '员工'
+      }))
+      return
+    }
+  } catch (_) {}
+  employeeList.value = (systemData.staff || [])
+    .filter((s: any) => s.status !== 'DELETED' && s.status !== 'RESIGNED')
+    .map((s: any) => ({
+      id: s.id,
+      realName: s.realName || s.name,
+      role: s.postName || s.role || '员工'
+    }))
+}
 
 const loadSpaces = async () => {
   try {
@@ -388,12 +448,12 @@ const loadSpaces = async () => {
     if (Array.isArray(list) && list.length > 0) {
       spaces.value = list.map(sp => {
         const live = systemData.liveSessions.find(ls => ls.spaceId === sp.id || (sp.spaceName && ls.spaceName.includes(sp.spaceCode)) || (sp.spaceName && sp.spaceName.includes(ls.spaceName.substring(0, 3))))
-        if (live && live.status !== 'COMPLETED') {
+        if (live && live.status !== 'COMPLETED' && sp.status !== 'OCCUPIED') {
           return {
             ...sp,
             status: live.status === 'WAIT_CLEAN' ? 'DIRTY' : 'OCCUPIED',
             customerName: live.customerName,
-            currentSessionId: live.id
+            currentSessionId: sp.currentSessionId || live.id
           }
         }
         return sp
@@ -506,9 +566,21 @@ const handleCardClick = (space: any) => {
     memberPreferences.value = []
     loadStoreMembersList()
     openDialogVisible.value = true
-  } else if (space.status === 'OCCUPIED' && space.currentSessionId) {
-    openSessionDrawer(space.currentSessionId, space)
+  } else if (space.status === 'OCCUPIED') {
+    if (space.currentSessionId) {
+      openSessionDrawer(space.currentSessionId, space)
+    } else {
+      ElMessage.warning('该工位暂无关联的在场会话，可复位为空闲后重新开单')
+    }
   }
+}
+
+const handleCardGoBilling = (space: any) => {
+  if (!space.currentSessionId) {
+    ElMessage.warning('该工位暂无关联的在场会话，无法直接跳转结账')
+    return
+  }
+  router.push({ path: '/cashier', query: { sessionId: String(space.currentSessionId) } })
 }
 
 const handleMemberSearch = async () => {
@@ -577,11 +649,13 @@ const handleConfirmAppend = async () => {
     const performers = []
     if (selectedEmployeeId.value) {
       const emp = employeeList.value.find(e => e.id === selectedEmployeeId.value)
-      performers.push({
-        employeeId: emp.id,
-        employeeName: emp.realName,
-        shareRatio: 1.0
-      })
+      if (emp) {
+        performers.push({
+          employeeId: emp.id,
+          employeeName: emp.realName,
+          shareRatio: 1.0
+        })
+      }
     }
 
     await appendItemsApi({
@@ -633,6 +707,7 @@ const handleCancelItem = (itemId: number) => {
       await cancelLineItemApi(itemId, { reason: value || '顾客退单' })
       ElMessage.success('退单成功')
       sessionDetail.value = await getSessionDetailApi(sessionDetail.value.session.id)
+      loadSpaces()
     } catch (e) {
       console.error(e)
     }
@@ -643,14 +718,59 @@ const handleOpenCreateSpace = () => {
   router.push('/rooms')
 }
 
+const transferDialogVisible = ref(false)
+const targetTransferSpaceId = ref<number | null>(null)
+const transferring = ref(false)
+
+const idleTransferSpaces = computed(() => {
+  const curId = activeSession.value?.id
+  return spaces.value.filter(s => s.status === 'IDLE' && s.id !== curId)
+})
+
 const handleOpenTransferDialog = () => {
-  ElMessage.info('转台功能可直接选择任意空闲工位')
+  if (!sessionDetail.value?.session?.id) {
+    ElMessage.warning('未找到当前在场会话信息')
+    return
+  }
+  if (idleTransferSpaces.value.length === 0) {
+    ElMessage.warning(`当前暂无空闲可用的${storeConfig.spaceAlias}可供转台`)
+    return
+  }
+  targetTransferSpaceId.value = idleTransferSpaces.value[0]?.id ?? null
+  transferDialogVisible.value = true
+}
+
+const handleConfirmTransfer = async () => {
+  if (!targetTransferSpaceId.value || !sessionDetail.value?.session?.id) {
+    ElMessage.warning(`请选择目标空闲${storeConfig.spaceAlias}`)
+    return
+  }
+  transferring.value = true
+  try {
+    const targetSpace = spaces.value.find(s => s.id === targetTransferSpaceId.value)
+    await transferSpaceApi(sessionDetail.value.session.id, {
+      targetSpaceId: targetTransferSpaceId.value
+    })
+    ElMessage.success(`已成功转至【${targetSpace?.spaceName || storeConfig.spaceAlias}】！`)
+    transferDialogVisible.value = false
+    await loadSpaces()
+    const updatedTarget = spaces.value.find(s => s.id === targetTransferSpaceId.value)
+    if (updatedTarget) {
+      activeSession.value = updatedTarget
+    }
+    sessionDetail.value = await getSessionDetailApi(sessionDetail.value.session.id)
+  } catch (e: any) {
+    ElMessage.error(e?.message || '转台失败')
+  } finally {
+    transferring.value = false
+  }
 }
 
 onMounted(() => {
   loadSpaces()
   loadProducts()
   loadStoreMembersList()
+  loadStoreStaffList()
 })
 </script>
 

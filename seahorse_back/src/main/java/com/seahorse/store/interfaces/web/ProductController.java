@@ -16,10 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 @Tag(name = "05. 商品服务与BOM原料配方", description = "实物商品、计量服务项目、原料耗材及服务联动消耗配方管理")
 @RestController
@@ -102,8 +99,12 @@ public class ProductController {
     @Operation(summary = "创建或修改分类 (店长/租户老板权限)")
     @PostMapping("/category/save")
     public ApiResponse<ProductCategory> saveCategory(@RequestBody ProductCategory category) {
-        if (category.getTenantId() == null || category.getTenantId().trim().isEmpty()) {
-            String tid = TenantContext.getTenantId();
+        if (category.getId() != null) {
+            categoryRepository.findById(category.getId())
+                    .ifPresent(existing -> TenantContext.assertTenantAccess(existing.getTenantId()));
+        }
+        String tid = TenantContext.getTenantId();
+        if (!TenantContext.isPlatformAdmin() || category.getTenantId() == null || category.getTenantId().trim().isEmpty()) {
             category.setTenantId(tid != null && !tid.trim().isEmpty() ? tid : "T001");
         }
         if (category.getName() == null || category.getName().trim().isEmpty()) {
@@ -122,15 +123,27 @@ public class ProductController {
     @Operation(summary = "删除分类")
     @DeleteMapping("/category/{id}")
     public ApiResponse<Void> deleteCategory(@PathVariable("id") Long id) {
-        categoryRepository.deleteById(id);
+        ProductCategory existing = categoryRepository.findById(id)
+                .orElseThrow(() -> new ServiceException("分类不存在"));
+        TenantContext.assertTenantAccess(existing.getTenantId());
+        categoryRepository.delete(existing);
         return ApiResponse.success("分类已成功删除", null);
     }
 
     @Operation(summary = "创建或保存商品/服务")
     @PostMapping("/save")
     public ApiResponse<Product> saveProduct(@RequestBody Product product) {
-        if (product.getTenantId() == null || product.getTenantId().trim().isEmpty()) {
-            String tid = TenantContext.getTenantId();
+        if (product.getId() != null) {
+            Product existing = productRepository.findById(product.getId()).orElse(null);
+            if (existing != null) {
+                TenantContext.assertTenantAccess(existing.getTenantId());
+                if (product.getVersion() == null) {
+                    product.setVersion(existing.getVersion());
+                }
+            }
+        }
+        String tid = TenantContext.getTenantId();
+        if (!TenantContext.isPlatformAdmin() || product.getTenantId() == null || product.getTenantId().trim().isEmpty()) {
             product.setTenantId(tid != null && !tid.trim().isEmpty() ? tid : "T001");
         }
         if (product.getStoreId() == null || product.getStoreId().trim().isEmpty()) {
@@ -170,7 +183,10 @@ public class ProductController {
     @Operation(summary = "删除商品或服务项目")
     @DeleteMapping("/{id}")
     public ApiResponse<Void> deleteProduct(@PathVariable("id") Long id) {
-        productRepository.deleteById(id);
+        Product existing = productRepository.findById(id)
+                .orElseThrow(() -> new ServiceException("商品不存在"));
+        TenantContext.assertTenantAccess(existing.getTenantId());
+        productRepository.delete(existing);
         return ApiResponse.success("商品已成功删除", null);
     }
 }

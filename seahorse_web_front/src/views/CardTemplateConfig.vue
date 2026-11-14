@@ -126,7 +126,7 @@
             <div class="vip-card-footer">
               <div class="price-block">
                 <span class="price-currency">￥</span>
-                <span class="price-number">{{ Number(card.price).toFixed(2) }}</span>
+                <span class="price-number">{{ Number(card.price || 0).toFixed(2) }}</span>
                 <span v-if="card.originalPrice && card.originalPrice > card.price" class="price-origin">
                   ￥{{ Number(card.originalPrice).toFixed(2) }}
                 </span>
@@ -172,7 +172,7 @@
           <el-table-column prop="price" label="售价 (元)" width="140" align="right">
             <template #default="{ row }">
               <div class="price-col">
-                <span class="bold-price">￥{{ Number(row.price).toFixed(2) }}</span>
+                <span class="bold-price">￥{{ Number(row.price || 0).toFixed(2) }}</span>
                 <span v-if="row.originalPrice && row.originalPrice > row.price" class="origin-price">
                   ￥{{ Number(row.originalPrice).toFixed(2) }}
                 </span>
@@ -522,7 +522,7 @@
           <el-tag size="small" :type="getTypeTag(currentDetail.cardType)">{{ currentDetail.cardTypeName }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="售价 (实付)">
-          <span style="color: #0284c7; font-weight: 800; font-size: 18px;">￥{{ Number(currentDetail.price).toFixed(2) }}</span>
+          <span style="color: #0284c7; font-weight: 800; font-size: 18px;">￥{{ Number(currentDetail.price || 0).toFixed(2) }}</span>
           <span v-if="currentDetail.originalPrice && currentDetail.originalPrice > currentDetail.price" style="text-decoration: line-through; color: #94a3b8; margin-left: 8px;">
             原价 ￥{{ Number(currentDetail.originalPrice).toFixed(2) }}
           </span>
@@ -562,9 +562,64 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSystemDataStore, type CardTemplateEntity } from '../stores/systemDataStore'
 import { useStoreConfig } from '../stores/store'
 import { allIndustryPackages } from '../stores/industryPresets'
+import { getCardTemplatesApi, saveCardTemplateApi, deleteCardTemplateApi } from '../api'
 
 const systemData = useSystemDataStore()
 const storeConfig = useStoreConfig()
+
+const inferThemeColor = (cardType?: string): string => {
+  switch (cardType) {
+    case 'INDEPENDENT_STORED_CARD': return 'emerald'
+    case 'TIME_CARD': return 'blue'
+    case 'DURATION_CARD':
+    case 'BLIND_BOX_CARD': return 'purple'
+    case 'BENEFIT_CARD': return 'black'
+    default: return 'gold'
+  }
+}
+
+const persistLocalCardCache = () => {
+  try {
+    localStorage.setItem('seahorse_card_templates_data', JSON.stringify(systemData.cardTemplates))
+  } catch {}
+}
+
+const loadServerCardTemplates = async () => {
+  loading.value = true
+  try {
+    const res: any = await getCardTemplatesApi()
+    const list: any[] = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : [])
+    if (list.length > 0) {
+      const localMap = new Map(systemData.cardTemplates.map(c => [c.id, c]))
+      systemData.cardTemplates = list.map((item: any) => {
+        const prev = localMap.get(Number(item.id))
+        return {
+          id: Number(item.id),
+          cardType: item.cardType || 'STORED_VALUE',
+          cardTypeName: item.cardTypeName || '储值卡',
+          cardName: item.cardName || '',
+          price: Number(item.price ?? 0),
+          originalPrice: Number(item.originalPrice ?? item.price ?? 0),
+          contentDescription: item.contentDescription || '',
+          principalAmount: Number(item.principalAmount ?? 0),
+          giftAmount: Number(item.giftAmount ?? 0),
+          discountRate: Number(item.discountRate ?? 1),
+          totalTimes: Number(item.totalTimes ?? 0),
+          validityDays: Number(item.validityDays ?? 365),
+          serviceSkuName: item.serviceSkuName || '',
+          themeColor: prev?.themeColor || inferThemeColor(item.cardType),
+          notes: item.notes || '',
+          status: item.status || 'ACTIVE'
+        } as CardTemplateEntity
+      })
+      persistLocalCardCache()
+    }
+  } catch (e) {
+    console.warn('拉取服务端会员卡模板失败，保留本地缓存', e)
+  } finally {
+    loading.value = false
+  }
+}
 
 const loading = ref(false)
 const saving = ref(false)
@@ -591,16 +646,46 @@ const industryLabel = computed(() => {
   return industryNamesMap[currentKey] || storeConfig.industry || '智慧连锁商业'
 })
 
-// 载入当前行业精选会员卡项方案
-const handleLoadIndustryCards = () => {
+// 载入当前行业精选会员卡项方案并同步后端
+const handleLoadIndustryCards = async () => {
   const currentKey = (storeConfig.industry || systemData.currentIndustry || 'BEAUTY') as 'BEAUTY' | 'RESTAURANT' | 'AUTO' | 'RETAIL'
   const pkg = allIndustryPackages[currentKey] || allIndustryPackages.BEAUTY
   if (pkg && pkg.cardTemplates && Array.isArray(pkg.cardTemplates)) {
-    systemData.cardTemplates = JSON.parse(JSON.stringify(pkg.cardTemplates))
+    const presetCards = JSON.parse(JSON.stringify(pkg.cardTemplates))
+    systemData.cardTemplates = presetCards
+    persistLocalCardCache()
     try {
       localStorage.setItem(`seahorse_card_templates_${currentKey}`, JSON.stringify(systemData.cardTemplates))
     } catch {}
-    ElMessage.success(`已成功载入适合当前行业【${industryLabel.value}】的精选会员卡项方案！`)
+    const existingNames = new Set<string>()
+    try {
+      const remoteRes: any = await getCardTemplatesApi()
+      const remoteList: any[] = Array.isArray(remoteRes) ? remoteRes : (Array.isArray(remoteRes?.data) ? remoteRes.data : [])
+      remoteList.forEach((r: any) => {
+        if (r?.cardName) existingNames.add(String(r.cardName).trim())
+      })
+    } catch {}
+    await Promise.allSettled(
+      presetCards
+        .filter((c: any) => c?.cardName && !existingNames.has(String(c.cardName).trim()))
+        .map((c: any) => saveCardTemplateApi({
+          cardType: c.cardType,
+          cardTypeName: c.cardTypeName,
+          cardName: c.cardName,
+          price: Number(c.price ?? 0),
+          originalPrice: Number(c.originalPrice ?? c.price ?? 0),
+          contentDescription: c.contentDescription || '',
+          principalAmount: Number(c.principalAmount ?? 0),
+          giftAmount: Number(c.giftAmount ?? 0),
+          discountRate: Number(c.discountRate ?? 1),
+          totalTimes: Number(c.totalTimes ?? 0),
+          validityDays: Number(c.validityDays ?? 365),
+          serviceSkuName: c.serviceSkuName || '',
+          notes: c.notes || ''
+        }))
+    )
+    await loadServerCardTemplates()
+    ElMessage.success(`已成功载入并同步适合当前行业【${industryLabel.value}】的精选会员卡项方案！`)
   }
 }
 
@@ -612,6 +697,7 @@ onMounted(async () => {
         systemData.currentIndustry = storeConfig.industry as any
       }
     }
+    await loadServerCardTemplates()
   } catch (e) {
     console.error('CardTemplateConfig onMounted error:', e)
   }
@@ -727,18 +813,28 @@ const handleTypeChange = (typeVal: string) => {
   if (typeVal === 'STORED_VALUE') {
     cardForm.value.themeColor = 'gold'
     updateStoredDesc()
+  } else if (typeVal === 'INDEPENDENT_STORED_CARD') {
+    cardForm.value.themeColor = 'emerald'
+    updateStoredDesc()
   } else if (typeVal === 'TIME_CARD') {
     cardForm.value.themeColor = 'blue'
     updateTimeDesc()
+  } else if (typeVal === 'DURATION_CARD') {
+    cardForm.value.themeColor = 'purple'
+    cardForm.value.contentDescription = '周期有效期内尊享不限次畅享服务'
   } else if (typeVal === 'BENEFIT_CARD') {
     cardForm.value.themeColor = 'black'
+    cardForm.value.contentDescription = '尊享VIP专属会员折扣与优先预约特权'
+  } else if (typeVal === 'BLIND_BOX_CARD') {
+    cardForm.value.themeColor = 'purple'
+    cardForm.value.contentDescription = '开启盲盒随机解锁超值明星护理项目'
   }
 }
 
 const handlePriceChange = () => {
   if (cardForm.value.cardType === 'STORED_VALUE' || cardForm.value.cardType === 'INDEPENDENT_STORED_CARD') {
     if (!cardForm.value.principalAmount || cardForm.value.principalAmount === 0 || cardForm.value.principalAmount === 500) {
-      cardForm.value.principalAmount = cardForm.value.price
+      cardForm.value.principalAmount = Number(cardForm.value.price || 0)
     }
     updateStoredDesc()
   }
@@ -758,9 +854,10 @@ const updateTimeDesc = () => {
 
 const handleOpenAdd = () => {
   isEdit.value = false
+  const initialType = currentTab.value === 'ALL' ? 'STORED_VALUE' : currentTab.value
   cardForm.value = {
     id: null,
-    cardType: currentTab.value === 'ALL' ? 'STORED_VALUE' : currentTab.value,
+    cardType: initialType,
     cardTypeName: currentTab.value === 'ALL' ? '储值卡' : (tabOptions.find(t => t.value === currentTab.value)?.label || '储值卡'),
     cardName: '',
     price: 500,
@@ -776,6 +873,9 @@ const handleOpenAdd = () => {
     notes: '',
     status: 'ACTIVE'
   }
+  if (initialType !== 'STORED_VALUE') {
+    handleTypeChange(initialType)
+  }
   dialogVisible.value = true
 }
 
@@ -790,18 +890,66 @@ const handleViewDetail = (row: CardTemplateEntity) => {
   detailVisible.value = true
 }
 
-const handleSave = () => {
-  if (!cardForm.value.cardName.trim()) {
+const handleSave = async () => {
+  if (!(cardForm.value.cardName || '').trim()) {
     ElMessage.warning('请输入卡项名称')
+    return
+  }
+  if (cardForm.value.price == null || isNaN(Number(cardForm.value.price))) {
+    ElMessage.warning('请输入有效的卡项售价')
     return
   }
   saving.value = true
   try {
-    if (isEdit.value && cardForm.value.id) {
-      systemData.updateCardTemplate(cardForm.value.id, cardForm.value)
+    const payload = {
+      ...cardForm.value,
+      cardName: cardForm.value.cardName.trim(),
+      price: Number(cardForm.value.price || 0)
+    }
+    const serverPayload = {
+      id: isEdit.value && payload.id ? payload.id : undefined,
+      cardType: payload.cardType,
+      cardTypeName: payload.cardTypeName,
+      cardName: payload.cardName,
+      price: Number(payload.price || 0),
+      originalPrice: payload.originalPrice != null ? Number(payload.originalPrice) : undefined,
+      contentDescription: payload.contentDescription || '',
+      principalAmount: payload.principalAmount != null ? Number(payload.principalAmount) : undefined,
+      giftAmount: payload.giftAmount != null ? Number(payload.giftAmount) : undefined,
+      discountRate: payload.discountRate != null ? Number(payload.discountRate) : undefined,
+      totalTimes: payload.totalTimes != null ? Number(payload.totalTimes) : undefined,
+      validityDays: payload.validityDays != null ? Number(payload.validityDays) : 365,
+      serviceSkuName: payload.serviceSkuName || '',
+      notes: payload.notes || ''
+    }
+    let savedServer: any = null
+    try {
+      const res: any = await saveCardTemplateApi(serverPayload)
+      savedServer = res?.id ? res : (res?.data || null)
+    } catch (e) {
+      console.warn('saveCardTemplateApi failed, falling back to local store', e)
+    }
+
+    if (savedServer?.id) {
+      const merged: CardTemplateEntity = {
+        ...payload,
+        id: Number(savedServer.id),
+        themeColor: payload.themeColor || inferThemeColor(payload.cardType),
+        status: savedServer.status || payload.status || 'ACTIVE'
+      }
+      const idx = systemData.cardTemplates.findIndex(c => c.id === merged.id || (isEdit.value && c.id === payload.id))
+      if (idx !== -1) {
+        systemData.cardTemplates[idx] = merged
+      } else {
+        systemData.cardTemplates.unshift(merged)
+      }
+      persistLocalCardCache()
+      ElMessage.success(isEdit.value ? '会员卡项更新成功并已同步云端！' : '新会员卡项创建成功并已同步云端！')
+    } else if (isEdit.value && payload.id) {
+      systemData.updateCardTemplate(payload.id, payload)
       ElMessage.success('会员卡项更新成功！')
     } else {
-      systemData.addCardTemplate(cardForm.value)
+      systemData.addCardTemplate(payload)
       ElMessage.success('新会员卡项创建成功，已生效上线！')
     }
     dialogVisible.value = false
@@ -819,8 +967,19 @@ const handleDelete = (row: CardTemplateEntity) => {
       cancelButtonText: '取消',
       type: 'warning'
     }
-  ).then(() => {
-    systemData.deleteCardTemplate(row.id)
+  ).then(async () => {
+    if (row.id) {
+      try {
+        await deleteCardTemplateApi(row.id)
+      } catch (e) {
+        console.warn('deleteCardTemplateApi failed, removing locally', e)
+      }
+    }
+    const idx = systemData.cardTemplates.findIndex(c => c.id === row.id)
+    if (idx !== -1) {
+      systemData.cardTemplates.splice(idx, 1)
+      persistLocalCardCache()
+    }
     ElMessage.success('该卡项已成功下架删除')
   }).catch(() => {})
 }

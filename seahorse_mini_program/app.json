@@ -2,8 +2,7 @@
   "pages": [
     "pages/index/index",
     "pages/order/order",
-    "pages/member/member",
-    "pages/pay/pay"
+    "pages/member/member"
   ],
   "window": {
     "backgroundTextStyle": "light",

@@ -99,21 +99,20 @@ class AppointmentService {
   /// 到店履约与状态流转
   Future<bool> updateStatus(int appointmentId, AppointmentStatus newStatus, {String? aptNo}) async {
     final index = _localList.indexWhere((a) => a.id == appointmentId);
-    if (index != -1) {
-      _localList[index].status = newStatus;
-      if (aptNo == null || aptNo.isEmpty) {
-        aptNo = _localList[index].aptNo;
-      }
+    if (index != -1 && (aptNo == null || aptNo.isEmpty)) {
+      aptNo = _localList[index].aptNo;
     }
     try {
-      final statusStr = newStatus == AppointmentStatus.serving
-          ? 'SERVING'
-          : (newStatus == AppointmentStatus.completed ? 'COMPLETED' : 'CANCELLED');
       final res = await _client.dio.post('/appointment/$appointmentId/status', data: {
-        'status': statusStr,
+        'status': newStatus.code,
         'aptNo': aptNo ?? '',
       });
-      return res.statusCode == 200;
+      if (res.statusCode == 200) {
+        if (index != -1) {
+          _localList[index].status = newStatus;
+        }
+        return true;
+      }
     } catch (e) {
       print('AppointmentService updateStatus API error: $e');
     }

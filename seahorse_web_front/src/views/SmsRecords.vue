@@ -182,7 +182,7 @@
         <el-table-column prop="wordCount" label="字数/条数" width="100" align="center">
           <template #default="{ row }">
             <span style="font-size: 12px; color: #64748b;">
-              {{ row.content.length }}字 / <b>{{ Math.ceil(row.content.length / 67) }}条</b>
+              {{ (row.content || '').length }}字 / <b>{{ Math.max(1, Math.ceil((row.content || '').length / 67)) }}条</b>
             </span>
           </template>
         </el-table-column>
@@ -266,7 +266,7 @@
             style="background: #f8fafc;"
           />
           <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
-            字数：{{ testSendForm.previewContent.length }} 字符 (计费 1 条短信)
+            字数：{{ (testSendForm.previewContent || '').length }} 字符 (计费 1 条短信)
           </div>
         </el-form-item>
       </el-form>
@@ -481,7 +481,11 @@ const getStoredSmsRecords = (): any[] => {
       const parsed = JSON.parse(raw)
       if (Array.isArray(parsed)) {
         // 过滤任何包含老演示脏数据的假记录
-        return parsed.filter(r => !r.smsId?.startsWith('SMS20260909') && r.customerName !== '张建国 (张总)' && r.customerName !== '李雪琴 (李女士)')
+        const clean = parsed.filter(r => !r.smsId?.startsWith('SMS20260909') && r.customerName !== '张建国 (张总)' && r.customerName !== '李雪琴 (李女士)')
+        if (clean.length !== parsed.length) {
+          localStorage.setItem('seahorse_sms_records', JSON.stringify(clean))
+        }
+        return clean
       }
     }
   } catch (e) {}
@@ -490,6 +494,12 @@ const getStoredSmsRecords = (): any[] => {
 
 // 短信发送流水明细（真实初始态，无任何写死脏数据）
 const smsRecords = ref<any[]>(getStoredSmsRecords())
+
+const persistSmsRecords = () => {
+  try {
+    localStorage.setItem('seahorse_sms_records', JSON.stringify(smsRecords.value))
+  } catch (e) {}
+}
 
 // 综合统计卡片
 const savedSmsBalance = localStorage.getItem('seahorse_sms_balance')
@@ -503,6 +513,16 @@ const smsStats = ref({
   balance: savedSmsBalance !== null ? Number(savedSmsBalance) : 0
 })
 
+const syncSmsStats = () => {
+  const total = smsRecords.value.length
+  const succ = smsRecords.value.filter(r => r.status === 'DELIVRD').length
+  const fail = smsRecords.value.filter(r => r.status === 'UNDELIVRD' || r.status === 'INTERCEPTED').length
+  smsStats.value.totalSent = total
+  smsStats.value.successCount = succ
+  smsStats.value.failCount = fail
+  smsStats.value.successRate = total > 0 ? Number(((succ / total) * 100).toFixed(1)) : 100
+}
+
 const abnormalRate = computed(() => {
   if (!smsStats.value.totalSent || smsStats.value.totalSent === 0) return '0.0%'
   return ((smsStats.value.failCount / smsStats.value.totalSent) * 100).toFixed(1) + '%'
@@ -515,24 +535,23 @@ const availableStoreOptions = computed(() => {
     : systemData.stores
 })
 
-const initTenantSmsData = () => {
-  // 清理所有遗留脏数据
-  localStorage.removeItem('seahorse_sms_records')
-  smsRecords.value = []
-  smsStats.value = {
-    totalSent: 0,
-    successRate: 100,
-    successCount: 0,
-    failCount: 0,
-    balance: savedSmsBalance !== null ? Number(savedSmsBalance) : 0
+const initTenantSmsData = (forceClear = false) => {
+  if (forceClear) {
+    localStorage.removeItem('seahorse_sms_records')
+    smsRecords.value = []
+  } else {
+    smsRecords.value = getStoredSmsRecords()
   }
+  const latestBalance = localStorage.getItem('seahorse_sms_balance')
+  smsStats.value.balance = latestBalance !== null ? Number(latestBalance) : 0
+  syncSmsStats()
 }
 
 const filteredRecords = computed(() => {
   return smsRecords.value.filter(item => {
     if (searchPhone.value.trim()) {
       const q = searchPhone.value.trim().toLowerCase()
-      const matchP = item.phone.includes(q)
+      const matchP = (item.phone || '').toLowerCase().includes(q)
       const matchN = item.customerName && item.customerName.toLowerCase().includes(q)
       if (!matchP && !matchN) return false
     }
@@ -604,82 +623,35 @@ const handleViewDetail = (row: any) => {
   detailDrawerVisible.value = true
 }
 
+const activeTimers: ReturnType<typeof setTimeout>[] = []
+const registerTimer = (fn: () => void, ms: number) => {
+  const tid = setTimeout(() => {
+    const idx = activeTimers.indexOf(tid)
+    if (idx !== -1) activeTimers.splice(idx, 1)
+    fn()
+  }, ms)
+  activeTimers.push(tid)
+}
+
 const handleResend = (row: any) => {
   ElMessage.success(`已向手机号【${row.phone}】重新提交运营商重试通道！`)
   row.status = 'SENDING'
-  setTimeout(() => {
+  registerTimer(() => {
     row.status = 'DELIVRD'
     row.statusCode = 'DELIVRD'
+    persistSmsRecords()
+    syncSmsStats()
   }, 1500)
 }
 
 const refreshData = () => {
   loading.value = true
-  setTimeout(() => {
+  registerTimer(() => {
+    smsRecords.value = getStoredSmsRecords()
+    syncSmsStats()
     loading.value = false
     ElMessage.success('短信流水台账已同步至最新')
   }, 400)
-}
-
-// 测试下发
-const testSendDialogVisible = ref(false)
-const sendingTestSms = ref(false)
-const testSendForm = ref({
-  phone: '13888889999',
-  templateKey: 'SMS_CONSUME',
-  signature: computed(() => smsConfig.value.signName || '海马门店'),
-  previewContent: '尊敬的贵宾，您在门店消费已成功结账，欢迎再次光临！'
-})
-
-const handleTemplateChange = (val: string) => {
-  const sign = smsConfig.value.signName || '海马门店'
-  if (val === 'SMS_CODE') {
-    testSendForm.value.previewContent = `【${sign}】您的验证码为 678912，5分钟内有效。如非本人操作请忽略。`
-  } else if (val === 'SMS_CONSUME') {
-    testSendForm.value.previewContent = `尊敬的贵宾，您在【${sign}】消费158.00元已结账完成，剩余卡内可用余额1,842.00元。祝您生活愉快！`
-  } else if (val === 'SMS_RECHARGE') {
-    testSendForm.value.previewContent = `尊敬的贵宾，您已在【${sign}】成功储值2,000.00元，额外获赠400.00元，当前账户可用总额2,400.00元。`
-  } else {
-    testSendForm.value.previewContent = `【预约提醒】您预约的今日到店服务即将开始，【${sign}】已为您准备妥当。`
-  }
-}
-
-const confirmSendTestSms = () => {
-  if (!testSendForm.value.phone) {
-    ElMessage.warning('请输入手机号')
-    return
-  }
-  sendingTestSms.value = true
-  setTimeout(() => {
-    sendingTestSms.value = false
-    testSendDialogVisible.value = false
-    smsRecords.value.unshift({
-      smsId: 'SMS' + Date.now().toString().substring(4),
-      phone: testSendForm.value.phone,
-      customerName: '测试顾客',
-      signature: testSendForm.value.signature,
-      type: testSendForm.value.templateKey === 'SMS_CODE' ? 'AUTH_CODE' : 'CONSUME_NOTICE',
-      content: testSendForm.value.previewContent,
-      status: 'DELIVRD',
-      statusCode: 'DELIVRD',
-      sendTime: new Date().toLocaleString(),
-      deliverTime: new Date().toLocaleString(),
-      storeName: storeConfig.storeName || '御境云足·旗舰尊享会所 (天府环球店)',
-      storeId: storeConfig.currentStoreId || 'S_FOOT_01',
-      rawGatewayResponse: {
-        RequestId: 'TEST-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
-        Code: 'OK',
-        Message: 'OK',
-        BizId: String(Date.now()),
-        Carrier: 'Direct Gateway',
-        Duration: '0.8s'
-      }
-    })
-    smsStats.value.totalSent += 1
-    smsStats.value.successCount += 1
-    smsStats.value.balance -= 1
-    ElMessage.success('测试短信下发成功，运营商回执已生成！')
-  }, 800)
 }
 
 // 通道配置与签名管理 (仅限超级管理员配置)
@@ -702,6 +674,82 @@ const getInitialSmsConfig = () => {
 }
 
 const smsConfig = ref(getInitialSmsConfig())
+
+// 测试下发
+const testSendDialogVisible = ref(false)
+const sendingTestSms = ref(false)
+const testSendForm = ref({
+  phone: '13888889999',
+  templateKey: 'SMS_CONSUME',
+  signature: smsConfig.value.signName || '海马门店',
+  previewContent: '尊敬的贵宾，您在门店消费已成功结账，欢迎再次光临！'
+})
+
+watch(() => smsConfig.value.signName, (newSign) => {
+  testSendForm.value.signature = newSign || '海马门店'
+})
+
+const mapTemplateKeyToType = (templateKey: string) => {
+  switch (templateKey) {
+    case 'SMS_CODE': return 'AUTH_CODE'
+    case 'SMS_RECHARGE': return 'RECHARGE_NOTICE'
+    case 'SMS_APPT': return 'APPOINTMENT_NOTICE'
+    default: return 'CONSUME_NOTICE'
+  }
+}
+
+const handleTemplateChange = (val: string) => {
+  const sign = smsConfig.value.signName || '海马门店'
+  testSendForm.value.signature = sign
+  if (val === 'SMS_CODE') {
+    testSendForm.value.previewContent = `【${sign}】您的验证码为 678912，5分钟内有效。如非本人操作请忽略。`
+  } else if (val === 'SMS_CONSUME') {
+    testSendForm.value.previewContent = `尊敬的贵宾，您在【${sign}】消费158.00元已结账完成，剩余卡内可用余额1,842.00元。祝您生活愉快！`
+  } else if (val === 'SMS_RECHARGE') {
+    testSendForm.value.previewContent = `尊敬的贵宾，您已在【${sign}】成功储值2,000.00元，额外获赠400.00元，当前账户可用总额2,400.00元。`
+  } else {
+    testSendForm.value.previewContent = `【预约提醒】您预约的今日到店服务即将开始，【${sign}】已为您准备妥当。`
+  }
+}
+
+const confirmSendTestSms = () => {
+  if (!testSendForm.value.phone) {
+    ElMessage.warning('请输入手机号')
+    return
+  }
+  sendingTestSms.value = true
+  registerTimer(() => {
+    sendingTestSms.value = false
+    testSendDialogVisible.value = false
+    smsRecords.value.unshift({
+      smsId: 'SMS' + Date.now().toString().substring(4),
+      phone: testSendForm.value.phone,
+      customerName: '测试顾客',
+      signature: testSendForm.value.signature || smsConfig.value.signName || '海马门店',
+      type: mapTemplateKeyToType(testSendForm.value.templateKey),
+      content: testSendForm.value.previewContent,
+      status: 'DELIVRD',
+      statusCode: 'DELIVRD',
+      sendTime: new Date().toLocaleString(),
+      deliverTime: new Date().toLocaleString(),
+      storeName: storeConfig.storeName || '御境云足·旗舰尊享会所 (天府环球店)',
+      storeId: storeConfig.currentStoreId || 'S_FOOT_01',
+      rawGatewayResponse: {
+        RequestId: 'TEST-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+        Code: 'OK',
+        Message: 'OK',
+        BizId: String(Date.now()),
+        Carrier: 'Direct Gateway',
+        Duration: '0.8s'
+      }
+    })
+    persistSmsRecords()
+    syncSmsStats()
+    smsStats.value.balance = Math.max(0, smsStats.value.balance - 1)
+    localStorage.setItem('seahorse_sms_balance', String(smsStats.value.balance))
+    ElMessage.success('测试短信下发成功，运营商回执已生成！')
+  }, 800)
+}
 
 const handleOpenConfigDrawer = () => {
   if (!isSuperAdmin.value) {
@@ -751,7 +799,7 @@ const handleOpenPayQrDialog = async () => {
 
 const confirmSimulationPaySuccess = () => {
   payingRecharge.value = true
-  setTimeout(() => {
+  registerTimer(() => {
     payingRecharge.value = false
     const pkg = selectedPkgItem.value
     if (pkg) {
@@ -780,6 +828,8 @@ const confirmSimulationPaySuccess = () => {
           Count: addedCount
         }
       })
+      persistSmsRecords()
+      syncSmsStats()
     }
     payQrDialogVisible.value = false
     ElMessage.success(`🎉 短信资源包【${pkg?.name || '短信加油包'}】购买成功！已成功添加 ${pkg?.count || 1000} 条短信到当前账户！`)
@@ -797,17 +847,21 @@ const refreshSmsPacks = () => {
 }
 
 onMounted(() => {
-  initTenantSmsData()
+  initTenantSmsData(false)
   refreshSmsPacks()
   window.addEventListener('seahorse-recharge-packages-updated', refreshSmsPacks)
 })
 
 onUnmounted(() => {
   window.removeEventListener('seahorse-recharge-packages-updated', refreshSmsPacks)
+  while (activeTimers.length > 0) {
+    const tid = activeTimers.pop()
+    if (tid) clearTimeout(tid)
+  }
 })
 
-watch(isNewTenant, () => {
-  initTenantSmsData()
+watch(isNewTenant, (val) => {
+  initTenantSmsData(Boolean(val))
 })
 </script>
 

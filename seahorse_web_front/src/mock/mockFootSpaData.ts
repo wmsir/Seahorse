@@ -208,7 +208,7 @@ export const mockFootSpaStaff = [
     allowedStoreIds: ['S_FOOT_01'],
     allowedMenuPaths: [
       '/dashboard', '/cashier', '/rooms', '/members', '/products',
-      '/card-template', '/appointments', '/shift', '/regulations', '/profile'
+      '/card-template', '/appointments', '/regulations', '/profile'
     ],
     techNo: '01号',
     rank: '星级收银'
@@ -481,9 +481,11 @@ export function injectFootSpaMockData(systemData: any, storeConfig?: any) {
   }
 
   // 3. 持久化存储
-  localStorage.setItem('seahorse_tenant_name', storeConfig.tenantName)
-  localStorage.setItem('seahorse_store_name', storeConfig.storeName)
-  localStorage.setItem('seahorse_store_id', storeConfig.currentStoreId)
+  if (storeConfig) {
+    localStorage.setItem('seahorse_tenant_name', storeConfig.tenantName)
+    localStorage.setItem('seahorse_store_name', storeConfig.storeName)
+    localStorage.setItem('seahorse_store_id', storeConfig.currentStoreId)
+  }
   localStorage.setItem('seahorse_stores_data', JSON.stringify(mockFootSpaStores))
   localStorage.setItem('seahorse_staff_data', JSON.stringify(mockFootSpaStaff))
   localStorage.setItem('seahorse_products_data', JSON.stringify(mockFootSpaProducts))

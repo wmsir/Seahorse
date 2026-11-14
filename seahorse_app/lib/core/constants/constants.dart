@@ -6,7 +6,9 @@ enum IndustryType {
   footSpa('FOOT_SPA', '足疗推拿SPA', '🦶', '养生包厢'),
   restaurant('RESTAURANT', '融合餐饮', '🍲', '就餐包厢/卡座'),
   auto('AUTO', '汽车养护', '🚗', '作业工位'),
-  retail('RETAIL', '名品轻奢', '🛍️', '展位/专柜');
+  retail('RETAIL', '名品轻奢', '🛍️', '展位/专柜'),
+  teaHouse('TEA_HOUSE', '茗茶空间', '🍵', '雅座/茶室'),
+  pet('PET', '萌宠洗护', '🐾', '洗护工位');
 
   final String code;
   final String label;
@@ -16,8 +18,13 @@ enum IndustryType {
   const IndustryType(this.code, this.label, this.emoji, this.defaultSpaceAlias);
 
   static IndustryType fromCode(String code) {
+    final normalized = code.trim().toUpperCase();
+    if (normalized == 'DINING') return IndustryType.restaurant;
+    if (normalized == 'AUTO_SERVICE' || normalized == 'AUTOSERVICE') return IndustryType.auto;
+    if (normalized == 'FOOTSPA') return IndustryType.footSpa;
+    if (normalized == 'TEAHOUSE') return IndustryType.teaHouse;
     for (var item in values) {
-      if (item.code == code) return item;
+      if (item.code == normalized) return item;
     }
     return IndustryType.beauty;
   }
@@ -81,6 +88,26 @@ enum PaymentMethod {
   final Color color;
 
   const PaymentMethod(this.code, this.label, this.icon, this.color);
+
+  static PaymentMethod fromCode(String? code) {
+    if (code == null || code.isEmpty) return PaymentMethod.wechat;
+    switch (code.trim().toUpperCase()) {
+      case 'MEMBER_CARD':
+      case 'STORED_VALUE':
+        return PaymentMethod.memberCard;
+      case 'TIMES_CARD':
+      case 'TIME_CARD':
+        return PaymentMethod.timesCard;
+      case 'ALIPAY':
+        return PaymentMethod.alipay;
+      case 'CASH':
+      case 'UNION_PAY':
+        return PaymentMethod.cash;
+      case 'WECHAT':
+      default:
+        return PaymentMethod.wechat;
+    }
+  }
 }
 
 /// 全局品牌主题颜色规范

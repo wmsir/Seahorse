@@ -13,6 +13,7 @@ import java.util.Optional;
 @Repository
 public interface MemberRepository extends JpaRepository<Member, Long> {
     boolean existsByMemberNo(String memberNo);
+    boolean existsByTenantIdAndMemberNo(String tenantId, String memberNo);
     Optional<Member> findByMemberNo(String memberNo);
     Optional<Member> findByPhone(String phone);
     Optional<Member> findByTenantIdAndPhone(String tenantId, String phone);

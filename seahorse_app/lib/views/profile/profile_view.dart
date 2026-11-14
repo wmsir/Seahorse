@@ -4,7 +4,6 @@ import '../../core/constants/constants.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/store_provider.dart';
 import 'tabs/store_overview_tab.dart';
-import 'tabs/store_shift_tab.dart';
 import 'tabs/product_entry_tab.dart';
 import 'tabs/category_management_tab.dart';
 import 'tabs/staff_management_tab.dart';
@@ -38,8 +37,8 @@ class _ProfileViewState extends State<ProfileView> with TickerProviderStateMixin
   }
 
   int _getTargetTabCount(AuthProvider auth) {
-    if (_isManager(auth)) return 8;
-    if (_isCashier(auth)) return 7;
+    if (_isManager(auth)) return 7;
+    if (_isCashier(auth)) return 6;
     return 4;
   }
 
@@ -199,7 +198,6 @@ class _ProfileViewState extends State<ProfileView> with TickerProviderStateMixin
               tabs: isManager
                   ? const [
                       Tab(iconMargin: EdgeInsets.zero, text: '门店概况'),
-                      Tab(iconMargin: EdgeInsets.zero, text: '交班盲盘'),
                       Tab(iconMargin: EdgeInsets.zero, text: '商品管理'),
                       Tab(iconMargin: EdgeInsets.zero, text: '分类管理'),
                       Tab(iconMargin: EdgeInsets.zero, text: '员工管理'),
@@ -210,7 +208,6 @@ class _ProfileViewState extends State<ProfileView> with TickerProviderStateMixin
                   : (isCashier
                       ? const [
                           Tab(iconMargin: EdgeInsets.zero, text: '门店概况'),
-                          Tab(iconMargin: EdgeInsets.zero, text: '交班盲盘'),
                           Tab(iconMargin: EdgeInsets.zero, text: '商品管理'),
                           Tab(iconMargin: EdgeInsets.zero, text: '分类管理'),
                           Tab(iconMargin: EdgeInsets.zero, text: '员工请假'),
@@ -235,7 +232,6 @@ class _ProfileViewState extends State<ProfileView> with TickerProviderStateMixin
                   currentStore: current,
                   onShowStoreSwitcher: () => _showStoreSwitcher(context),
                 ),
-                const StoreShiftTab(),
                 const ProductEntryTab(),
                 const CategoryManagementTab(),
                 const StaffManagementTab(),
@@ -252,7 +248,6 @@ class _ProfileViewState extends State<ProfileView> with TickerProviderStateMixin
                       currentStore: current,
                       onShowStoreSwitcher: () => _showStoreSwitcher(context),
                     ),
-                    const StoreShiftTab(),
                     const ProductEntryTab(),
                     const CategoryManagementTab(),
                     const LeaveManagementView(isEmbedded: true),

@@ -4,35 +4,32 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.seahorse.store.common.ApiResponse;
 import com.seahorse.store.context.TenantContext;
+import com.seahorse.store.domain.recruitment.model.JobApplication;
+import com.seahorse.store.infrastructure.repository.JobApplicationRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.Data;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.File;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * 岗位招聘与应聘简历跨端投递协同控制器
+ * 岗位招聘与应聘简历跨端投递协同控制器（基于数据库持久化）
  */
 @Slf4j
 @Tag(name = "16. 岗位招聘与应聘简历管理", description = "支持手机端扫码提交简历与PC端实时查阅初筛")
 @RestController
 @RequestMapping("/api/job-application")
+@RequiredArgsConstructor
 public class JobApplicationController {
 
-    private static final String STORAGE_FILE_PATH = "data/job_applications_store.json";
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    private final Map<String, List<JobApplicationDTO>> applicationMap = new ConcurrentHashMap<>();
-
-    public JobApplicationController() {
-        loadFromDisk();
-    }
+    private final JobApplicationRepository jobApplicationRepository;
+    private final ObjectMapper objectMapper;
 
     @Data
     public static class JobApplicationDTO {
@@ -61,6 +58,7 @@ public class JobApplicationController {
 
     @Operation(summary = "手机扫码求职者在线提交应聘简历")
     @PostMapping("/submit")
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<JobApplicationDTO> submitApplication(@RequestBody JobApplicationDTO req) {
         if (req.getCandidateName() == null || req.getCandidateName().trim().isEmpty()) {
             return ApiResponse.error(400, "请填写求职者真实姓名");
@@ -76,11 +74,9 @@ public class JobApplicationController {
         if (targetTenantId == null || targetTenantId.trim().isEmpty()) {
             targetTenantId = "DEFAULT";
         }
+        targetTenantId = targetTenantId.trim();
         req.setTenantId(targetTenantId);
 
-        if (req.getId() == null || req.getId().trim().isEmpty()) {
-            req.setId("APP" + (System.currentTimeMillis() % 100000000));
-        }
         if (req.getApplyTime() == null || req.getApplyTime().trim().isEmpty()) {
             req.setApplyTime(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         }
@@ -88,36 +84,43 @@ public class JobApplicationController {
             req.setStatus("PENDING");
         }
 
-        List<JobApplicationDTO> list = applicationMap.computeIfAbsent(targetTenantId, k -> new CopyOnWriteArrayList<>());
-
-        // 同一手机号码和岗位再次修改编辑的，直接覆盖更新已有数据，而不是生成多份重复数据
-        boolean updated = false;
-        for (int i = 0; i < list.size(); i++) {
-            JobApplicationDTO existing = list.get(i);
+        List<JobApplication> existingList = jobApplicationRepository.findByTenantIdOrderByIdDesc(targetTenantId);
+        JobApplication target = null;
+        for (JobApplication existing : existingList) {
             boolean samePhone = existing.getPhone() != null && existing.getPhone().trim().equals(req.getPhone().trim());
             boolean samePost = (existing.getPostId() != null && req.getPostId() != null && existing.getPostId().equals(req.getPostId()))
                     || (existing.getPostName() != null && req.getPostName() != null && existing.getPostName().trim().equals(req.getPostName().trim()));
             if (samePhone && samePost) {
-                // 保留原记录 ID 和非初筛的面试/录用状态
-                req.setId(existing.getId());
-                if (existing.getStatus() != null && !"REJECTED".equals(existing.getStatus()) && !"PENDING".equals(existing.getStatus())) {
-                    req.setStatus(existing.getStatus());
-                }
-                list.set(i, req);
-                updated = true;
-                log.info("覆盖更新已有应聘简历: candidate={}, post={}, phone={}, tenant={}", req.getCandidateName(), req.getPostName(), req.getPhone(), targetTenantId);
+                target = existing;
                 break;
             }
         }
 
-        if (!updated) {
-            list.add(0, req);
-            log.info("新增求职者简历投递: candidate={}, post={}, phone={}, tenant={}", req.getCandidateName(), req.getPostName(), req.getPhone(), targetTenantId);
+        if (target != null) {
+            req.setId(target.getApplicationNo());
+            if (target.getStatus() != null && !"REJECTED".equals(target.getStatus()) && !"PENDING".equals(target.getStatus())) {
+                req.setStatus(target.getStatus());
+            }
+            applyDtoToEntity(req, target);
+            JobApplication saved = jobApplicationRepository.save(target);
+            log.info("覆盖更新已有应聘简历: candidate={}, post={}, phone={}, tenant={}",
+                    req.getCandidateName(), req.getPostName(), req.getPhone(), targetTenantId);
+            return ApiResponse.success("简历投递成功，门店店长将尽快查阅与联系！", toDto(saved));
         }
 
-        saveToDisk();
+        if (req.getId() == null || req.getId().trim().isEmpty()
+                || jobApplicationRepository.findByApplicationNo(req.getId().trim()).isPresent()) {
+            req.setId("APP" + System.currentTimeMillis() + (int) (Math.random() * 90 + 10));
+        }
 
-        return ApiResponse.success("简历投递成功，门店店长将尽快查阅与联系！", req);
+        JobApplication created = new JobApplication();
+        created.setApplicationNo(req.getId().trim());
+        applyDtoToEntity(req, created);
+        JobApplication saved = jobApplicationRepository.save(created);
+        log.info("新增求职者简历投递: candidate={}, post={}, phone={}, tenant={}",
+                req.getCandidateName(), req.getPostName(), req.getPhone(), targetTenantId);
+
+        return ApiResponse.success("简历投递成功，门店店长将尽快查阅与联系！", toDto(saved));
     }
 
     @Operation(summary = "获取当前租户的应聘简历列表")
@@ -131,101 +134,164 @@ public class JobApplicationController {
         if (targetTenantId == null || targetTenantId.trim().isEmpty()) {
             targetTenantId = "DEFAULT";
         }
+        targetTenantId = targetTenantId.trim();
 
-        List<JobApplicationDTO> list = applicationMap.getOrDefault(targetTenantId, Collections.emptyList());
-        if (list.isEmpty() && !"DEFAULT".equals(targetTenantId) && applicationMap.containsKey("DEFAULT")) {
-            List<JobApplicationDTO> defaultList = applicationMap.get("DEFAULT");
-            return ApiResponse.success(new ArrayList<>(defaultList));
+        if (!"DEFAULT".equalsIgnoreCase(targetTenantId)) {
+            TenantContext.assertTenantAccess(targetTenantId);
         }
-        return ApiResponse.success(new ArrayList<>(list));
+
+        List<JobApplication> list = jobApplicationRepository.findByTenantIdOrderByIdDesc(targetTenantId);
+        return ApiResponse.success(list.stream().map(this::toDto).toList());
     }
 
     @Operation(summary = "更新应聘简历状态")
     @PutMapping("/{id}/status")
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<String> updateStatus(
             @PathVariable("id") String id,
             @RequestBody Map<String, Object> body,
             @RequestParam(value = "tenantId", required = false) String paramTenantId) {
-        String targetTenantId = paramTenantId;
-        if (targetTenantId == null || targetTenantId.trim().isEmpty()) {
-            targetTenantId = TenantContext.getTenantId();
-        }
-
-        String newStatus = (String) body.get("status");
-        if (newStatus == null) {
+        String newStatus = body != null ? (String) body.get("status") : null;
+        if (newStatus == null || newStatus.trim().isEmpty()) {
             return ApiResponse.error(400, "状态不能为空");
         }
 
-        boolean found = false;
-        Collection<List<JobApplicationDTO>> targets = (targetTenantId != null && applicationMap.containsKey(targetTenantId))
-                ? Collections.singletonList(applicationMap.get(targetTenantId))
-                : applicationMap.values();
+        Optional<JobApplication> opt = jobApplicationRepository.findByApplicationNo(id);
+        if (opt.isEmpty()) {
+            return ApiResponse.error(404, "未找到该简历记录");
+        }
+        JobApplication entity = opt.get();
 
-        for (List<JobApplicationDTO> list : targets) {
-            for (JobApplicationDTO item : list) {
-                if (id.equals(item.getId())) {
-                    item.setStatus(newStatus);
-                    if (body.containsKey("interviewInfo")) {
-                        item.setInterviewInfo((Map<String, Object>) body.get("interviewInfo"));
-                    }
-                    if (body.containsKey("interviewEvaluation")) {
-                        item.setInterviewEvaluation((Map<String, Object>) body.get("interviewEvaluation"));
-                    }
-                    if (body.containsKey("rejectReason")) {
-                        item.setRejectReason((String) body.get("rejectReason"));
-                    }
-                    found = true;
-                    break;
-                }
+        if (TenantContext.isAuthenticated()) {
+            TenantContext.assertTenantAccess(entity.getTenantId());
+        } else {
+            // 未登录场景仅允许候选人扫码入职登记完成后回写 HIRED 状态，且租户需匹配
+            if (!"HIRED".equalsIgnoreCase(newStatus.trim())) {
+                return ApiResponse.error(401, "未登录无权修改该简历审核状态");
             }
-            if (found) break;
+            if (paramTenantId != null && !paramTenantId.trim().isEmpty()
+                    && !"DEFAULT".equalsIgnoreCase(entity.getTenantId())
+                    && !paramTenantId.trim().equalsIgnoreCase(entity.getTenantId())) {
+                return ApiResponse.error(403, "无权跨租户更新应聘简历状态");
+            }
         }
 
-        if (found) {
-            saveToDisk();
-            return ApiResponse.success("简历状态更新成功", "OK");
+        entity.setStatus(newStatus.trim());
+        if (body.containsKey("interviewInfo")) {
+            entity.setInterviewInfoJson(serializeMap(toStringObjectMap(body.get("interviewInfo"))));
         }
-        return ApiResponse.error(404, "未找到该简历记录");
+        if (body.containsKey("interviewEvaluation")) {
+            entity.setInterviewEvaluationJson(serializeMap(toStringObjectMap(body.get("interviewEvaluation"))));
+        }
+        if (body.containsKey("rejectReason")) {
+            entity.setRejectReason((String) body.get("rejectReason"));
+        }
+        jobApplicationRepository.save(entity);
+        return ApiResponse.success("简历状态更新成功", "OK");
     }
 
     @Operation(summary = "删除简历记录")
     @DeleteMapping("/{id}")
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<String> deleteApplication(@PathVariable("id") String id) {
-        for (List<JobApplicationDTO> list : applicationMap.values()) {
-            list.removeIf(item -> id.equals(item.getId()));
+        Optional<JobApplication> opt = jobApplicationRepository.findByApplicationNo(id);
+        if (opt.isPresent()) {
+            JobApplication entity = opt.get();
+            TenantContext.assertTenantAccess(entity.getTenantId());
+            jobApplicationRepository.delete(entity);
         }
-        saveToDisk();
         return ApiResponse.success("简历记录已删除", "OK");
     }
 
-    private synchronized void saveToDisk() {
-        try {
-            File file = new File(STORAGE_FILE_PATH);
-            File parent = file.getParentFile();
-            if (parent != null && !parent.exists()) {
-                parent.mkdirs();
-            }
-            objectMapper.writeValue(file, applicationMap);
-        } catch (Exception e) {
-            log.warn("保存简历数据到磁盘失败: {}", e.getMessage());
+    private void applyDtoToEntity(JobApplicationDTO dto, JobApplication entity) {
+        entity.setTenantId(dto.getTenantId());
+        entity.setStoreName(dto.getStoreName());
+        entity.setPostId(dto.getPostId());
+        entity.setPostName(dto.getPostName());
+        entity.setCandidateName(dto.getCandidateName() != null ? dto.getCandidateName().trim() : "");
+        entity.setGender(dto.getGender());
+        entity.setAge(dto.getAge());
+        entity.setPhone(dto.getPhone() != null ? dto.getPhone().trim() : "");
+        entity.setEducation(dto.getEducation());
+        entity.setExperienceYears(dto.getExperienceYears());
+        entity.setExpectedSalary(dto.getExpectedSalary());
+        entity.setAvailableDate(dto.getAvailableDate());
+        entity.setPersonalAdvantage(dto.getPersonalAdvantage());
+        entity.setWorkHistory(dto.getWorkHistory());
+        entity.setCertificates(dto.getCertificates());
+        entity.setApplyTime(dto.getApplyTime());
+        entity.setStatus(dto.getStatus());
+        if (dto.getInterviewInfo() != null) {
+            entity.setInterviewInfoJson(serializeMap(dto.getInterviewInfo()));
+        }
+        if (dto.getInterviewEvaluation() != null) {
+            entity.setInterviewEvaluationJson(serializeMap(dto.getInterviewEvaluation()));
+        }
+        if (dto.getRejectReason() != null) {
+            entity.setRejectReason(dto.getRejectReason());
         }
     }
 
-    private synchronized void loadFromDisk() {
-        try {
-            File file = new File(STORAGE_FILE_PATH);
-            if (file.exists() && file.length() > 0) {
-                Map<String, List<JobApplicationDTO>> loaded = objectMapper.readValue(
-                        file,
-                        new TypeReference<Map<String, List<JobApplicationDTO>>>() {}
-                );
-                if (loaded != null) {
-                    applicationMap.putAll(loaded);
-                    log.info("成功从磁盘恢复简历数据，共包含 {} 个商户", applicationMap.size());
-                }
-            }
-        } catch (Exception e) {
-            log.warn("从磁盘加载简历数据失败: {}", e.getMessage());
+    private JobApplicationDTO toDto(JobApplication entity) {
+        JobApplicationDTO dto = new JobApplicationDTO();
+        dto.setId(entity.getApplicationNo());
+        dto.setTenantId(entity.getTenantId());
+        dto.setStoreName(entity.getStoreName());
+        dto.setPostId(entity.getPostId());
+        dto.setPostName(entity.getPostName());
+        dto.setCandidateName(entity.getCandidateName());
+        dto.setGender(entity.getGender());
+        dto.setAge(entity.getAge());
+        dto.setPhone(entity.getPhone());
+        dto.setEducation(entity.getEducation());
+        dto.setExperienceYears(entity.getExperienceYears());
+        dto.setExpectedSalary(entity.getExpectedSalary());
+        dto.setAvailableDate(entity.getAvailableDate());
+        dto.setPersonalAdvantage(entity.getPersonalAdvantage());
+        dto.setWorkHistory(entity.getWorkHistory());
+        dto.setCertificates(entity.getCertificates());
+        dto.setApplyTime(entity.getApplyTime());
+        dto.setStatus(entity.getStatus());
+        dto.setInterviewInfo(deserializeMap(entity.getInterviewInfoJson()));
+        dto.setInterviewEvaluation(deserializeMap(entity.getInterviewEvaluationJson()));
+        dto.setRejectReason(entity.getRejectReason());
+        return dto;
+    }
+
+    private String serializeMap(Map<String, Object> map) {
+        if (map == null) {
+            return null;
         }
+        try {
+            return objectMapper.writeValueAsString(map);
+        } catch (Exception e) {
+            log.warn("序列化面试信息失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private Map<String, Object> deserializeMap(String json) {
+        if (json == null || json.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.warn("反序列化面试信息失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private Map<String, Object> toStringObjectMap(Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) {
+            return null;
+        }
+        Map<String, Object> converted = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            if (entry.getKey() != null) {
+                converted.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return converted;
     }
 }

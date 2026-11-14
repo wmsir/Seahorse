@@ -67,6 +67,7 @@ public class DashboardController {
         BigDecimal todayRevenue = todayOrders.stream()
                 .filter(o -> o.getStatus() == BillingStatus.PAID)
                 .map(BillingOrder::getActualAmount)
+                .filter(java.util.Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         List<ServiceSpace> spaces = spaceRepository.findByTenantIdAndStoreId(targetTenantId, targetStoreId);
@@ -82,10 +83,10 @@ public class DashboardController {
 
         long totalMembers = memberRepository.countByTenantId(targetTenantId);
 
-        List<CommissionRecord> commissions = commissionRecordRepository.findByStoreIdOrderByCreatedAtDesc(targetStoreId);
+        List<CommissionRecord> commissions = commissionRecordRepository.findByStoreIdAndCreatedAtBetween(targetStoreId, todayStart, todayEnd);
         BigDecimal todayCommissions = commissions.stream()
-                .filter(c -> c.getCreatedAt() != null && c.getCreatedAt().isAfter(todayStart))
                 .map(CommissionRecord::getCommissionAmount)
+                .filter(java.util.Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         // 真实查询今日待履约预约 (非 CANCELLED, 非 COMPLETED)

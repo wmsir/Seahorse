@@ -33,10 +33,14 @@ class LocationService {
   String storeAddress = '陕西省西安市高新区高新路海马商业中心1号店';
   double allowedRadiusMeters = 500.0;
 
-  // 高德地图开放平台服务配置 (由浏览器后台配置，APP端自动无感拉取)
-  String? amapWebApiKey = '216aceb246ab68fbd8abb38f6cb24582';
-  String? amapJsApiKey = '216aceb246ab68fbd8abb38f6cb24582';
-  String? amapSecurityCode = 'a959cdbdf4b90d3ce9d3552521c0d0b9';
+  static const String _envAmapWebKey = String.fromEnvironment('SEAHORSE_AMAP_WEB_KEY');
+  static const String _envAmapJsKey = String.fromEnvironment('SEAHORSE_AMAP_JS_KEY');
+  static const String _envAmapSecurityCode = String.fromEnvironment('SEAHORSE_AMAP_SECURITY_CODE');
+
+  // 高德地图开放平台服务配置 (优先读取编译期环境变量或由浏览器后台配置动态拉取)
+  String? amapWebApiKey = _envAmapWebKey.isNotEmpty ? _envAmapWebKey : null;
+  String? amapJsApiKey = _envAmapJsKey.isNotEmpty ? _envAmapJsKey : null;
+  String? amapSecurityCode = _envAmapSecurityCode.isNotEmpty ? _envAmapSecurityCode : null;
   String? amapError;
   String? satelliteTimeoutPrompt;
   bool isAmapConfigLoaded = false;
@@ -118,7 +122,7 @@ class LocationService {
     amapError = null;
 
     // 自动无感拉取后台最新高德配置
-    if (!isAmapConfigLoaded || amapWebApiKey == null) {
+    if (!isAmapConfigLoaded || (forceRefresh && (amapWebApiKey == null || amapWebApiKey!.isEmpty))) {
       await syncAmapConfigFromBackend();
     }
 
@@ -268,11 +272,13 @@ class LocationService {
       );
       if (response.statusCode == 200 && response.data is Map) {
         final data = response.data as Map;
-        final prov = data['principalSubdivision'] ?? '';
-        final city = data['city'] ?? data['locality'] ?? '';
-        final street = data['localityLanguageRequested'] ?? data['locality'] ?? '';
-        if (prov.toString().isNotEmpty || city.toString().isNotEmpty) {
-          return '$prov$city $street (GPS: ${lat.toStringAsFixed(4)}, ${lon.toStringAsFixed(4)})';
+        final prov = (data['principalSubdivision'] ?? '').toString();
+        final city = (data['city'] ?? '').toString();
+        final locality = (data['locality'] ?? '').toString();
+        final street = locality != city ? locality : '';
+        if (prov.isNotEmpty || city.isNotEmpty || locality.isNotEmpty) {
+          final merged = '$prov$city${street.isNotEmpty ? ' $street' : ''}'.trim();
+          return '$merged (GPS: ${lat.toStringAsFixed(4)}, ${lon.toStringAsFixed(4)})';
         }
       }
     } catch (_) {}

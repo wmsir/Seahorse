@@ -440,6 +440,9 @@ public class ChannelNotificationAppService {
     public Page<NotificationLog> getNotificationLogs(int page, int size, Long memberId) {
         String tenantId = getEffectiveTenantId();
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size));
+        if (memberId != null) {
+            return logRepository.findByTenantIdAndMemberIdOrderBySentAtDesc(tenantId, memberId, pageable);
+        }
         return logRepository.findByTenantIdOrderBySentAtDesc(tenantId, pageable);
     }
 
@@ -447,7 +450,17 @@ public class ChannelNotificationAppService {
      * 获取最近 100 条推送记录
      */
     public List<NotificationLog> getRecentNotificationLogs() {
+        return getRecentNotificationLogs(null);
+    }
+
+    /**
+     * 获取最近推送记录（支持按指定会员 ID 过滤）
+     */
+    public List<NotificationLog> getRecentNotificationLogs(Long memberId) {
         String tenantId = getEffectiveTenantId();
+        if (memberId != null) {
+            return logRepository.findByTenantIdAndMemberIdOrderBySentAtDesc(tenantId, memberId);
+        }
         return logRepository.findTop100ByTenantIdOrderBySentAtDesc(tenantId);
     }
 

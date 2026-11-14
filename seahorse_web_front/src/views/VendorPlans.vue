@@ -1725,6 +1725,11 @@ const loadPlans = async () => {
     const res: any = await getSubscriptionPlansApi()
     if (Array.isArray(res) && res.length > 0) {
       planOptions.value = res
+      const trialPlan = res.find((p: any) => p.planCode === 'TRIAL')
+      if (trialPlan && Number(trialPlan.trialDays) > 0) {
+        currentTrialDays.value = Number(trialPlan.trialDays)
+        trialDaysInput.value = Number(trialPlan.trialDays)
+      }
     } else {
       planOptions.value = [
         { id: 1, planCode: 'TRIAL', planName: '体验版套餐', annualPrice: 0.00, storeLimit: 1, staffLimit: 3, storageQuotaGb: 5, isPublic: true, description: '免费体验全业务微内核' },

@@ -31,7 +31,7 @@ CREATE TABLE `sh_store` (
   `tenant_id` varchar(64) NOT NULL,
   `store_id` varchar(64) NOT NULL,
   `store_name` varchar(128) NOT NULL,
-  `industry` varchar(32) NOT NULL DEFAULT 'BEAUTY' COMMENT '行业模态: RESTAURANT | BEAUTY | AUTO | RETAIL',
+  `industry` varchar(32) NOT NULL DEFAULT 'BEAUTY' COMMENT '行业模态: RESTAURANT | BEAUTY | AUTO | RETAIL | FOOT_SPA | TEA_HOUSE | PET',
   `address` varchar(255) DEFAULT NULL,
   `phone` varchar(32) DEFAULT NULL,
   `business_hours` varchar(64) DEFAULT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE `sh_employee` (
   `real_name` varchar(64) NOT NULL,
   `phone` varchar(32) DEFAULT NULL,
   `avatar` varchar(255) DEFAULT NULL,
-  `role` varchar(32) NOT NULL COMMENT 'SUPER_ADMIN | STORE_MANAGER | CASHIER | TECHNICIAN | WAITER',
+  `role` varchar(32) NOT NULL COMMENT 'PLATFORM_DEVELOPER | SUPER_ADMIN | STORE_MANAGER | CASHIER | TECHNICIAN | WAITER',
   `default_commission_rate` decimal(5,4) DEFAULT '0.1500',
   `status` varchar(32) DEFAULT 'ACTIVE',
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
@@ -195,7 +195,7 @@ CREATE TABLE `sh_billing_order` (
   `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_order_no` (`order_no`),
-  KEY `idx_session_id` (`session_id`)
+  KEY `idx_billing_session_id` (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='统一结算账单表';
 
 -- 10. 支付记录明细表
@@ -231,33 +231,7 @@ CREATE TABLE `sh_cash_tender_record` (
   KEY `idx_billing_cash` (`billing_order_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='现金收找记录表';
 
--- 12. 班次盲盘交接表
-DROP TABLE IF EXISTS `sh_shift_record`;
-CREATE TABLE `sh_shift_record` (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `tenant_id` varchar(64) NOT NULL,
-  `store_id` varchar(64) NOT NULL,
-  `cashier_id` bigint NOT NULL,
-  `cashier_name` varchar(64) DEFAULT NULL,
-  `shift_start_time` datetime DEFAULT NULL,
-  `shift_end_time` datetime DEFAULT NULL,
-  `blind_cash_amount` decimal(10,2) DEFAULT '0.00',
-  `system_cash_amount` decimal(10,2) DEFAULT '0.00',
-  `cash_variance` decimal(10,2) DEFAULT '0.00',
-  `wechat_total` decimal(10,2) DEFAULT '0.00',
-  `alipay_total` decimal(10,2) DEFAULT '0.00',
-  `union_pay_total` decimal(10,2) DEFAULT '0.00',
-  `stored_value_total` decimal(10,2) DEFAULT '0.00',
-  `time_card_times_total` int DEFAULT '0',
-  `order_count` int DEFAULT '0',
-  `status` varchar(32) DEFAULT 'NORMAL',
-  `notes` varchar(255) DEFAULT NULL,
-  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_store_cashier` (`store_id`, `cashier_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='班次盲盘交接表';
-
--- 13. 会员主体表
+-- 12. 会员主体表
 DROP TABLE IF EXISTS `sh_member`;
 CREATE TABLE `sh_member` (
   `id` bigint NOT NULL AUTO_INCREMENT,

@@ -1,4 +1,216 @@
 /**
- * 海马智慧门店引用统一 Design Tokens
+ * 海马智慧门店统一 Design Tokens (内联自 FWPT Design System，确保独立构建与 Docker 容器构建一致)
+ * 标准：无障碍 (WCAG 2.1 AA+), 浅色/深色主题兼容, 动态动效减弱偏好
  */
-@import '../../../../design/design-tokens.css';
+
+:root {
+  /* ==========================================================================
+     1. 基础字型与字号阶梯 (Typography Scale)
+     ========================================================================== */
+  --fwpt-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --fwpt-font-mono: ui-monospace, "Cascadia Code", "Fira Code", "Source Code Pro",
+    Menlo, Monaco, Consolas, monospace;
+
+  /* 字号层级 (基准 14px 为正文) */
+  --fwpt-font-size-hero: clamp(28px, 4vw, 40px);
+  --fwpt-font-size-h1: 24px;
+  --fwpt-font-size-h2: 20px;
+  --fwpt-font-size-h3: 16px;
+  --fwpt-font-size-body: 14px;
+  --fwpt-font-size-sm: 13px;
+  --fwpt-font-size-xs: 12px;
+  --fwpt-font-size-legal: 11px;
+
+  /* 行高系统 */
+  --fwpt-line-height-tight: 1.25;
+  --fwpt-line-height-normal: 1.5;
+  --fwpt-line-height-loose: 1.75;
+
+  /* 字重层级 */
+  --fwpt-font-weight-regular: 400;
+  --fwpt-font-weight-medium: 500;
+  --fwpt-font-weight-semibold: 600;
+  --fwpt-font-weight-bold: 700;
+
+  /* ==========================================================================
+     2. 间距系统 (Spacing Scale - 4px 网格)
+     ========================================================================== */
+  --fwpt-space-1: 4px;
+  --fwpt-space-2: 8px;
+  --fwpt-space-3: 12px;
+  --fwpt-space-4: 16px;
+  --fwpt-space-5: 20px;
+  --fwpt-space-6: 24px;
+  --fwpt-space-8: 32px;
+  --fwpt-space-10: 40px;
+  --fwpt-space-12: 48px;
+  --fwpt-space-16: 64px;
+
+  /* ==========================================================================
+     3. 圆角系统 (Border Radius)
+     ========================================================================== */
+  --fwpt-radius-none: 0px;
+  --fwpt-radius-xs: 4px;
+  --fwpt-radius-sm: 6px;
+  --fwpt-radius-md: 8px;
+  --fwpt-radius-lg: 12px;
+  --fwpt-radius-xl: 16px;
+  --fwpt-radius-full: 9999px;
+
+  /* ==========================================================================
+     4. 控件高度规范 (Control Heights)
+     ========================================================================== */
+  --fwpt-control-height-sm: 28px;
+  --fwpt-control-height-base: 36px;
+  --fwpt-control-height-lg: 44px;
+  --fwpt-touch-target-min: 44px; /* 移动端最小可点击触控高度 */
+
+  /* ==========================================================================
+     5. 阴影与浮层深度 (Elevation / Shadows)
+     ========================================================================== */
+  --fwpt-shadow-none: none;
+  --fwpt-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --fwpt-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --fwpt-shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
+  --fwpt-shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+  --fwpt-shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
+  --fwpt-shadow-popover: 0 20px 40px -8px rgba(15, 23, 42, 0.16), 0 4px 16px rgba(0, 0, 0, 0.06);
+
+  /* ==========================================================================
+     6. 中性色阶梯 (Neutral Palette - 浅色默认)
+     ========================================================================== */
+  --fwpt-neutral-50: #F8FAFC;
+  --fwpt-neutral-100: #F1F5F9;
+  --fwpt-neutral-200: #E2E8F0;
+  --fwpt-neutral-300: #CBD5E1;
+  --fwpt-neutral-400: #94A3B8;
+  --fwpt-neutral-500: #64748B;
+  --fwpt-neutral-600: #475569;
+  --fwpt-neutral-700: #334155;
+  --fwpt-neutral-800: #1E293B;
+  --fwpt-neutral-900: #0F172A;
+  --fwpt-neutral-950: #020617;
+
+  /* 语义化中性色引用 */
+  --fwpt-bg-page: var(--fwpt-neutral-50);
+  --fwpt-bg-surface: #FFFFFF;
+  --fwpt-bg-surface-subtle: var(--fwpt-neutral-100);
+  --fwpt-bg-surface-elevated: #FFFFFF;
+  
+  --fwpt-text-main: var(--fwpt-neutral-900);
+  --fwpt-text-secondary: var(--fwpt-neutral-600);
+  --fwpt-text-tertiary: var(--fwpt-neutral-400);
+  --fwpt-text-disabled: var(--fwpt-neutral-300);
+
+  --fwpt-border-color: var(--fwpt-neutral-200);
+  --fwpt-border-subtle: var(--fwpt-neutral-100);
+  --fwpt-border-strong: var(--fwpt-neutral-300);
+
+  /* ==========================================================================
+     7. 状态指示语义色彩 (Semantic States)
+     ========================================================================== */
+  --fwpt-status-success: #16A34A;
+  --fwpt-status-success-bg: #F0FDF4;
+  --fwpt-status-success-border: #BBF7D0;
+
+  --fwpt-status-warning: #D97706;
+  --fwpt-status-warning-bg: #FFFBEB;
+  --fwpt-status-warning-border: #FDE68A;
+
+  --fwpt-status-error: #DC2626;
+  --fwpt-status-error-bg: #FEF2F2;
+  --fwpt-status-error-border: #FECACA;
+
+  --fwpt-status-info: #0284C7;
+  --fwpt-status-info-bg: #F0F9FF;
+  --fwpt-status-info-border: #BAE6FD;
+
+  /* ==========================================================================
+     8. 跨产品核心品牌强调色 (Product Accents)
+     ========================================================================== */
+  /* 海马智慧门店 (Cyan / Blue) */
+  --fwpt-brand-seahorse: #0284C7;
+  --fwpt-brand-seahorse-hover: #0369A1;
+  --fwpt-brand-seahorse-bg: #F0F9FF;
+  --fwpt-brand-seahorse-border: #BAE6FD;
+
+  /* 斑马 ERP (Orange) */
+  --fwpt-brand-zebra: #EA580C;
+  --fwpt-brand-zebra-hover: #C2410C;
+  --fwpt-brand-zebra-bg: #FFF7ED;
+  --fwpt-brand-zebra-border: #FFEDD5;
+
+  /* 配速工单 (Indigo / Deep Blue) */
+  --fwpt-brand-pacer: #4F46E5;
+  --fwpt-brand-pacer-hover: #4338CA;
+  --fwpt-brand-pacer-bg: #EEF2FF;
+  --fwpt-brand-pacer-border: #E0E7FF;
+
+  /* 磐石密码本 (Emerald) */
+  --fwpt-brand-panshi: #10B981;
+  --fwpt-brand-panshi-hover: #059669;
+  --fwpt-brand-panshi-bg: #ECFDF5;
+  --fwpt-brand-panshi-border: #D1FAE5;
+
+  /* 聚会游戏 (Forest / Amber) */
+  --fwpt-brand-party-green: #1B8354;
+  --fwpt-brand-party-amber: #F59E0B;
+  --fwpt-brand-party-rose: #E11D48;
+
+  /* 箭头消消乐 (Amber Gold) */
+  --fwpt-brand-arrow: #D97706;
+
+  /* ==========================================================================
+     9. 容器最大宽度标准 (Container Layout Limits)
+     ========================================================================== */
+  --fwpt-container-sm: 640px;
+  --fwpt-container-md: 768px;
+  --fwpt-container-lg: 1024px;
+  --fwpt-container-xl: 1200px;
+  --fwpt-container-full: 1440px;
+}
+
+/* ==========================================================================
+   10. 深色主题适配变量 (Dark Mode Theme Overrides)
+   ========================================================================== */
+[data-theme="dark"],
+.dark {
+  --fwpt-bg-page: #0F172A;
+  --fwpt-bg-surface: #1E293B;
+  --fwpt-bg-surface-subtle: #243048;
+  --fwpt-bg-surface-elevated: #334155;
+
+  --fwpt-text-main: #F8FAFC;
+  --fwpt-text-secondary: #CBD5E1;
+  --fwpt-text-tertiary: #94A3B8;
+  --fwpt-text-disabled: #475569;
+
+  --fwpt-border-color: #334155;
+  --fwpt-border-subtle: #1E293B;
+  --fwpt-border-strong: #475569;
+
+  --fwpt-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --fwpt-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+  --fwpt-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.6);
+  --fwpt-shadow-popover: 0 20px 40px -8px rgba(0, 0, 0, 0.75);
+
+  --fwpt-status-success-bg: rgba(22, 163, 74, 0.15);
+  --fwpt-status-warning-bg: rgba(217, 119, 6, 0.15);
+  --fwpt-status-error-bg: rgba(220, 38, 38, 0.15);
+  --fwpt-status-info-bg: rgba(2, 132, 199, 0.15);
+}
+
+/* ==========================================================================
+   11. 减弱动效偏好 (Reduced Motion Accessibility)
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

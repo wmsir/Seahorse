@@ -2,10 +2,14 @@ package com.seahorse.store.interfaces.web;
 
 import com.seahorse.store.common.ApiResponse;
 import com.seahorse.store.context.TenantContext;
+import com.seahorse.store.domain.attendance.model.AttendanceRecord;
+import com.seahorse.store.infrastructure.repository.AttendanceRecordRepository;
+import com.seahorse.store.infrastructure.repository.EmployeeRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -15,7 +19,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 考勤打卡管理与企业微信/钉钉数据对接控制器
+ * 考勤打卡管理与企业微信/钉钉数据对接控制器（基于数据库持久化）
  */
 @Tag(name = "14. 考勤打卡与企业协同", description = "支持从企业微信或阿里钉钉同步获取员工打卡考勤数据")
 @RestController
@@ -23,20 +27,19 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class AttendanceRecordController {
 
-    private final com.seahorse.store.infrastructure.repository.EmployeeRepository employeeRepository;
+    private final EmployeeRepository employeeRepository;
+    private final AttendanceRecordRepository attendanceRecordRepository;
 
     // 租户集成凭证配置缓存
     private final Map<String, SyncConfigDTO> configStore = new ConcurrentHashMap<>();
-    // 考勤记录缓存（按租户及门店存储）
-    private final Map<String, List<AttendanceRecordDTO>> recordStore = new ConcurrentHashMap<>();
 
     @Data
     public static class SyncConfigDTO {
         private String platform = "WECHAT_WORK"; // WECHAT_WORK | DINGTALK
-        private String corpId = "ww88d77c66e55f4433";
-        private String agentId = "1000088";
-        private String appKey = "dingabc123456";
-        private String appSecret = "sec_e8b9f0a1c2d3e4f5a6b7c8d9";
+        private String corpId = "";
+        private String agentId = "";
+        private String appKey = "";
+        private String appSecret = "";
         private Boolean autoSync = true;
         private Integer syncFrequencyMinutes = 60;
         private String lastSyncTime;
@@ -75,8 +78,7 @@ public class AttendanceRecordController {
     @Operation(summary = "获取考勤打卡对接配置")
     @GetMapping("/config")
     public ApiResponse<SyncConfigDTO> getAttendanceConfig() {
-        String tenantId = TenantContext.getTenantId();
-        if (tenantId == null) tenantId = "T001";
+        String tenantId = resolveTenantId();
         SyncConfigDTO config = configStore.computeIfAbsent(tenantId, k -> new SyncConfigDTO());
         return ApiResponse.success(config);
     }
@@ -84,19 +86,17 @@ public class AttendanceRecordController {
     @Operation(summary = "保存考勤打卡对接配置")
     @PostMapping("/config")
     public ApiResponse<SyncConfigDTO> saveAttendanceConfig(@RequestBody SyncConfigDTO dto) {
-        String tenantId = TenantContext.getTenantId();
-        if (tenantId == null) tenantId = "T001";
+        String tenantId = resolveTenantId();
         configStore.put(tenantId, dto);
         return ApiResponse.success("考勤对接配置保存成功", dto);
     }
 
     @Operation(summary = "从企业微信或钉钉一键同步打卡数据")
     @PostMapping("/sync")
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<Map<String, Object>> syncAttendanceData(@RequestParam(required = false) String platform) {
-        String tenantId = TenantContext.getTenantId();
-        if (tenantId == null) tenantId = "T001";
+        String tenantId = resolveTenantId();
         String storeId = TenantContext.getStoreId();
-        String storeKey = tenantId + (storeId != null ? "_" + storeId : "");
 
         SyncConfigDTO config = configStore.computeIfAbsent(tenantId, k -> new SyncConfigDTO());
         if (platform != null && !platform.isEmpty()) {
@@ -105,9 +105,8 @@ public class AttendanceRecordController {
         String nowStr = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         config.setLastSyncTime(nowStr);
 
-        // 生成初始/刷新的全真打卡流水
-        List<AttendanceRecordDTO> list = generateSampleRecords(tenantId, storeId, config.getPlatform());
-        recordStore.put(storeKey, list);
+        List<AttendanceRecord> persisted = seedOrSyncRecords(tenantId, storeId, config.getPlatform(), true);
+        List<AttendanceRecordDTO> list = persisted.stream().map(this::toDto).toList();
 
         Map<String, Object> result = new HashMap<>();
         result.put("syncTime", nowStr);
@@ -124,39 +123,54 @@ public class AttendanceRecordController {
 
     @Operation(summary = "查询考勤打卡流水记录")
     @GetMapping("/records")
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<List<AttendanceRecordDTO>> getAttendanceRecords(
             @RequestParam(required = false) String date,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String storeId) {
-        String rawTenantId = TenantContext.getTenantId();
-        final String tenantId = (rawTenantId != null && !rawTenantId.trim().isEmpty()) ? rawTenantId.trim() : "T001";
-        final String curStoreId = (storeId != null && !storeId.trim().isEmpty()) ? storeId.trim() : TenantContext.getStoreId();
-        String storeKey = tenantId + (curStoreId != null ? "_" + curStoreId : "");
+        String tenantId = resolveTenantId();
+        String curStoreId = (storeId != null && !storeId.trim().isEmpty()) ? storeId.trim() : TenantContext.getStoreId();
 
-        List<AttendanceRecordDTO> list = recordStore.computeIfAbsent(storeKey, k -> {
-            return generateSampleRecords(tenantId, curStoreId, "WECHAT_WORK");
-        });
-        return ApiResponse.success(list);
+        List<AttendanceRecord> entities = loadOrSeedRecords(tenantId, curStoreId, "WECHAT_WORK");
+
+        List<AttendanceRecordDTO> filtered = entities.stream()
+                .map(this::toDto)
+                .filter(r -> {
+                    if (date != null && !date.trim().isEmpty() && !date.trim().equals(r.getWorkDate())) {
+                        return false;
+                    }
+                    if (status != null && !status.trim().isEmpty() && !"ALL".equalsIgnoreCase(status.trim())
+                            && !status.trim().equalsIgnoreCase(r.getCheckInStatus())) {
+                        return false;
+                    }
+                    if (keyword != null && !keyword.trim().isEmpty()) {
+                        String kw = keyword.trim().toLowerCase();
+                        boolean matchName = r.getStaffName() != null && r.getStaffName().toLowerCase().contains(kw);
+                        boolean matchPhone = r.getPhone() != null && r.getPhone().contains(kw);
+                        boolean matchPost = r.getPostName() != null && r.getPostName().toLowerCase().contains(kw);
+                        if (!matchName && !matchPhone && !matchPost) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .toList();
+        return ApiResponse.success(filtered);
     }
 
     @Operation(summary = "移动端APP高精度定位打卡")
     @PostMapping("/check-in")
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<AttendanceRecordDTO> mobileCheckIn(@RequestBody MobileCheckInRequest req) {
-        String rawTenantId = TenantContext.getTenantId();
-        final String tenantId = (rawTenantId != null && !rawTenantId.trim().isEmpty()) ? rawTenantId.trim() : "T001";
-        final String storeId = TenantContext.getStoreId();
-        String storeKey = tenantId + (storeId != null ? "_" + storeId : "");
+        String tenantId = resolveTenantId();
+        String storeId = TenantContext.getStoreId();
 
-        List<AttendanceRecordDTO> list = recordStore.computeIfAbsent(storeKey, k -> {
-            return generateSampleRecords(tenantId, storeId, "APP_MOBILE");
-        });
-
+        List<AttendanceRecord> list = loadOrSeedRecords(tenantId, storeId, "APP_MOBILE");
         String today = LocalDate.now().toString();
         String nowTime = java.time.LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
 
-        // 查找当前员工今日是否已有打卡记录
-        AttendanceRecordDTO todayRecord = list.stream()
+        AttendanceRecord todayRecord = list.stream()
                 .filter(r -> today.equals(r.getWorkDate()) &&
                         ((req.getPhone() != null && !req.getPhone().isEmpty() && req.getPhone().equals(r.getPhone())) ||
                          (req.getStaffName() != null && !req.getStaffName().isEmpty() && req.getStaffName().equals(r.getStaffName()))))
@@ -167,14 +181,16 @@ public class AttendanceRecordController {
         String status = !isWithin ? "FIELD_WORK" : "NORMAL";
 
         if (todayRecord == null) {
-            todayRecord = new AttendanceRecordDTO();
-            todayRecord.setId("ATT-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 900 + 100));
-            todayRecord.setStaffName(req.getStaffName() != null && !req.getStaffName().isEmpty() ? req.getStaffName() : "在岗技师");
-            todayRecord.setPhone(req.getPhone() != null && !req.getPhone().isEmpty() ? req.getPhone() : "13800000000");
-            todayRecord.setPostName(req.getPostName() != null && !req.getPostName().isEmpty() ? req.getPostName() : "高级技师");
-            todayRecord.setWorkDate(today);
-            todayRecord.setPlatformSource("APP_MOBILE");
-            list.add(0, todayRecord);
+            todayRecord = AttendanceRecord.builder()
+                    .recordNo("ATT-" + System.currentTimeMillis() + "-" + (int) (Math.random() * 900 + 100))
+                    .tenantId(tenantId)
+                    .storeId(storeId)
+                    .staffName(req.getStaffName() != null && !req.getStaffName().isEmpty() ? req.getStaffName() : "在岗技师")
+                    .phone(req.getPhone() != null && !req.getPhone().isEmpty() ? req.getPhone() : "13800000000")
+                    .postName(req.getPostName() != null && !req.getPostName().isEmpty() ? req.getPostName() : "高级技师")
+                    .workDate(today)
+                    .platformSource("APP_MOBILE")
+                    .build();
         }
 
         if ("CHECK_IN".equalsIgnoreCase(req.getType()) || "FIELD_WORK".equalsIgnoreCase(req.getType()) || todayRecord.getCheckInTime() == null) {
@@ -184,15 +200,14 @@ public class AttendanceRecordController {
             if (req.getNotes() != null && !req.getNotes().trim().isEmpty()) {
                 todayRecord.setNotes(req.getNotes());
             } else if (!isWithin) {
-                todayRecord.setNotes("外勤打卡 (距离偏差: " + Math.round(req.getDistanceMeters()) + "米)");
+                String distDesc = req.getDistanceMeters() != null ? (Math.round(req.getDistanceMeters()) + "米") : "未获取定位距离";
+                todayRecord.setNotes("外勤打卡 (距离偏差: " + distDesc + ")");
             } else {
                 todayRecord.setNotes("正常店内打卡 (偏差: " + Math.round(req.getDistanceMeters()) + "米)");
             }
         } else {
-            // 下班打卡
             todayRecord.setCheckOutTime(nowTime);
             todayRecord.setCheckOutStatus("NORMAL");
-            // 计算工时
             if (todayRecord.getCheckInTime() != null) {
                 try {
                     java.time.LocalTime in = java.time.LocalTime.parse(todayRecord.getCheckInTime());
@@ -205,22 +220,20 @@ public class AttendanceRecordController {
             }
         }
 
-        return ApiResponse.success("打卡成功", todayRecord);
+        AttendanceRecord saved = attendanceRecordRepository.save(todayRecord);
+        return ApiResponse.success("打卡成功", toDto(saved));
     }
 
     @Operation(summary = "获取当前用户今日打卡状态")
     @GetMapping("/my-today")
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<AttendanceRecordDTO> getMyTodayAttendance(
             @RequestParam(required = false) String phone,
             @RequestParam(required = false) String staffName) {
-        String rawTenantId = TenantContext.getTenantId();
-        final String tenantId = (rawTenantId != null && !rawTenantId.trim().isEmpty()) ? rawTenantId.trim() : "T001";
-        final String storeId = TenantContext.getStoreId();
-        String storeKey = tenantId + (storeId != null ? "_" + storeId : "");
+        String tenantId = resolveTenantId();
+        String storeId = TenantContext.getStoreId();
 
-        List<AttendanceRecordDTO> list = recordStore.computeIfAbsent(storeKey, k -> {
-            return generateSampleRecords(tenantId, storeId, "APP_MOBILE");
-        });
+        List<AttendanceRecord> list = loadOrSeedRecords(tenantId, storeId, "APP_MOBILE");
         String today = LocalDate.now().toString();
 
         AttendanceRecordDTO record = list.stream()
@@ -228,9 +241,72 @@ public class AttendanceRecordController {
                         ((phone != null && !phone.isEmpty() && phone.equals(r.getPhone())) ||
                          (staffName != null && !staffName.isEmpty() && staffName.equals(r.getStaffName()))))
                 .findFirst()
+                .map(this::toDto)
                 .orElse(null);
 
         return ApiResponse.success(record);
+    }
+
+    private String resolveTenantId() {
+        String rawTenantId = TenantContext.getTenantId();
+        return (rawTenantId != null && !rawTenantId.trim().isEmpty()) ? rawTenantId.trim() : "T001";
+    }
+
+    private List<AttendanceRecord> loadOrSeedRecords(String tenantId, String storeId, String platform) {
+        List<AttendanceRecord> existing = (storeId != null && !storeId.trim().isEmpty())
+                ? attendanceRecordRepository.findByTenantIdAndStoreIdOrderByWorkDateDescIdDesc(tenantId, storeId.trim())
+                : attendanceRecordRepository.findByTenantIdOrderByWorkDateDescIdDesc(tenantId);
+        if (!existing.isEmpty()) {
+            return existing;
+        }
+        return seedOrSyncRecords(tenantId, storeId, platform, false);
+    }
+
+    private List<AttendanceRecord> seedOrSyncRecords(String tenantId, String storeId, String platform, boolean overwritePlatform) {
+        List<AttendanceRecordDTO> samples = generateSampleRecords(tenantId, storeId, platform);
+        List<AttendanceRecord> savedList = new ArrayList<>();
+        for (AttendanceRecordDTO dto : samples) {
+            AttendanceRecord entity = attendanceRecordRepository.findByRecordNo(dto.getId())
+                    .orElseGet(() -> AttendanceRecord.builder()
+                            .recordNo(dto.getId())
+                            .tenantId(tenantId)
+                            .storeId(storeId)
+                            .build());
+            entity.setStaffName(dto.getStaffName());
+            entity.setPhone(dto.getPhone());
+            entity.setPostName(dto.getPostName());
+            entity.setWorkDate(dto.getWorkDate());
+            if (entity.getCheckInTime() == null || overwritePlatform) {
+                entity.setCheckInTime(dto.getCheckInTime());
+                entity.setCheckInStatus(dto.getCheckInStatus());
+                entity.setCheckOutTime(dto.getCheckOutTime());
+                entity.setCheckOutStatus(dto.getCheckOutStatus());
+                entity.setWorkHours(dto.getWorkHours());
+                entity.setCheckInLocation(dto.getCheckInLocation());
+                entity.setNotes(dto.getNotes());
+            }
+            entity.setPlatformSource(dto.getPlatformSource());
+            savedList.add(attendanceRecordRepository.save(entity));
+        }
+        return savedList;
+    }
+
+    private AttendanceRecordDTO toDto(AttendanceRecord entity) {
+        AttendanceRecordDTO dto = new AttendanceRecordDTO();
+        dto.setId(entity.getRecordNo());
+        dto.setStaffName(entity.getStaffName());
+        dto.setPhone(entity.getPhone());
+        dto.setPostName(entity.getPostName());
+        dto.setWorkDate(entity.getWorkDate());
+        dto.setCheckInTime(entity.getCheckInTime());
+        dto.setCheckInStatus(entity.getCheckInStatus());
+        dto.setCheckOutTime(entity.getCheckOutTime());
+        dto.setCheckOutStatus(entity.getCheckOutStatus());
+        dto.setWorkHours(entity.getWorkHours());
+        dto.setCheckInLocation(entity.getCheckInLocation());
+        dto.setPlatformSource(entity.getPlatformSource());
+        dto.setNotes(entity.getNotes());
+        return dto;
     }
 
     private List<AttendanceRecordDTO> generateSampleRecords(String tenantId, String storeId, String platform) {
@@ -252,7 +328,7 @@ public class AttendanceRecordController {
         if (employees != null && !employees.isEmpty()) {
             for (com.seahorse.store.domain.iam.model.Employee emp : employees) {
                 AttendanceRecordDTO r = new AttendanceRecordDTO();
-                r.setId("ATT-" + emp.getId() + "-" + today.replace("-", ""));
+                r.setId("ATT-" + tenantId + "-" + emp.getId() + "-" + today.replace("-", ""));
                 r.setStaffName(emp.getRealName());
                 r.setPhone(emp.getPhone() != null ? emp.getPhone() : "13800000000");
                 r.setPostName(emp.getPostName() != null ? emp.getPostName() : (emp.getRole() != null ? emp.getRole().name() : "员工"));
@@ -279,8 +355,9 @@ public class AttendanceRecordController {
             return list;
         }
 
+        String storePart = (storeId != null && !storeId.trim().isEmpty()) ? storeId.trim() : "DEFAULT";
         AttendanceRecordDTO r1 = new AttendanceRecordDTO();
-        r1.setId("ATT-" + System.currentTimeMillis() + "-01");
+        r1.setId("ATT-" + tenantId + "-" + storePart + "-" + today.replace("-", "") + "-01");
         r1.setStaffName("李店长");
         r1.setPhone("13800000002");
         r1.setPostName("旗舰店店长");

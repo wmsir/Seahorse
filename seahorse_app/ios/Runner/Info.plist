@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>seahorse_app</string>
+	<string>海马智慧门店</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -42,5 +42,9 @@
 	<string>海马智慧门店需要访问相机用于扫描顾客核销码及商品条形码</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>海马智慧门店需要访问相册用于选择门店照片及会员头像</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>海马智慧门店需要获取当前定位用于员工到店地理围栏考勤打卡</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>海马智慧门店需要获取定位用于门店地理围栏考勤与外勤打卡</string>
 </dict>
 </plist>

@@ -820,7 +820,7 @@
                   <div class="calc-result-box">
                     <div class="cr-row">
                       <span class="cr-lbl">会员到手总价值：</span>
-                      <span class="cr-val">￥{{ (calcRechargeAmount + calcGiftAmount).toFixed(2) }}</span>
+                      <span class="cr-val">￥{{ (Number(calcRechargeAmount || 0) + Number(calcGiftAmount || 0)).toFixed(2) }}</span>
                     </div>
                     <div class="cr-row">
                       <span class="cr-lbl">综合等效折扣率：</span>
@@ -831,7 +831,7 @@
                     <div class="cr-row">
                       <span class="cr-lbl">赠金真实耗材物料成本：</span>
                       <span class="cr-val" style="color: #059669; font-weight: 700;">
-                        仅需 ￥{{ calcActualCost.toFixed(2) }} 元 (非现金￥{{ calcGiftAmount }})
+                        仅需 ￥{{ calcActualCost.toFixed(2) }} 元 (非现金￥{{ Number(calcGiftAmount || 0) }})
                       </span>
                     </div>
                     <div class="cr-row">
@@ -1193,7 +1193,6 @@
           <el-select
             v-model="simulateForm.eventId"
             style="width: 100%;"
-            @change="handleSimulateEventChange"
           >
             <el-option
               v-for="ev in careEventsList"
@@ -1210,7 +1209,6 @@
             filterable
             placeholder="输入会员姓名/手机号检索"
             style="width: 100%;"
-            @change="handleSimulateMemberChange"
           >
             <el-option
               v-for="m in systemData.members"
@@ -1293,14 +1291,13 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import QRCode from 'qrcode'
 import { broadcastMarketingApi } from '../api'
 import { useSystemDataStore } from '../stores/systemDataStore'
 
 const route = useRoute()
-const router = useRouter()
 const systemData = useSystemDataStore()
 
 const openBroadcastModal = ref(false)
@@ -1333,19 +1330,18 @@ const handleConfirmBroadcast = async () => {
   }
   broadcasting.value = true
   try {
-    const res = await broadcastMarketingApi({
+    const res: any = await broadcastMarketingApi({
       campaignTitle: broadcastForm.value.title,
       content: broadcastForm.value.content
     })
-    if (res && res.code === 200) {
-      ElNotification({
-        title: '📢 营销活动全渠道推送成功',
-        message: (res.data?.message) || '活动模板消息已成功推送给所有已关注微信公众号与支付宝生活号的会员！',
-        type: 'success',
-        duration: 5000
-      })
-      openBroadcastModal.value = false
-    }
+    const payload = res?.data ?? res
+    ElNotification({
+      title: '📢 营销活动全渠道推送成功',
+      message: payload?.message || '活动模板消息已成功推送给所有已关注微信公众号与支付宝生活号的会员！',
+      type: 'success',
+      duration: 5000
+    })
+    openBroadcastModal.value = false
   } catch (err: any) {
     ElMessage.error(err?.message || '推送失败')
   } finally {
@@ -1433,7 +1429,7 @@ const filteredCampaigns = computed(() => {
     if (activityTypeFilter.value !== 'ALL' && item.type !== activityTypeFilter.value) return false
     if (searchKeyword.value) {
       const q = searchKeyword.value.toLowerCase()
-      return item.name.toLowerCase().includes(q) || item.ruleDesc.toLowerCase().includes(q)
+      return (item.name || '').toLowerCase().includes(q) || (item.ruleDesc || '').toLowerCase().includes(q)
     }
     return true
   })
@@ -1536,7 +1532,7 @@ const handleDeleteCampaign = (row: any) => {
   }).then(() => {
     systemData.deleteCampaign(row.id)
     ElMessage.success('已删除该活动')
-  })
+  }).catch(() => {})
 }
 
 // =========================================================================
@@ -1564,7 +1560,12 @@ interface PosterFormState {
   shareUrl: string
 }
 
-const posterThemes = [
+const posterThemes: Array<{
+  key: PosterFormState['theme']
+  name: string
+  previewBg: string
+  textColor: string
+}> = [
   { key: 'red_gold', name: '盛典红金', previewBg: 'linear-gradient(135deg, #b91c1c, #e11d48)', textColor: '#fbbf24' },
   { key: 'black_gold', name: '黑金尊享', previewBg: 'linear-gradient(135deg, #18181b, #27272a)', textColor: '#f59e0b' },
   { key: 'ocean_blue', name: '智慧海蓝', previewBg: 'linear-gradient(135deg, #0284c7, #2563eb)', textColor: '#ffffff' },
@@ -1603,7 +1604,7 @@ const generatePosterQrCode = async (url: string) => {
 
 const handleShareCampaign = async (row: any) => {
   currentShareRow.value = row
-  const defaultStoreName = systemData.stores[0]?.name || localStorage.getItem('seahorse_new_store_name') || '海马智慧体验示范店'
+  const defaultStoreName = systemData.stores[0]?.storeName || localStorage.getItem('seahorse_new_store_name') || '海马智慧体验示范店'
   const defaultStorePhone = systemData.stores[0]?.phone || localStorage.getItem('seahorse_new_boss_phone') || '400-888-9988'
   const defaultStoreAddress = systemData.stores[0]?.address || '万达广场1号门首层1028号'
 
@@ -1966,6 +1967,7 @@ interface CareEventItem {
   smsTemplate: string
   themeColor: string
   touchedCount: number
+  isCustom?: boolean
 }
 
 const defaultCareEvents: CareEventItem[] = [
@@ -2107,8 +2109,6 @@ interface CareLogItem {
 }
 
 // 真实初始状态下无任何假记录
-const defaultCareLogs: CareLogItem[] = []
-
 const loadCareLogs = (): CareLogItem[] => {
   try {
     const raw = localStorage.getItem('seahorse_care_logs')
@@ -2138,12 +2138,12 @@ const careLogPageSize = ref(10)
 
 const filteredCareLogs = computed(() => {
   return careLogsList.value.filter(item => {
-    if (careLogFilterEvent.value && !item.eventName.includes(careLogFilterEvent.value)) return false
+    if (careLogFilterEvent.value && !(item.eventName || '').includes(careLogFilterEvent.value)) return false
     if (careLogKeyword.value) {
       const q = careLogKeyword.value.trim().toLowerCase()
-      const matchName = item.memberName.toLowerCase().includes(q)
-      const matchPhone = item.phone.includes(q)
-      const matchSms = item.smsContent.toLowerCase().includes(q)
+      const matchName = (item.memberName || '').toLowerCase().includes(q)
+      const matchPhone = (item.phone || '').includes(q)
+      const matchSms = (item.smsContent || '').toLowerCase().includes(q)
       if (!matchName && !matchPhone && !matchSms) return false
     }
     return true
@@ -2252,7 +2252,7 @@ const handleDeleteCareEvent = (ev: any) => {
     careEventsList.value = careEventsList.value.filter(e => e.id !== ev.id)
     handleSaveCareEvents()
     ElMessage.success('已删除该自定义关怀事件')
-  })
+  }).catch(() => {})
 }
 
 const handleEditCareEvent = (ev: any) => {
@@ -2310,9 +2310,6 @@ const handleOpenSimulateCare = (ev?: any) => {
   openSimulateCareDialog.value = true
 }
 
-const handleSimulateEventChange = () => {}
-const handleSimulateMemberChange = () => {}
-
 const handleExecuteSimulateCare = () => {
   const member = currentSimulateMember.value
   const ev = currentSimulateEvent.value
@@ -2351,7 +2348,7 @@ const handleExecuteSimulateCare = () => {
 
   // 3. 给会员卡包充入关怀积分
   if (ev.bonusPoints && member) {
-    member.points = (member.points || 0) + ev.bonusPoints
+    ;(member as any).points = ((member as any).points || 0) + ev.bonusPoints
   }
 
   openSimulateCareDialog.value = false
@@ -2702,31 +2699,35 @@ const calcGiftAmount = ref(300)
 const calcGrossMargin = ref(70)
 
 const calcDiscountRate = computed(() => {
-  const total = calcRechargeAmount.value + calcGiftAmount.value
+  const recharge = Number(calcRechargeAmount.value || 0)
+  const gift = Number(calcGiftAmount.value || 0)
+  const total = recharge + gift
   if (total <= 0) return '10.0'
-  return ((calcRechargeAmount.value / total) * 10).toFixed(1)
+  return ((recharge / total) * 10).toFixed(1)
 })
 
 const calcActualCost = computed(() => {
-  const marginRatio = calcGrossMargin.value / 100
+  const marginRatio = Number(calcGrossMargin.value || 0) / 100
   // 赠送金在服务核销时，真实物料成本为：赠金 * (1 - 毛利率)
-  return calcGiftAmount.value * (1 - marginRatio)
+  return Number(calcGiftAmount.value || 0) * (1 - marginRatio)
 })
 
 const calcLockVisits = computed(() => {
-  const total = calcRechargeAmount.value + calcGiftAmount.value
+  const total = Number(calcRechargeAmount.value || 0) + Number(calcGiftAmount.value || 0)
   // 按平均客单价 200 元估算核销频次
   return Math.max(3, Math.ceil(total / 200))
 })
 
 const calcIsHealthy = computed(() => {
+  const recharge = Number(calcRechargeAmount.value || 0)
   const discount = Number(calcDiscountRate.value)
-  return discount >= 7.0 && calcActualCost.value <= calcRechargeAmount.value * 0.25
+  return recharge > 0 && discount >= 7.0 && calcActualCost.value <= recharge * 0.25
 })
 
 const calcVerdictText = computed(() => {
-  if (calcIsHealthy.value) {
-    return `极佳方案！综合等效折让仅 ${calcDiscountRate.value} 折，赠送耗材成本仅占本金 ${((calcActualCost.value / calcRechargeAmount.value) * 100).toFixed(1)}%，既对顾客吸引力巨大，又牢牢锁定 ${calcLockVisits.value} 次以上到店，利润健康安全！`
+  const recharge = Number(calcRechargeAmount.value || 0)
+  if (calcIsHealthy.value && recharge > 0) {
+    return `极佳方案！综合等效折让仅 ${calcDiscountRate.value} 折，赠送耗材成本仅占本金 ${((calcActualCost.value / recharge) * 100).toFixed(1)}%，既对顾客吸引力巨大，又牢牢锁定 ${calcLockVisits.value} 次以上到店，利润健康安全！`
   } else {
     return `风险提示！综合等效折扣偏深（低于7折）或赠送真实成本偏高，建议适当调低赠送金，或改用“赠送实物礼盒 / 体验券”替代现金储值金。`
   }

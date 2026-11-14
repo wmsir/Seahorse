@@ -13,6 +13,7 @@
               placeholder="搜索商品/服务名称或编号..."
               style="width: 250px;"
               clearable
+              @input="currentPage = 1"
               @clear="currentPage = 1"
               @keyup.enter="currentPage = 1"
             >
@@ -118,16 +119,16 @@
 
         <el-table-column prop="salePrice" label="标牌售价" width="120">
           <template #default="{ row }">
-            <span class="price-val">￥{{ (row.salePrice || row.price || 0).toFixed(2) }}</span>
+            <span class="price-val">￥{{ Number(row.salePrice ?? row.price ?? 0).toFixed(2) }}</span>
           </template>
         </el-table-column>
 
         <el-table-column prop="memberPrice" label="会员专享价" width="130">
           <template #default="{ row }">
             <div class="member-price-cell">
-              <span class="member-price-val">￥{{ (row.memberPrice !== undefined ? row.memberPrice : Math.round((row.price || 0) * 0.85)).toFixed(2) }}</span>
+              <span class="member-price-val">￥{{ Number(row.memberPrice !== undefined ? row.memberPrice : Math.round((row.price ?? 0) * 0.85)).toFixed(2) }}</span>
               <span class="discount-badge">
-                {{ getDiscountRateText(row.salePrice || row.price, row.memberPrice) }}
+                {{ getDiscountRateText(row.salePrice ?? row.price, row.memberPrice) }}
               </span>
             </div>
           </template>
@@ -138,20 +139,26 @@
             <span v-if="row.type === 'SERVICE'" class="service-stock-tag">服务无限</span>
             <el-tag
               v-else
-              :type="(row.stock || 0) <= 0 ? 'danger' : ((row.stock || 0) <= 10 ? 'warning' : 'info')"
+              :type="(row.stock ?? 0) <= 0 ? 'danger' : ((row.stock ?? 0) <= 10 ? 'warning' : 'info')"
               size="small"
             >
-              {{ (row.stock || 0) <= 0 ? '缺货(0)' : `${row.stock} ${row.unit || '件'}` }}
+              {{ (row.stock ?? 0) <= 0 ? '缺货(0)' : `${row.stock} ${row.unit || '件'}` }}
             </el-tag>
           </template>
         </el-table-column>
 
-        <el-table-column prop="commissionRate" label="销售提成" width="115">
+        <el-table-column prop="commissionRate" label="销售提成" width="125">
           <template #default="{ row }">
-            <span class="comm-text">{{ ((row.commissionRate || (row.type === 'SERVICE' ? 0.25 : 0.1)) * 100).toFixed(0) }}%</span>
-            <span class="comm-est">
-              (约￥{{ ((row.salePrice || row.price || 0) * (row.commissionRate || (row.type === 'SERVICE' ? 0.25 : 0.1))).toFixed(1) }})
-            </span>
+            <template v-if="(row.commissionRate ?? 0) > 1">
+              <span class="comm-text">￥{{ Number(row.commissionRate).toFixed(2) }}</span>
+              <span class="comm-est">(固定/份)</span>
+            </template>
+            <template v-else>
+              <span class="comm-text">{{ ((row.commissionRate ?? (row.type === 'SERVICE' ? 0.25 : 0.1)) * 100).toFixed(0) }}%</span>
+              <span class="comm-est">
+                (约￥{{ ((row.salePrice ?? row.price ?? 0) * (row.commissionRate ?? (row.type === 'SERVICE' ? 0.25 : 0.1))).toFixed(1) }})
+              </span>
+            </template>
           </template>
         </el-table-column>
 
@@ -268,8 +275,8 @@
 
         <el-row :gutter="14" style="margin-top: 8px;">
           <el-col :span="12">
-            <el-form-item label="员工提成比例">
-              <el-input-number v-model="form.commissionRate" :min="0" :max="1" :step="0.05" style="width: 100%;" />
+            <el-form-item label="员工提成(比例/元)">
+              <el-input-number v-model="form.commissionRate" :min="0" :precision="2" :step="(form.commissionRate || 0) > 1 ? 5 : 0.05" style="width: 100%;" />
             </el-form-item>
           </el-col>
           <el-col :span="12" v-if="form.type !== 'SERVICE'">
@@ -335,7 +342,7 @@
           <div class="calc-divider">→</div>
           <div class="calc-item">
             <span class="calc-title">员工提成估算</span>
-            <span class="calc-val text-blue">￥{{ ((form.salePrice || 0) * (form.commissionRate || 0)).toFixed(1) }}</span>
+            <span class="calc-val text-blue">￥{{ ((form.commissionRate || 0) > 1 ? Number(form.commissionRate || 0) : (form.salePrice || 0) * (form.commissionRate || 0)).toFixed(1) }}</span>
           </div>
         </div>
       </el-form>
@@ -508,16 +515,11 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const selectedRows = ref<any[]>([])
 
-const industryMap: Record<string, string> = {
-  BEAUTY: '美容美发美甲',
-  RESTAURANT: '餐饮轻食/正餐',
-  AUTO: '汽车养护维修',
-  RETAIL: '专营零售'
+const persistLocalProducts = () => {
+  try {
+    localStorage.setItem(`seahorse_products_${systemData.currentIndustry}`, JSON.stringify(systemData.products))
+  } catch (e) {}
 }
-
-const currentIndustryName = computed(() => {
-  return industryMap[systemData.currentIndustry] || '智慧零售'
-})
 
 // 动态获取当前行业在售商品列表
 const currentProductList = computed(() => {
@@ -637,7 +639,7 @@ const handleSaveCategoryName = async (row: any) => {
     if (p.category === oldName) p.category = newName
     if (p.categoryName === oldName) p.categoryName = newName
   })
-  systemData.persistProducts()
+  persistLocalProducts()
   ElMessage.success(`分类已更新为【${newName}】`)
 }
 
@@ -723,7 +725,7 @@ const getTypeName = (type: string) => {
 }
 
 const getDiscountRateText = (salePrice?: number, memberPrice?: number) => {
-  if (!salePrice || !memberPrice || salePrice === memberPrice) return '原价'
+  if (!salePrice || memberPrice === undefined || memberPrice === null || salePrice === memberPrice) return '原价'
   const rate = (memberPrice / salePrice) * 10
   return `${rate.toFixed(1)}折`
 }
@@ -739,19 +741,6 @@ const namePlaceholder = computed(() => {
       return '如：美孚1号全合成机油小保养、全车精洗手工打蜡'
     default:
       return '如：发型总监精修洗剪吹、欧莱雅植物蛋白染发'
-  }
-})
-
-const bomPlaceholder = computed(() => {
-  switch (systemData.currentIndustry) {
-    case 'RETAIL':
-      return '耗材名称 (如法式调香植物精油原料、定制礼盒包装)'
-    case 'RESTAURANT':
-      return '食材原料 (如M9冷鲜和牛肉、黑松露原浆初榨橄榄油)'
-    case 'AUTO':
-      return '备件耗材 (如美孚1号全合成机油、博世机滤)'
-    default:
-      return '耗材名称 (如巴黎欧莱雅染膏6.1、滋养精油原液)'
   }
 })
 
@@ -806,8 +795,8 @@ const handleEditProduct = (row: any) => {
   isEdit.value = true
   form.value = {
     ...row,
-    salePrice: row.salePrice || row.price || 0,
-    memberPrice: row.memberPrice !== undefined ? row.memberPrice : Math.round((row.price || 0) * 0.85),
+    salePrice: row.salePrice ?? row.price ?? 0,
+    memberPrice: row.memberPrice !== undefined ? row.memberPrice : Math.round((row.price ?? 0) * 0.85),
     stock: row.stock !== undefined ? row.stock : 50,
     commissionRate: row.commissionRate !== undefined ? row.commissionRate : 0.15,
     unit: row.unit || (row.type === 'SERVICE' ? '次' : '件'),
@@ -829,13 +818,33 @@ const handleTypeChange = (typeVal: any) => {
 }
 
 const handleSalePriceChange = (val: any) => {
-  if (val && !isEdit.value) {
+  if (val !== undefined && val !== null && !isEdit.value) {
     form.value.memberPrice = Math.round(val * 0.85)
   }
 }
 
 const setDiscount = (rate: number) => {
-  form.value.memberPrice = Math.round((form.value.salePrice || 0) * rate)
+  form.value.memberPrice = Math.round((form.value.salePrice ?? 0) * rate)
+}
+
+const buildServerProductPayload = (item: any, overrideStatus?: 'ACTIVE' | 'DISABLED') => {
+  const effectiveStatus = overrideStatus || item.status || 'ACTIVE'
+  const effectiveType = item.type || 'RETAIL'
+  const salePrice = Number(item.salePrice ?? item.price ?? 0)
+  return {
+    id: item.id,
+    productCode: item.code,
+    name: item.name,
+    productType: effectiveType === 'SERVICE' ? 'SERVICE' : 'PHYSICAL',
+    categoryName: item.categoryName || item.category || '',
+    price: salePrice,
+    stock: effectiveType === 'SERVICE' ? 999 : Number(item.stock ?? 0),
+    unit: item.unit || (effectiveType === 'SERVICE' ? '次' : '件'),
+    durationMinutes: item.durationMinutes || 0,
+    description: item.description || '',
+    available: effectiveStatus !== 'DISABLED',
+    defaultCommission: Number(item.commissionRate ?? 0)
+  }
 }
 
 const handleSaveProduct = async () => {
@@ -849,25 +858,15 @@ const handleSaveProduct = async () => {
   }
 
   const payload = {
-    id: isEdit.value ? form.value.id : undefined,
-    productCode: form.value.code,
-    name: form.value.name,
-    productType: form.value.type === 'SERVICE' ? 'SERVICE' : (form.value.type === 'PACKAGE' ? 'PACKAGE' : 'PHYSICAL'),
-    categoryName: form.value.categoryName,
-    price: Number(form.value.salePrice) || 0,
-    memberPrice: Number(form.value.memberPrice) || 0,
-    stock: form.value.type === 'SERVICE' ? 999 : Number(form.value.stock || 0),
-    unit: form.value.unit,
-    durationMinutes: form.value.durationMinutes,
-    description: form.value.description,
-    available: form.value.status !== 'DISABLED',
-    spec: form.value.spec,
-    defaultCommission: Number(form.value.commissionRate) || 0
+    ...buildServerProductPayload(form.value),
+    id: isEdit.value ? form.value.id : undefined
   }
 
-  // 同步到服务端
+  // 同步到服务端（后端 ProductType 枚举仅含 SERVICE / PHYSICAL / MATERIAL）
+  let savedServerProduct: any = null
   try {
-    await saveProductApi(payload)
+    const res: any = await saveProductApi(payload)
+    savedServerProduct = res?.id ? res : (res?.data || null)
   } catch (e) {
     console.warn('saveProductApi 失败，仅本地保存', e)
   }
@@ -879,10 +878,10 @@ const handleSaveProduct = async () => {
       type: form.value.type,
       category: form.value.categoryName,
       categoryName: form.value.categoryName,
-      price: Number(form.value.salePrice) || 0,
-      memberPrice: Number(form.value.memberPrice) || 0,
-      commissionRate: Number(form.value.commissionRate) || 0,
-      stock: form.value.type === 'SERVICE' ? 0 : Number(form.value.stock || 0),
+      price: Number(form.value.salePrice ?? 0),
+      memberPrice: Number(form.value.memberPrice ?? 0),
+      commissionRate: Number(form.value.commissionRate ?? 0),
+      stock: form.value.type === 'SERVICE' ? 0 : Number(form.value.stock ?? 0),
       spec: form.value.spec,
       unit: form.value.unit,
       durationMinutes: form.value.durationMinutes,
@@ -892,16 +891,16 @@ const handleSaveProduct = async () => {
     })
     ElMessage.success(`✅ 商品【${form.value.name}】更新成功并已同步至云端！`)
   } else {
-    systemData.addProduct({
+    const added = systemData.addProduct({
       code: form.value.code,
       name: form.value.name,
       type: form.value.type,
       category: form.value.categoryName,
       categoryName: form.value.categoryName,
-      price: Number(form.value.salePrice) || 0,
-      memberPrice: Number(form.value.memberPrice) || 0,
-      commissionRate: Number(form.value.commissionRate) || 0,
-      stock: form.value.type === 'SERVICE' ? 0 : Number(form.value.stock || 0),
+      price: Number(form.value.salePrice ?? 0),
+      memberPrice: Number(form.value.memberPrice ?? 0),
+      commissionRate: Number(form.value.commissionRate ?? 0),
+      stock: form.value.type === 'SERVICE' ? 0 : Number(form.value.stock ?? 0),
       unit: form.value.unit || (form.value.type === 'SERVICE' ? '次' : '件'),
       spec: form.value.spec,
       durationMinutes: form.value.durationMinutes,
@@ -909,17 +908,34 @@ const handleSaveProduct = async () => {
       status: form.value.status,
       hasBom: form.value.hasBom
     })
+    if (savedServerProduct?.id && added) {
+      added.id = savedServerProduct.id
+      persistLocalProducts()
+    }
     ElMessage.success(`🎉 新商品【${form.value.name}】上架成功并已同步至云端！`)
   }
   openDialog.value = false
-  // 重新从服务端拉取，保证 id 与云端一致
   await loadServerProducts()
 }
 
-const handleToggleStatus = (row: any) => {
+const handleToggleStatus = async (row: any) => {
   const nextStatus = systemData.toggleProductStatus(row.id)
   row.status = nextStatus
+  if (row.id) {
+    try {
+      await saveProductApi(buildServerProductPayload(row, nextStatus as 'ACTIVE' | 'DISABLED'))
+    } catch (e) {
+      console.warn('saveProductApi status sync failed', e)
+    }
+  }
   ElMessage.success(`已${nextStatus === 'ACTIVE' ? '上架在售' : '下架停售'}【${row.name}】，实时库存台账与出入库流水已同步联动！`)
+}
+
+const clampCurrentPage = () => {
+  const maxPage = Math.max(1, Math.ceil(filteredProducts.value.length / pageSize.value))
+  if (currentPage.value > maxPage) {
+    currentPage.value = maxPage
+  }
 }
 
 const handleDeleteProduct = (row: any) => {
@@ -929,6 +945,7 @@ const handleDeleteProduct = (row: any) => {
     type: 'warning'
   }).then(async () => {
     systemData.deleteProduct(row.id)
+    clampCurrentPage()
     if (row.id) {
       try {
         await deleteProductApi(row.id)
@@ -945,29 +962,38 @@ const handleSelectionChange = (selection: any[]) => {
   selectedRows.value = selection
 }
 
-const handleBatchChangeStatus = (status: 'ACTIVE' | 'DISABLED') => {
+const handleBatchChangeStatus = async (status: 'ACTIVE' | 'DISABLED') => {
   if (selectedRows.value.length === 0) return
   const label = status === 'ACTIVE' ? '上架在售' : '下架停售'
-  selectedRows.value.forEach(item => {
+  const targets = [...selectedRows.value]
+  targets.forEach(item => {
     systemData.updateProduct(item.id, { status })
     item.status = status
   })
-  ElMessage.success(`批量${label} ${selectedRows.value.length} 个商品成功，实时库存台账已同步！`)
   selectedRows.value = []
+  await Promise.allSettled(
+    targets.filter(item => item.id).map(item => saveProductApi(buildServerProductPayload(item, status)))
+  )
+  ElMessage.success(`批量${label} ${targets.length} 个商品成功，实时库存台账已同步！`)
 }
 
 const handleBatchDelete = () => {
   if (selectedRows.value.length === 0) return
-  ElMessageBox.confirm(`确定要批量删除所选的 ${selectedRows.value.length} 个商品/服务吗？`, '安全警告', {
+  const targets = [...selectedRows.value]
+  ElMessageBox.confirm(`确定要批量删除所选的 ${targets.length} 个商品/服务吗？`, '安全警告', {
     confirmButtonText: '立即批量删除',
     cancelButtonText: '取消',
     type: 'warning'
-  }).then(() => {
-    selectedRows.value.forEach(item => {
+  }).then(async () => {
+    targets.forEach(item => {
       systemData.deleteProduct(item.id)
     })
-    ElMessage.success(`已批量删除 ${selectedRows.value.length} 个商品/服务`)
     selectedRows.value = []
+    clampCurrentPage()
+    await Promise.allSettled(
+      targets.filter(item => item.id).map(item => deleteProductApi(item.id))
+    )
+    ElMessage.success(`已批量删除 ${targets.length} 个商品/服务`)
   }).catch(() => {})
 }
 
@@ -988,8 +1014,8 @@ const availableRealMaterials = computed(() => {
         code: m.code,
         name: m.name,
         unit: m.unit || '件',
-        unitCost: Number(m.costPrice || 20),
-        stock: m.initialStock || 0
+        unitCost: Number(m.costPrice ?? 20),
+        stock: m.initialStock ?? 0
       })
     })
   }
@@ -1002,7 +1028,7 @@ const availableRealMaterials = computed(() => {
           code: p.code,
           name: p.name,
           unit: p.unit || '件',
-          unitCost: Number(p.cost || (Number(p.price || 0) * 0.4)),
+          unitCost: Number(p.cost ?? (Number(p.price ?? 0) * 0.4)),
           stock: p.stock ?? 50
         })
       }
@@ -1031,7 +1057,7 @@ const handleManageBom = (row: any) => {
     materialName: availableRealMaterials.value[0]?.name || '',
     dosage: 1,
     unit: availableRealMaterials.value[0]?.unit || '件',
-    unitCost: availableRealMaterials.value[0]?.unitCost || 15
+    unitCost: availableRealMaterials.value[0]?.unitCost ?? 15
   }
   openBomDialog.value = true
 }
@@ -1046,7 +1072,7 @@ const handleAddBomItem = () => {
     materialName: availableRealMaterials.value[0]?.name || '',
     dosage: 1,
     unit: availableRealMaterials.value[0]?.unit || '件',
-    unitCost: availableRealMaterials.value[0]?.unitCost || 15
+    unitCost: availableRealMaterials.value[0]?.unitCost ?? 15
   }
 }
 
@@ -1063,45 +1089,66 @@ const handleSaveBom = () => {
   openBomDialog.value = false
 }
 
-// 从服务端拉取商品，合并到 systemData.products（以服务端为主、去重）
+// 从服务端拉取商品，合并到 systemData.products（保留本地专属扩展字段，不产生虚假上架/入库流水）
 const loadServerProducts = async () => {
+  loading.value = true
   try {
     const res: any = await getProductsApi()
     const list: any[] = Array.isArray(res) ? res : (res?.data || [])
     if (list.length > 0) {
       list.forEach((p: any) => {
-        // 字段映射：服务端 productType/price → 前端 type/salePrice
-        const mapped: any = {
-          id: p.id,
-          code: p.productCode || ('PRD' + p.id),
-          name: p.name,
-          type: p.productType === 'SERVICE' ? 'SERVICE' : (p.productType === 'PACKAGE' ? 'PACKAGE' : 'RETAIL'),
-          category: p.categoryName || '',
-          categoryName: p.categoryName || '',
-          price: Number(p.price) || 0,
-          memberPrice: p.memberPrice != null ? Number(p.memberPrice) : Math.round(Number(p.price || 0) * 0.85),
-          stock: p.stock ?? 50,
-          unit: p.unit || '件',
-          durationMinutes: p.durationMinutes || 0,
-          description: p.description || '',
-          status: p.available === false ? 'DISABLED' : 'ACTIVE',
-          hasBom: p.productType === 'SERVICE',
-          commissionRate: p.defaultCommission != null ? Number(p.defaultCommission) : 0.15,
-          spec: p.spec || ''
-        }
-        // 不重复写入（以服务端 id 或 code 作为唯一键）
-        const existing = systemData.products.find((x: any) => x.id === mapped.id || (x.code && x.code === mapped.code))
+        const mappedType = p.productType === 'SERVICE' ? 'SERVICE' : 'RETAIL'
+        const priceVal = Number(p.price ?? 0)
+        const codeVal = p.productCode || ('PRD' + p.id)
+        const existing = systemData.products.find((x: any) => x.id === p.id || (x.code && x.code === codeVal))
         if (!existing) {
-          systemData.addProduct(mapped)
+          systemData.products.push({
+            id: p.id,
+            code: codeVal,
+            name: p.name,
+            type: mappedType,
+            category: p.categoryName || '',
+            categoryName: p.categoryName || '',
+            price: priceVal,
+            memberPrice: p.memberPrice != null ? Number(p.memberPrice) : Math.round(priceVal * 0.85),
+            stock: mappedType === 'SERVICE' ? 0 : (p.stock ?? 50),
+            unit: p.unit || (mappedType === 'SERVICE' ? '次' : '件'),
+            durationMinutes: p.durationMinutes || 0,
+            description: p.description || '',
+            status: p.available === false ? 'DISABLED' : 'ACTIVE',
+            hasBom: mappedType === 'SERVICE',
+            commissionRate: p.defaultCommission != null ? Number(p.defaultCommission) : (mappedType === 'SERVICE' ? 0.25 : 0.15),
+            spec: p.spec || ''
+          } as any)
         } else {
-          // 用服务端数据更新本地
-          Object.assign(existing, mapped)
+          const preservedType = existing.type === 'PACKAGE' && p.productType !== 'SERVICE' ? 'PACKAGE' : mappedType
+          Object.assign(existing, {
+            id: p.id,
+            code: codeVal,
+            name: p.name,
+            type: preservedType,
+            category: p.categoryName || existing.category || '',
+            categoryName: p.categoryName || existing.categoryName || '',
+            price: priceVal,
+            memberPrice: p.memberPrice != null ? Number(p.memberPrice) : (existing.memberPrice ?? Math.round(priceVal * 0.85)),
+            stock: preservedType === 'SERVICE' ? 0 : (p.stock ?? existing.stock ?? 50),
+            unit: p.unit || existing.unit || (preservedType === 'SERVICE' ? '次' : '件'),
+            durationMinutes: p.durationMinutes ?? existing.durationMinutes ?? 0,
+            description: p.description ?? existing.description ?? '',
+            status: p.available === false ? 'DISABLED' : 'ACTIVE',
+            hasBom: existing.hasBom ?? (preservedType === 'SERVICE'),
+            boms: existing.boms,
+            commissionRate: p.defaultCommission != null ? Number(p.defaultCommission) : (existing.commissionRate ?? 0.15),
+            spec: p.spec || existing.spec || ''
+          })
         }
       })
-      systemData.persistProducts()
+      persistLocalProducts()
     }
   } catch (e) {
     console.warn('拉取服务端商品列表失败，使用本地缓存数据', e)
+  } finally {
+    loading.value = false
   }
 }
 

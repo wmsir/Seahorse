@@ -144,6 +144,7 @@ public class StoreSpaceController {
     public ApiResponse<String> deleteSpace(@PathVariable("id") Long id) {
         ServiceSpace space = spaceRepository.findById(id)
                 .orElseThrow(() -> new ServiceException("包厢/空间不存在"));
+        TenantContext.assertTenantAccess(space.getTenantId());
         if (space.getStatus() == SpaceStatus.OCCUPIED) {
             throw new ServiceException("该包厢当前正处于在场服务中，请先买单结算或转台后再删除！");
         }
@@ -156,6 +157,7 @@ public class StoreSpaceController {
     public ApiResponse<ServiceSpace> updateStatus(@PathVariable("id") Long id, @RequestParam("status") SpaceStatus status) {
         ServiceSpace space = spaceRepository.findById(id)
                 .orElseThrow(() -> new ServiceException("包厢/空间不存在"));
+        TenantContext.assertTenantAccess(space.getTenantId());
         if (space.getStatus() == SpaceStatus.OCCUPIED && status != SpaceStatus.OCCUPIED) {
             throw new ServiceException("该包厢当前有顾客在场服务中，不可直接强制修改状态！");
         }
@@ -168,19 +170,18 @@ public class StoreSpaceController {
     public ApiResponse<String> resetSpace(@PathVariable("id") Long id) {
         ServiceSpace space = spaceRepository.findById(id)
                 .orElseThrow(() -> new ServiceException("包厢/空间不存在"));
+        TenantContext.assertTenantAccess(space.getTenantId());
         space.releaseToIdle();
         spaceRepository.save(space);
 
         // 关闭该空间下所有未完成的会话，彻底清除活跃列表中的占位记录
         List<SessionStatus> activeStatuses = Arrays.asList(
                 SessionStatus.OCCUPIED_ORDERING, SessionStatus.SERVING, SessionStatus.SETTLING, SessionStatus.SETTLED_WAIT_CLEAN);
-        List<ServiceSession> activeSessions = sessionRepository.findByTenantIdAndStatusIn(space.getTenantId(), activeStatuses);
+        List<ServiceSession> activeSessions = sessionRepository.findBySpaceIdAndStatusIn(id, activeStatuses);
         for (ServiceSession s : activeSessions) {
-            if (id.equals(s.getSpaceId())) {
-                s.setStatus(SessionStatus.CLOSED);
-                s.setEndTime(LocalDateTime.now());
-                sessionRepository.save(s);
-            }
+            s.setStatus(SessionStatus.CLOSED);
+            s.setEndTime(LocalDateTime.now());
+            sessionRepository.save(s);
         }
 
         return ApiResponse.success("复位成功", "OK");
@@ -389,7 +390,7 @@ public class StoreSpaceController {
                 positions.add(createPostMap(1L, "茶楼掌柜/店长", "店务管理部", "STORE_MANAGER", "MANAGER", 6500, "￥6500-10000元/月", "统筹茶室日常营运、茶礼接待与雅间环境调度", "茶室经营经验"));
                 positions.add(createPostMap(2L, "资深茶艺师/侍茶师", "茶艺服务部", "TECHNICIAN", "TECHNICIAN", 5500, "￥5500-8500元/月", "负责名优茶冲泡品饮演示、茶道文化讲解与茶礼服务", "持有茶艺师资格或经验"));
                 positions.add(createPostMap(3L, "雅间管家/茶礼服务员", "前厅接待部", "TECHNICIAN", "TECHNICIAN", 4800, "￥4800-7000元/月", "负责茶室雅座包厢布景备茶、续水与茶点呈递", "举止端庄，礼貌周到"));
-                positions.add(createPostMap(4L, "前台收银员", "前台客服部", "CASHIER", "CASHIER", 4500, "￥4500-6000元/月", "负责到店接待、茶室消费开单与收银交班", "细致认真"));
+                positions.add(createPostMap(4L, "前台收银员", "前台客服部", "CASHIER", "CASHIER", 4500, "￥4500-6000元/月", "负责到店接待、茶室消费开单与收银结算", "细致认真"));
             } else if ("PET".equalsIgnoreCase(ind)) {
                 departments = Arrays.asList("店务管理部", "宠物美容部", "洗护服务部", "前台客服部");
                 positions.add(createPostMap(1L, "宠物生活馆店长", "店务管理部", "STORE_MANAGER", "MANAGER", 6500, "￥6500-10000元/月", "全面统筹门店日常经营、洗美工位排班与宠物安全品控", "具备宠物门店管理经验"));
@@ -442,7 +443,8 @@ public class StoreSpaceController {
         data.put("phone", store.getPhone() != null ? store.getPhone() : (tenant != null ? tenant.getContactPhone() : ""));
         data.put("businessHours", store.getBusinessHours() != null ? store.getBusinessHours() : "09:00 - 22:00");
         data.put("managerName", manager);
-        data.put("isHeadquarter", "S001".equalsIgnoreCase(store.getStoreId()) || store.getStoreName().contains("总店"));
+        data.put("isHeadquarter", "S001".equalsIgnoreCase(store.getStoreId())
+                || (store.getStoreName() != null && store.getStoreName().contains("总店")));
         data.put("hasCustom", hasCustom);
         data.put("departments", departments);
         data.put("positions", positions);
@@ -525,8 +527,12 @@ public class StoreSpaceController {
                 .build();
 
         SERVICE_CALLS.add(0, event);
-        if (SERVICE_CALLS.size() > 200) {
-            SERVICE_CALLS.remove(SERVICE_CALLS.size() - 1);
+        while (SERVICE_CALLS.size() > 200) {
+            try {
+                SERVICE_CALLS.remove(SERVICE_CALLS.size() - 1);
+            } catch (IndexOutOfBoundsException ignored) {
+                break;
+            }
         }
 
         log.info("【包厢呼叫服务】收到新呼叫: 门店={}, 包厢={} ({}), 呼叫项目={}",
@@ -601,8 +607,12 @@ public class StoreSpaceController {
     public static void publishOrderNotification(OrderNotificationEvent event) {
         if (event == null) return;
         ORDER_NOTIFICATIONS.add(0, event);
-        if (ORDER_NOTIFICATIONS.size() > 200) {
-            ORDER_NOTIFICATIONS.remove(ORDER_NOTIFICATIONS.size() - 1);
+        while (ORDER_NOTIFICATIONS.size() > 200) {
+            try {
+                ORDER_NOTIFICATIONS.remove(ORDER_NOTIFICATIONS.size() - 1);
+            } catch (IndexOutOfBoundsException ignored) {
+                break;
+            }
         }
         log.info("【新订单报单广播】门店={}, 空间={}, 播报文本={}",
                 event.getStoreId(), event.getSpaceName(), event.getBroadcastText());

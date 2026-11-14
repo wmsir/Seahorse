@@ -168,6 +168,7 @@ public class MerchantStaffController {
     public ApiResponse<Employee> updateStaff(@PathVariable Long id, @RequestBody Employee updateReq) {
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new com.seahorse.store.common.ServiceException("员工不存在"));
+        TenantContext.assertTenantAccess(employee.getTenantId());
         if (updateReq.getRealName() != null) employee.setRealName(updateReq.getRealName());
         if (updateReq.getNickname() != null) employee.setNickname(updateReq.getNickname().trim());
         if (updateReq.getPhone() != null) employee.setPhone(updateReq.getPhone());
@@ -207,6 +208,7 @@ public class MerchantStaffController {
     public ApiResponse<Void> deleteStaff(@PathVariable Long id) {
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new com.seahorse.store.common.ServiceException("员工不存在"));
+        TenantContext.assertTenantAccess(employee.getTenantId());
         employee.setIsDeleted(true);
         employeeRepository.save(employee);
 
@@ -236,6 +238,7 @@ public class MerchantStaffController {
     public ApiResponse<Void> restoreStaff(@PathVariable Long id) {
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new com.seahorse.store.common.ServiceException("员工不存在"));
+        TenantContext.assertTenantAccess(employee.getTenantId());
         employee.setIsDeleted(false);
         employeeRepository.save(employee);
         return ApiResponse.success("员工已恢复", null);
@@ -444,6 +447,7 @@ public class MerchantStaffController {
             @RequestBody(required = false) StaffAuditApproveCommand cmd) {
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new com.seahorse.store.common.ServiceException("入职申请记录不存在"));
+        TenantContext.assertTenantAccess(employee.getTenantId());
 
         if (cmd != null) {
             if (cmd.getPostName() != null && !cmd.getPostName().trim().isEmpty()) {
@@ -472,6 +476,7 @@ public class MerchantStaffController {
             @RequestParam(value = "reason", required = false) String reason) {
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new com.seahorse.store.common.ServiceException("入职申请记录不存在"));
+        TenantContext.assertTenantAccess(employee.getTenantId());
         employee.setAuditStatus("REJECTED");
         employee.setStatus("DISABLED");
         Employee saved = employeeRepository.save(employee);

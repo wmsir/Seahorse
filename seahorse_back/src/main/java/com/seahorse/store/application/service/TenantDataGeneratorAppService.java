@@ -225,10 +225,16 @@ public class TenantDataGeneratorAppService {
         }
         // 4. 删除会员及储值账户
         List<Member> members = memberRepository.findByTenantId(tenantId);
-        for (Member m : members) {
-            balanceAccountRepository.findByMemberId(m.getId()).ifPresent(balanceAccountRepository::delete);
+        if (!members.isEmpty()) {
+            List<Long> memberIds = members.stream()
+                    .map(Member::getId)
+                    .filter(Objects::nonNull)
+                    .toList();
+            if (!memberIds.isEmpty()) {
+                balanceAccountRepository.deleteAll(balanceAccountRepository.findByMemberIdIn(memberIds));
+            }
+            memberRepository.deleteAll(members);
         }
-        memberRepository.deleteAll(members);
         // 5. 删除卡模板
         cardTemplateRepository.deleteAll(cardTemplateRepository.findByTenantIdOrderBySortOrderAsc(tenantId));
         // 6. 删除门店

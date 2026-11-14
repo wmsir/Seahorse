@@ -1,7 +1,7 @@
 <template>
   <div class="industry-page">
     <!-- 👑 超管专属全景预设配置直达条 -->
-    <div style="background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%); border: 1px solid #c7d2fe; border-radius: 8px; padding: 12px 18px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+    <div v-if="isPlatformAdmin" style="background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%); border: 1px solid #c7d2fe; border-radius: 8px; padding: 12px 18px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
       <div style="display: flex; align-items: center; gap: 10px;">
         <span style="font-size: 20px;">👑</span>
         <div>
@@ -159,7 +159,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { getCurrentIndustryApi, switchIndustryApi, getIndustryCategoriesApi, updateStoreCategoryApi } from '../api'
 import { useStoreConfig } from '../stores/store'
@@ -167,6 +167,11 @@ import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const storeConfig = useStoreConfig()
+const isPlatformAdmin = computed(() => {
+  const r = localStorage.getItem('seahorse_role')
+  const u = localStorage.getItem('seahorse_user')
+  return r === 'PLATFORM_DEVELOPER' || u === 'admin'
+})
 const currentProfile = ref<any>(null)
 const saving = ref(false)
 
@@ -365,7 +370,7 @@ const handleSavePolicy = async () => {
   saving.value = true
   try {
     await switchIndustryApi({
-      industry: currentProfile.value.industry,
+      industry: currentProfile.value?.industry || storeConfig.industry,
       feeName: policyForm.value.feeName,
       feeAmount: policyForm.value.feeAmount,
       feeEnabled: policyForm.value.feeEnabled

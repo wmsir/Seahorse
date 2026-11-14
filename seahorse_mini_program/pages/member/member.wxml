@@ -3,10 +3,10 @@
   <view class="member-card">
     <view class="mc-top">
       <view class="mc-user">
-        <view class="mc-avatar">林</view>
+        <view class="mc-avatar">{{ profile.member.name ? profile.member.name[0] : '会' }}</view>
         <view class="mc-info">
-          <view class="mc-name">林清雅 <text class="mc-level-badge">钻石会员</text></view>
-          <view class="mc-no">HM880001 · 138****8001</view>
+          <view class="mc-name">{{ profile.member.name || '尊享会员' }} <text class="mc-level-badge">{{ profile.levelName || profile.member.level || '普卡会员' }}</text></view>
+          <view class="mc-no">{{ profile.member.memberNo || 'HM000001' }} · {{ profile.member.phone || '未绑定手机' }}</view>
         </view>
       </view>
       <view class="mc-slogan">海马会员 · 记住每位好客</view>
@@ -16,15 +16,15 @@
     <view class="mc-balance-grid">
       <view class="bg-item">
         <text class="bg-label">储值总额</text>
-        <text class="bg-val">￥{{ (profile.dualBalance.principalBalance || 1800) + (profile.dualBalance.giftBalance || 350) }}</text>
+        <text class="bg-val">￥{{ totalDisplay }}</text>
       </view>
       <view class="bg-item">
         <text class="bg-label">本金余额</text>
-        <text class="bg-val">￥{{ profile.dualBalance.principalBalance || 1800 }}</text>
+        <text class="bg-val">￥{{ principalDisplay }}</text>
       </view>
       <view class="bg-item">
         <text class="bg-label">赠送金</text>
-        <text class="bg-val text-amber">￥{{ profile.dualBalance.giftBalance || 350 }}</text>
+        <text class="bg-val text-amber">￥{{ giftDisplay }}</text>
       </view>
     </view>
   </view>
@@ -35,12 +35,11 @@
     <view class="sec-sub">系统已为您牢记以下个性化服务喜好与习惯：</view>
 
     <view class="pref-container">
-      <view class="pref-badge-row">
-        <text class="pref-pill">细软自然卷发质</text>
-        <text class="pref-pill">偏爱轻盈自然蓬松</text>
-        <text class="pref-pill">指定托尼老师</text>
-        <text class="pref-pill">微辣免葱蒜</text>
-        <text class="pref-pill">奔驰C260L专属档案</text>
+      <view class="pref-badge-row" wx:if="{{ profile.preferences && profile.preferences.length > 0 }}">
+        <text class="pref-pill" wx:for="{{ profile.preferences }}" wx:key="id">{{ item.tagValue || item.notes }}</text>
+      </view>
+      <view class="pref-badge-row" wx:else>
+        <text class="pref-pill">暂无偏好记录，到店服务后自动沉淀</text>
       </view>
     </view>
   </view>

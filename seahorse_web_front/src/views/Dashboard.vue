@@ -583,72 +583,6 @@
       </template>
     </el-dialog>
 
-    <!-- 业务场景真实测试数据一键生成模态框 (后端独立隔离生成) -->
-    <el-dialog v-model="demoDataModalVisible" title="✨ 一键生成符合业务场景的真实测试数据" width="700px" destroy-on-close>
-      <div class="demo-modal-tip">
-        请选择符合您门店经营场景的行业形态。系统将调用后端独立创建包含<b>专属门店、2名真实员工、4类服务空间、4款项目商品、3位不同级别会员（含储值账户与卡项资产）</b>的全套场景数据：
-      </div>
-      <div class="industry-card-grid">
-        <div
-          class="ind-select-card"
-          :class="{ 'is-active': selectedIndustry === 'BEAUTY' }"
-          @click="selectedIndustry = 'BEAUTY'"
-        >
-          <div class="ind-icon">💇</div>
-          <div class="ind-info">
-            <div class="ind-name">美业养生沙龙</div>
-            <div class="ind-desc">丝艺美学沙龙 (总店) · 美学总监/理疗师 · 镜台/SPA包厢 · 洗剪吹/头皮理疗</div>
-          </div>
-          <div class="ind-check" v-if="selectedIndustry === 'BEAUTY'">✓</div>
-        </div>
-
-        <div
-          class="ind-select-card"
-          :class="{ 'is-active': selectedIndustry === 'RESTAURANT' }"
-          @click="selectedIndustry = 'RESTAURANT'"
-        >
-          <div class="ind-icon">🍲</div>
-          <div class="ind-info">
-            <div class="ind-name">餐饮轻食正餐</div>
-            <div class="ind-desc">栖枫悦食料理 (总店) · 营运主管/料理主厨 · 雅竹轩包厢/卡座 · 甄选双人套餐/炭烤料理</div>
-          </div>
-          <div class="ind-check" v-if="selectedIndustry === 'RESTAURANT'">✓</div>
-        </div>
-
-        <div
-          class="ind-select-card"
-          :class="{ 'is-active': selectedIndustry === 'AUTO' }"
-          @click="selectedIndustry = 'AUTO'"
-        >
-          <div class="ind-icon">🚗</div>
-          <div class="ind-info">
-            <div class="ind-name">汽车养护维修</div>
-            <div class="ind-desc">极速驰骋工坊 (总店) · 车间主管/机电技师 · 快保工位/四轮定位 · 机油基础保养/安全检测</div>
-          </div>
-          <div class="ind-check" v-if="selectedIndustry === 'AUTO'">✓</div>
-        </div>
-
-        <div
-          class="ind-select-card"
-          :class="{ 'is-active': selectedIndustry === 'RETAIL' }"
-          @click="selectedIndustry = 'RETAIL'"
-        >
-          <div class="ind-icon">🛍️</div>
-          <div class="ind-info">
-            <div class="ind-name">专营名品零售</div>
-            <div class="ind-desc">优选名品精品店 (总店) · 专营店长/资深顾问 · 服饰/数码精品展台 · 商务外套/真丝礼盒</div>
-          </div>
-          <div class="ind-check" v-if="selectedIndustry === 'RETAIL'">✓</div>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="demoDataModalVisible = false">取消</el-button>
-        <el-button type="primary" :loading="demoGenerating" @click="handleGenerateDemoData">
-          🚀 确认生成本租户独立场景数据
-        </el-button>
-      </template>
-    </el-dialog>
-
     <!-- 快捷开设门店对话框 -->
     <el-dialog v-model="createStoreVisible" title="🏪 开设首家门店 / 新分店" width="540px" destroy-on-close>
       <el-form :model="createStoreForm" label-width="135px" style="margin-top: 10px;">
@@ -800,8 +734,6 @@
 </template>
 
 <script setup lang="ts">
-const sessionStatusFilter = ref('ALL')
-const sessionSearchKeyword = ref('')
 import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import QRCode from 'qrcode'
@@ -810,29 +742,6 @@ import { useStoreConfig } from '../stores/store'
 import { useSystemDataStore } from '../stores/systemDataStore'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getDateBadge } from '../utils/chineseHolidayUtils'
-
-const router = useRouter()
-const storeConfig = useStoreConfig()
-const systemData = useSystemDataStore()
-
-// 门店运营规范与日常公告
-const activeStoreNotices = ref<any[]>([])
-const hasUrgentNotice = computed(() => activeStoreNotices.value.some(n => n.isUrgent))
-
-const fetchDashboardNotices = async () => {
-  try {
-    const res: any = await getStoreNoticesApi(storeConfig.currentStoreId)
-    if (res && res.code === 200 && Array.isArray(res.data)) {
-      activeStoreNotices.value = res.data
-    }
-  } catch (e) {
-    console.warn('Failed to load store notices in dashboard', e)
-  }
-}
-
-// --------------------------------------------------------------------------
-// 租户老带新推荐有礼裂变与奖励通知
-// --------------------------------------------------------------------------
 import {
   getActiveBaseUrl,
   getReferralRecords,
@@ -845,6 +754,31 @@ import {
   DocumentCopy,
   Download
 } from '@element-plus/icons-vue'
+
+const sessionStatusFilter = ref('ALL')
+const sessionSearchKeyword = ref('')
+
+const router = useRouter()
+const storeConfig = useStoreConfig()
+const systemData = useSystemDataStore()
+
+// 门店运营规范与日常公告
+const activeStoreNotices = ref<any[]>([])
+const hasUrgentNotice = computed(() => activeStoreNotices.value.some(n => n.isUrgent))
+
+const fetchDashboardNotices = async () => {
+  try {
+    const res: any = await getStoreNoticesApi(storeConfig.currentStoreId)
+    const list = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : [])
+    activeStoreNotices.value = list
+  } catch (e) {
+    console.warn('Failed to load store notices in dashboard', e)
+  }
+}
+
+// --------------------------------------------------------------------------
+// 租户老带新推荐有礼裂变与奖励通知
+// --------------------------------------------------------------------------
 
 const tenantReferralDialogVisible = ref(false)
 const rewardNotificationVisible = ref(false)
@@ -1208,69 +1142,6 @@ const staffOnDutyList = computed(() => {
 
 const availableStores = computed(() => (storeConfig.stores && storeConfig.stores.length > 0) ? storeConfig.stores : systemData.stores)
 
-// 演示数据生成模态框状态
-const demoDataModalVisible = ref(false)
-const selectedIndustry = ref('BEAUTY')
-const demoGenerating = ref(false)
-
-const openDemoDataModal = () => {
-  selectedIndustry.value = storeConfig.industry || 'BEAUTY'
-  demoDataModalVisible.value = true
-}
-
-const quickGenerateIndustry = async (industry: string) => {
-  selectedIndustry.value = industry
-  await handleGenerateDemoData()
-}
-
-const handleGenerateDemoData = async () => {
-  demoGenerating.value = true
-  try {
-    const res: any = await systemData.initScenarioDemoData(selectedIndustry.value)
-    if (res && res.storeId) {
-      storeConfig.currentStoreId = res.storeId
-      storeConfig.storeName = res.storeName
-      storeConfig.industry = res.industry
-      storeConfig.industryCategoryName = res.industryCategoryName
-      localStorage.setItem('seahorse_store_id', res.storeId)
-      localStorage.setItem('seahorse_store_name', res.storeName)
-    }
-    demoDataModalVisible.value = false
-    ElMessage.success(res?.message || '符合业务场景的全套真实测试数据已成功生成！')
-    await loadData()
-  } catch (e: any) {
-    ElMessage.error(e.message || '生成测试数据失败')
-  } finally {
-    demoGenerating.value = false
-  }
-}
-
-const handleClearData = () => {
-  ElMessageBox.confirm(
-    '确定要清空当前租户名下所有门店、员工、空间、商品与会员数据吗？<br/><br/>清空后将<b>彻底重置为零数据纯净状态</b>（仅保留当前主管理员账号），此操作不可逆！',
-    '警告：清空租户所有业务数据',
-    {
-      confirmButtonText: '确定清空重置',
-      cancelButtonText: '取消',
-      type: 'warning',
-      dangerouslyUseHTMLString: true
-    }
-  ).then(async () => {
-    try {
-      const res: any = await systemData.clearAllTenantData()
-      storeConfig.currentStoreId = ''
-      storeConfig.storeName = ''
-      storeConfig.stores = []
-      localStorage.removeItem('seahorse_store_id')
-      localStorage.removeItem('seahorse_store_name')
-      ElMessage.success(res?.message || '已彻底清空重置为纯净零数据状态！')
-      await loadData()
-    } catch (e: any) {
-      ElMessage.error(e.message || '清空失败')
-    }
-  }).catch(() => {})
-}
-
 // 门店开设对话框状态
 const createStoreVisible = ref(false)
 const creatingStore = ref(false)
@@ -1410,7 +1281,7 @@ const handleResetSpace = async (sessionId: number) => {
     }
   } catch (e) {}
   systemData.resetSpace(sessionId)
-  await loadDashboardData()
+  await loadData()
   ElMessage.success('工位已清台完毕，恢复空闲待服务状态！')
 }
 
@@ -1433,7 +1304,7 @@ const currentQuickLink = computed(() => {
     const ind = encodeURIComponent(storeConfig.industry || '')
     const phone = encodeURIComponent(storeConfig.phone || '')
     const addr = encodeURIComponent(storeConfig.address || '')
-    const hours = encodeURIComponent(storeConfig.businessHours || storeConfig.openTime || '')
+    const hours = encodeURIComponent(storeConfig.businessHours || '')
     return `${origin}/seahorse/member-register?storeId=${sId}&storeName=${sName}&industry=${ind}&phone=${phone}&address=${addr}&businessHours=${hours}`
   } else {
     return `${origin}/seahorse/staff-register?storeId=${encodeURIComponent(effectiveStoreId.value)}`

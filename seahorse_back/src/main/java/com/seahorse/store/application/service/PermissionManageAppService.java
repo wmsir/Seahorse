@@ -52,7 +52,6 @@ public class PermissionManageAppService {
         list.add(new PermissionItemVO("session:view", "查看工位/桌台在场状态看板", "前台与收银", "实时查看美业镜台、餐饮散台、汽修工位的占用与点单情况"));
         list.add(new PermissionItemVO("session:operate", "工位开单/加单/技师分摊", "前台与收银", "发起在场消费工单，指派执行技师与提成比例"));
         list.add(new PermissionItemVO("cashier:checkout", "执行组合收银买单与折扣结算", "前台与收银", "支持双轨储值扣减、微信扫码与现金找零结算"));
-        list.add(new PermissionItemVO("cashier:shift", "收银交班与盲盘打印", "前台与收银", "班次交接、盲盘现金实缴、触发钱箱脉冲开箱"));
 
         // 4. 会员与海马体记忆中心
         list.add(new PermissionItemVO("member:list_view", "查看门店会员列表与基础画像", "海马会员中心", "检索会员姓名、等级、到店频次与累计消费"));
@@ -107,7 +106,7 @@ public class PermissionManageAppService {
                 .roleName("商户企业主/门店老板")
                 .permissions(String.join(",", Arrays.asList(
                         "merchant:dashboard_view", "merchant:store_manage", "merchant:staff_perm_manage",
-                        "session:view", "session:operate", "cashier:checkout", "cashier:shift",
+                        "session:view", "session:operate", "cashier:checkout",
                         "member:list_view", "member:phone_view", "member:recharge", "member:pref_view", "member:pref_edit",
                         "regulation:view", "regulation:sign", "regulation:feedback", "regulation:manage"
                 )))
@@ -121,11 +120,11 @@ public class PermissionManageAppService {
                 .roleName("店长")
                 .permissions(String.join(",", Arrays.asList(
                         "merchant:dashboard_view", "session:view", "session:operate",
-                        "cashier:checkout", "cashier:shift",
+                        "cashier:checkout",
                         "member:list_view", "member:phone_view", "member:recharge", "member:pref_view", "member:pref_edit",
                         "regulation:view", "regulation:sign", "regulation:feedback", "regulation:manage"
                 )))
-                .description("负责门店日常营运接待、空间调度、收银交班与规章制度发布答复")
+                .description("负责门店日常营运接待、空间调度、收银结算与规章制度发布答复")
                 .build();
 
         // 4. 收银员 (CASHIER) - 专注台位开单、结账收银与储值办理，默认不看全店经营大屏
@@ -134,11 +133,11 @@ public class PermissionManageAppService {
                 .roleCode(EmployeeRole.CASHIER)
                 .roleName("收银员")
                 .permissions(String.join(",", Arrays.asList(
-                        "session:view", "session:operate", "cashier:checkout", "cashier:shift",
+                        "session:view", "session:operate", "cashier:checkout",
                         "member:list_view", "member:phone_view", "member:recharge", "member:pref_view",
                         "regulation:view", "regulation:sign", "regulation:feedback"
                 )))
-                .description("负责前台开单、组合结算与收银交班，查阅制度与意见箱交流")
+                .description("负责前台开单、组合结算与收银核销，查阅制度与意见箱交流")
                 .build();
 
         // 5. 技师/施工人员 (TECHNICIAN) - 专注在场看板、查看工单与维护海马体记忆偏好

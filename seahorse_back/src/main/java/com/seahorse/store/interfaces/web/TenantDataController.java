@@ -32,6 +32,7 @@ public class TenantDataController {
     @Operation(summary = "按需为当前商户在后台生成业务场景真实测试数据")
     @PostMapping("/init-demo-data")
     public ApiResponse<Map<String, Object>> initDemoData(@RequestBody(required = false) InitDemoDataRequest req) {
+        TenantContext.assertTenantAdmin();
         String tenantId = TenantContext.getTenantId();
         if (tenantId == null || "PLATFORM".equalsIgnoreCase(tenantId)) {
             throw new ServiceException("当前登录身份无效，仅限商户租户调用");
@@ -44,6 +45,7 @@ public class TenantDataController {
     @Operation(summary = "一键清空当前商户所有业务测试数据，重置为纯净零数据状态")
     @PostMapping("/clear-data")
     public ApiResponse<Map<String, Object>> clearData() {
+        TenantContext.assertTenantAdmin();
         String tenantId = TenantContext.getTenantId();
         if (tenantId == null || "PLATFORM".equalsIgnoreCase(tenantId)) {
             throw new ServiceException("当前登录身份无效，仅限商户租户调用");
@@ -55,6 +57,7 @@ public class TenantDataController {
     @Operation(summary = "查询当前商户的数据状态（门店数、店员数、会员数、是否纯净状态）")
     @GetMapping("/data-status")
     public ApiResponse<Map<String, Object>> getDataStatus() {
+        TenantContext.assertTenantAdmin();
         String tenantId = TenantContext.getTenantId();
         if (tenantId == null || "PLATFORM".equalsIgnoreCase(tenantId)) {
             throw new ServiceException("当前登录身份无效，仅限商户租户调用");

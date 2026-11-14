@@ -459,10 +459,29 @@ export function normalizeTenantQuota(raw: any, fallbackTenantId: string = ''): T
 /**
  * 获取租户配额与用量详情 (具备刷新即时自愈能力)
  */
+const pendingApiQuotaFlush = new Map<string, TenantQuotaData>()
+let apiQuotaFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleApiQuotaFlush(): void {
+  if (apiQuotaFlushTimer) return
+  apiQuotaFlushTimer = setTimeout(() => {
+    apiQuotaFlushTimer = null
+    const entries = Array.from(pendingApiQuotaFlush.values())
+    pendingApiQuotaFlush.clear()
+    for (const q of entries) {
+      saveTenantQuota(q)
+    }
+  }, 2000)
+}
+
 export function getTenantQuota(tenantId?: string): TenantQuotaData {
   const currentTenantId = tenantId || localStorage.getItem('seahorse_tenant_id') || ''
   if (!currentTenantId || currentTenantId === 'PLATFORM') {
     return normalizeTenantQuota(null, '')
+  }
+  const pending = pendingApiQuotaFlush.get(currentTenantId)
+  if (pending) {
+    return pending
   }
   const key = `${QUOTA_STORAGE_PREFIX}${currentTenantId}`
   try {
@@ -534,6 +553,7 @@ export function getTenantQuota(tenantId?: string): TenantQuotaData {
  * 保存租户配额与用量
  */
 export function saveTenantQuota(data: TenantQuotaData): void {
+  pendingApiQuotaFlush.delete(data.tenantId)
   const key = `${QUOTA_STORAGE_PREFIX}${data.tenantId}`
   localStorage.setItem(key, JSON.stringify(data))
 
@@ -560,7 +580,8 @@ export function recordApiCall(tenantId?: string, count: number = 1): TenantQuota
   // 正式商业包年租户（旗舰版/专业版/企业定制版）不实施单次接口频次锁屏熔断
   if (quota.billingMode === 'ANNUAL_TIER' && quota.planCode !== 'FREE' && quota.planCode !== 'TRIAL') {
     quota.usedApiCalls += count
-    saveTenantQuota(quota)
+    pendingApiQuotaFlush.set(quota.tenantId, quota)
+    scheduleApiQuotaFlush()
     return quota
   }
 
@@ -574,7 +595,12 @@ export function recordApiCall(tenantId?: string, count: number = 1): TenantQuota
     quota.lockedAt = new Date().toLocaleString()
   }
 
-  saveTenantQuota(quota)
+  if (quota.isLocked) {
+    saveTenantQuota(quota)
+  } else {
+    pendingApiQuotaFlush.set(quota.tenantId, quota)
+    scheduleApiQuotaFlush()
+  }
   return quota
 }
 

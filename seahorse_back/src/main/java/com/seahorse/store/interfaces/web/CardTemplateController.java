@@ -47,6 +47,7 @@ public class CardTemplateController {
     public ApiResponse<MemberCardTemplate> getDetail(@PathVariable Long id) {
         MemberCardTemplate template = cardTemplateRepository.findById(id)
                 .orElseThrow(() -> new ServiceException("未找到该卡项配置"));
+        TenantContext.assertTenantAccess(template.getTenantId());
         return ApiResponse.success(template);
     }
 
@@ -90,6 +91,7 @@ public class CardTemplateController {
         if (cmd.getId() != null) {
             entity = cardTemplateRepository.findById(cmd.getId())
                     .orElseThrow(() -> new ServiceException("未找到待更新的卡项"));
+            TenantContext.assertTenantAccess(entity.getTenantId());
         } else {
             entity = new MemberCardTemplate();
             entity.setTenantId(tenantId);
@@ -122,6 +124,7 @@ public class CardTemplateController {
     public ApiResponse<Void> deleteCard(@PathVariable Long id) {
         MemberCardTemplate template = cardTemplateRepository.findById(id)
                 .orElseThrow(() -> new ServiceException("未找到该卡项"));
+        TenantContext.assertTenantAccess(template.getTenantId());
         template.setStatus("INACTIVE");
         cardTemplateRepository.save(template);
         return ApiResponse.success("卡项已成功删除", null);

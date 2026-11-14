@@ -5,7 +5,6 @@ import com.seahorse.store.application.dto.vendor.RenewSubscriptionCommand;
 import com.seahorse.store.application.service.PlatformConfigAppService;
 import com.seahorse.store.application.service.VendorOperationAppService;
 import com.seahorse.store.common.ApiResponse;
-import com.seahorse.store.domain.iam.enums.SubscriptionPlan;
 import com.seahorse.store.domain.iam.model.SubscriptionBillingRecord;
 import com.seahorse.store.domain.iam.model.TenantSubscription;
 import com.seahorse.store.interfaces.web.vo.VendorDashboardStatsVO;
@@ -35,6 +34,11 @@ public class VendorManagementController {
     private final com.seahorse.store.infrastructure.repository.StoreRepository storeRepository;
     private final com.seahorse.store.infrastructure.repository.TenantRepository tenantRepository;
     private final com.seahorse.store.infrastructure.repository.EmployeeRepository employeeRepository;
+
+    @ModelAttribute
+    public void enforcePlatformAdmin() {
+        com.seahorse.store.context.TenantContext.assertPlatformAdmin();
+    }
 
     @Operation(summary = "获取开发商综合经营与财务大盘数据")
     @GetMapping("/stats")

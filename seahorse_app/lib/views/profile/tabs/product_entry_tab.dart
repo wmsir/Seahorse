@@ -54,7 +54,7 @@ class _ProductEntryTabState extends State<ProductEntryTab> {
           _loadServerCategories(
             storeId: s.currentStoreId,
             tenantId: s.currentStore?.tenantId,
-            industry: s.currentStore?.industry.name,
+            industry: s.currentStore?.industry.code,
           );
         }
       });
@@ -87,12 +87,12 @@ class _ProductEntryTabState extends State<ProductEntryTab> {
   }
 
   void _showCategoryManagementDialog() {
+    final addCatCtrl = TextEditingController();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (mCtx) {
-        final addCatCtrl = TextEditingController();
         return StatefulBuilder(
           builder: (dialogCtx, setDialogState) {
             return Padding(
@@ -258,7 +258,11 @@ class _ProductEntryTabState extends State<ProductEntryTab> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        addCatCtrl.dispose();
+      });
+    });
   }
 
   void _promptRenameCategory(String oldName, Function(String) onRenamed) {
@@ -288,7 +292,11 @@ class _ProductEntryTabState extends State<ProductEntryTab> {
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        editCtrl.dispose();
+      });
+    });
   }
 
   void _scanBarcodeToRegister() async {
@@ -718,7 +726,18 @@ class _ProductEntryTabState extends State<ProductEntryTab> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        codeCtrl.dispose();
+        nameCtrl.dispose();
+        priceCtrl.dispose();
+        costCtrl.dispose();
+        stockCtrl.dispose();
+        unitCtrl.dispose();
+        durationCtrl.dispose();
+        descCtrl.dispose();
+      });
+    });
   }
 
   void _showEditProductDialog(ProductModel product, {bool isFromScan = false, String? scannedBarcode}) {
@@ -1060,7 +1079,17 @@ class _ProductEntryTabState extends State<ProductEntryTab> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        nameCtrl.dispose();
+        priceCtrl.dispose();
+        costCtrl.dispose();
+        stockCtrl.dispose();
+        unitCtrl.dispose();
+        durationCtrl.dispose();
+        descCtrl.dispose();
+      });
+    });
   }
 
   void _confirmDeleteProduct(ProductModel product) async {

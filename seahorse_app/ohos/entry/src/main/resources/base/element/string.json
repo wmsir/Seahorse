@@ -11,6 +11,14 @@
     {
       "name": "EntryAbility_label",
       "value": "海马智慧门店"
+    },
+    {
+      "name": "permission_camera_reason",
+      "value": "用于扫描商品条形码、会员核销码及门店桌台二维码"
+    },
+    {
+      "name": "permission_location_reason",
+      "value": "用于员工到店地理围栏校验与外勤定位考勤打卡"
     }
   ]
 }

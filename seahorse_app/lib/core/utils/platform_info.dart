@@ -5,7 +5,7 @@ class PlatformInfoUtils {
   /// 官方统一网站
   static const String officialWebsite = 'fwpt.cn';
   static const String officialWebsiteUrl = 'https://fwpt.cn';
-  static const String officialName = '海马连锁门店智能管家';
+  static const String officialName = '海马智慧门店';
 
   /// 动态识别当前宿主系统平台名称
   static String getPlatformName() {

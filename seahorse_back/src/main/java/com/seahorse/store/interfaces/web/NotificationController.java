@@ -48,10 +48,11 @@ public class NotificationController {
         return ApiResponse.success("营销活动全渠道即时推送完成", res);
     }
 
-    @Operation(summary = "获取最近推送流水记录 (默认最近100条)")
+    @Operation(summary = "获取最近推送流水记录 (默认最近100条，支持按会员过滤)")
     @GetMapping("/logs")
-    public ApiResponse<List<NotificationLog>> getLogs() {
-        return ApiResponse.success(notificationAppService.getRecentNotificationLogs());
+    public ApiResponse<List<NotificationLog>> getLogs(
+            @RequestParam(value = "memberId", required = false) Long memberId) {
+        return ApiResponse.success(notificationAppService.getRecentNotificationLogs(memberId));
     }
 
     @Operation(summary = "绑定/解绑会员渠道标识 (微信OpenID/支付宝UserId/关注状态)")

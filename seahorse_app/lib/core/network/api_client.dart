@@ -13,8 +13,12 @@ class ApiClient {
 
   ApiClient._internal() {
     final savedUrl = LocalStorage.getString('seahorse_server_url');
-    if (savedUrl != null && savedUrl.isNotEmpty) {
-      baseUrl = savedUrl;
+    if (savedUrl != null && savedUrl.trim().isNotEmpty) {
+      var normalized = savedUrl.trim();
+      while (normalized.endsWith('/')) {
+        normalized = normalized.substring(0, normalized.length - 1);
+      }
+      baseUrl = normalized;
     }
 
     dio = Dio(BaseOptions(

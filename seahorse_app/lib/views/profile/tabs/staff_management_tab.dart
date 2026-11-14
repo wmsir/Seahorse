@@ -364,14 +364,23 @@ class _StaffManagementTabState extends State<StaffManagementTab> {
       },
     );
 
+    final postVal = postCtrl.text.trim();
+    final deptVal = deptCtrl.text.trim();
+    final salaryVal = double.tryParse(salaryCtrl.text.trim()) ?? applicant.baseSalary;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      postCtrl.dispose();
+      deptCtrl.dispose();
+      salaryCtrl.dispose();
+    });
+
     if (confirmed != true) return;
 
     final success = await _staffService.approveStaffAudit(
       applicant.id,
-      postName: postCtrl.text.trim().isEmpty ? applicant.postName : postCtrl.text.trim(),
-      department: deptCtrl.text.trim().isEmpty ? applicant.department : deptCtrl.text.trim(),
+      postName: postVal.isEmpty ? applicant.postName : postVal,
+      department: deptVal.isEmpty ? applicant.department : deptVal,
       role: selectedRole,
-      baseSalary: double.tryParse(salaryCtrl.text.trim()) ?? applicant.baseSalary,
+      baseSalary: salaryVal,
     );
     if (success) {
       if (mounted) {
@@ -420,8 +429,13 @@ class _StaffManagementTabState extends State<StaffManagementTab> {
       ),
     );
 
+    final rejectReason = reasonCtrl.text.trim();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      reasonCtrl.dispose();
+    });
+
     if (shouldReject == true) {
-      final success = await _staffService.rejectStaffAudit(applicant.id, reason: reasonCtrl.text.trim());
+      final success = await _staffService.rejectStaffAudit(applicant.id, reason: rejectReason);
       if (success) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

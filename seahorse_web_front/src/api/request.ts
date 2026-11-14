@@ -1,15 +1,33 @@
-import axios from 'axios'
+import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
+import { recordApiCall } from '../utils/tenantQuotaService'
+import { getApiBaseUrl } from '../utils/systemConfig'
+
+interface UnwrappedAxiosInstance extends Omit<AxiosInstance, 'get' | 'post' | 'put' | 'delete' | 'patch' | 'request'> {
+  request<T = any>(config: AxiosRequestConfig): Promise<T>
+  get<T = any>(url: string, config?: AxiosRequestConfig): Promise<T>
+  delete<T = any>(url: string, config?: AxiosRequestConfig): Promise<T>
+  post<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T>
+  put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T>
+  patch<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T>
+}
+
+const checkIsSilent = (headers: any) => {
+  if (!headers) return false
+  if (typeof headers.get === 'function') {
+    return headers.get('X-Silent-Error') === 'true' || headers.get('x-silent-error') === 'true'
+  }
+  return headers['X-Silent-Error'] === 'true' || headers['x-silent-error'] === 'true'
+}
 
 const service = axios.create({
-  baseURL: '/api',
+  baseURL: getApiBaseUrl(),
   timeout: 10000
 })
 
-import { recordApiCall } from '../utils/tenantQuotaService'
-
 service.interceptors.request.use(
   config => {
+    config.baseURL = getApiBaseUrl()
     const token = localStorage.getItem('seahorse_token')
     if (token) {
       config.headers['Authorization'] = `Bearer ${token}`
@@ -23,9 +41,9 @@ service.interceptors.request.use(
       config.headers['X-User-Name'] = encodeURIComponent(uname)
     }
 
-    // 非开发维护人自动累计租户后台接口操作调用
+    // 非开发维护人且非后台静默轮询时，自动累计租户后台接口操作调用
     const role = localStorage.getItem('seahorse_role')
-    if (role !== 'PLATFORM_DEVELOPER') {
+    if (role !== 'PLATFORM_DEVELOPER' && !checkIsSilent(config.headers)) {
       try {
         recordApiCall(tenantId)
       } catch (e) {
@@ -39,14 +57,6 @@ service.interceptors.request.use(
     return Promise.reject(error)
   }
 )
-
-const checkIsSilent = (headers: any) => {
-  if (!headers) return false
-  if (typeof headers.get === 'function') {
-    return headers.get('X-Silent-Error') === 'true' || headers.get('x-silent-error') === 'true'
-  }
-  return headers['X-Silent-Error'] === 'true' || headers['x-silent-error'] === 'true'
-}
 
 service.interceptors.response.use(
   response => {
@@ -70,4 +80,4 @@ service.interceptors.response.use(
   }
 )
 
-export default service
+export default service as unknown as UnwrappedAxiosInstance

@@ -63,6 +63,7 @@
             clearable
             size="default"
             style="width: 200px;"
+            @input="currentPage = 1"
             @clear="handleFilterChange"
             @keyup.enter="handleFilterChange"
           >
@@ -215,7 +216,9 @@
           <el-table-column prop="phone" label="手机号码" min-width="140" />
           <el-table-column prop="rewardChange" label="奖励金变动 (元)" min-width="140">
             <template #default="{ row }">
-              <b style="color: #059669;">+￥{{ row.rewardChange }}</b>
+              <b :style="{ color: Number(row.rewardChange || 0) >= 0 ? '#059669' : '#ef4444' }">
+                {{ Number(row.rewardChange || 0) >= 0 ? '+￥' : '-￥' }}{{ Math.abs(Number(row.rewardChange || 0)) }}
+              </b>
             </template>
           </el-table-column>
           <el-table-column prop="reason" label="奖励金事由" min-width="190" />
@@ -640,8 +643,16 @@ watch(
   }
 )
 
-// 顶部日期快捷按钮
+const formatLocalYmd = (d: Date = new Date()): string => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+// 顶部日期快捷按钮（默认展示全部历史与实时流水，不硬编码历史演示日期）
 const quickDateButtons = [
+  { key: 'all', label: '全部' },
   { key: 'today', label: '今天' },
   { key: 'yesterday', label: '昨天' },
   { key: 'thisWeek', label: '本周' },
@@ -649,28 +660,48 @@ const quickDateButtons = [
   { key: 'lastMonth', label: '上月' }
 ]
 
-const selectedQuickDate = ref('today')
-const dateRange = ref<[string, string]>(['2026-09-06', '2026-09-06'])
+const selectedQuickDate = ref('all')
+const dateRange = ref<[string, string] | null>(null)
 const searchKeyword = ref('')
 
 const handleQuickDate = (key: string) => {
   selectedQuickDate.value = key
+  const now = new Date()
   switch (key) {
-    case 'today':
-      dateRange.value = ['2026-09-06', '2026-09-06']
+    case 'all':
+      dateRange.value = null
       break
-    case 'yesterday':
-      dateRange.value = ['2026-09-05', '2026-09-05']
+    case 'today': {
+      const s = formatLocalYmd(now)
+      dateRange.value = [s, s]
       break
-    case 'thisWeek':
-      dateRange.value = ['2026-08-31', '2026-09-06']
+    }
+    case 'yesterday': {
+      const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
+      const s = formatLocalYmd(y)
+      dateRange.value = [s, s]
       break
-    case 'thisMonth':
-      dateRange.value = ['2026-09-01', '2026-09-30']
+    }
+    case 'thisWeek': {
+      const dayOfWeek = now.getDay()
+      const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1)
+      const monday = new Date(now.getFullYear(), now.getMonth(), diff)
+      const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6)
+      dateRange.value = [formatLocalYmd(monday), formatLocalYmd(sunday)]
       break
-    case 'lastMonth':
-      dateRange.value = ['2026-08-01', '2026-08-31']
+    }
+    case 'thisMonth': {
+      const first = new Date(now.getFullYear(), now.getMonth(), 1)
+      const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+      dateRange.value = [formatLocalYmd(first), formatLocalYmd(last)]
       break
+    }
+    case 'lastMonth': {
+      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      const last = new Date(now.getFullYear(), now.getMonth(), 0)
+      dateRange.value = [formatLocalYmd(first), formatLocalYmd(last)]
+      break
+    }
   }
   currentPage.value = 1
 }
@@ -824,6 +855,7 @@ const currentSubFilters = computed(() => {
     case 'income':
       return [
         { key: 'ALL', label: '全部', count: incomeList.value.length },
+        { key: 'SERVICE', label: '项目收银', count: incomeList.value.filter(i => i.rawType === 'SERVICE').length },
         { key: 'RECHARGE', label: '充值办卡', count: incomeList.value.filter(i => i.rawType === 'RECHARGE').length },
         { key: 'RETAIL', label: '零售收银', count: incomeList.value.filter(i => i.rawType === 'RETAIL').length },
         { key: 'CARD_EXTRA', label: '扣卡另付', count: incomeList.value.filter(i => i.rawType === 'CARD_EXTRA').length }
@@ -963,6 +995,18 @@ const filteredList = computed(() => {
     default: raw = incomeList.value; break
   }
 
+  // 日期区间过滤（当用户选择特定日期区间时生效；无日期字段的静态存量汇总行保持可见）
+  if (Array.isArray(dateRange.value) && dateRange.value[0] && dateRange.value[1]) {
+    const [startDate, endDate] = dateRange.value
+    raw = raw.filter(item => {
+      const rawDateField = item.time || item.date || item.createdAt || item.joinDate || item.orderTime || ''
+      if (!rawDateField) return true
+      const m = String(rawDateField).match(/\d{4}-\d{2}-\d{2}/)
+      if (!m) return true
+      return m[0] >= startDate && m[0] <= endDate
+    })
+  }
+
   // 二级子维度过滤
   if (activeSubFilter.value && activeSubFilter.value !== 'ALL') {
     raw = raw.filter(item => item.rawType === activeSubFilter.value || item.category === activeSubFilter.value || item.department === activeSubFilter.value || item.cardName === activeSubFilter.value)
@@ -988,6 +1032,7 @@ const getTypeTag = (type: string) => {
   switch (type) {
     case '充值办卡': return 'warning'
     case '零售收银': return 'success'
+    case '项目收银': return 'primary'
     case '扣卡另付': return 'primary'
     default: return 'info'
   }
@@ -1000,6 +1045,11 @@ const getProgressColor = (ratio: number) => {
 }
 
 const handleFilterChange = () => {
+  if (!dateRange.value) {
+    selectedQuickDate.value = 'all'
+  } else {
+    selectedQuickDate.value = ''
+  }
   currentPage.value = 1
   ElMessage.success(`报表数据已按最新条件检索刷新`)
 }
@@ -1007,6 +1057,8 @@ const handleFilterChange = () => {
 const handleRefresh = () => {
   searchKeyword.value = ''
   activeSubFilter.value = 'ALL'
+  selectedQuickDate.value = 'all'
+  dateRange.value = null
   currentPage.value = 1
   ElMessage.success(`已重新从服务器同步最新流水台账`)
 }
@@ -1026,17 +1078,23 @@ const handleExport = () => {
 
   list.forEach(item => {
     const row = keys.map(k => {
-      const val = item[k] === undefined || item[k] === null ? '' : String(item[k]).replace(/,/g, '，')
+      const val = item[k] === undefined || item[k] === null
+        ? ''
+        : String(item[k]).replace(/,/g, '，').replace(/"/g, '""')
       return `"${val}"`
     })
     csvContent += row.join(',') + '\n'
   })
 
+  const rangeSuffix = Array.isArray(dateRange.value) && dateRange.value[0] && dateRange.value[1]
+    ? `${dateRange.value[0]}_${dateRange.value[1]}`
+    : '全部日期'
+
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.setAttribute('href', url)
-  link.setAttribute('download', `${tabTitle}_${dateRange.value[0]}_${dateRange.value[1]}.csv`)
+  link.setAttribute('download', `${tabTitle}_${rangeSuffix}.csv`)
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)

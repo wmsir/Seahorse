@@ -216,7 +216,7 @@
           <el-table-column label="本月 CDN 流出流量" width="160" align="center">
             <template #default="{ row }">
               <span style="font-weight: 700; color: #0284c7;">{{ row.monthlyEgressGb.toFixed(1) }} GB</span>
-              <div style="font-size: 11px; color: #64748b;">流量/容量比: {{ (row.monthlyEgressGb / row.usedGb).toFixed(2) }}</div>
+              <div style="font-size: 11px; color: #64748b;">流量/容量比: {{ row.usedGb > 0 ? (row.monthlyEgressGb / row.usedGb).toFixed(2) : '0.00' }}</div>
             </template>
           </el-table-column>
           <el-table-column label="健康度评估" width="140" align="center">
@@ -564,6 +564,7 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 
 import {
+  getTenantQuota,
   getAllTenantsQuotaList,
   lockTenant,
   unlockTenant,

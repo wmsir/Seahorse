@@ -269,7 +269,14 @@ class _CreateAppointmentSheetState extends State<CreateAppointmentSheet> {
           ],
         );
       },
-    );
+    ).whenComplete(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        titleCtrl.dispose();
+        priceCtrl.dispose();
+        durationCtrl.dispose();
+        categoryCtrl.dispose();
+      });
+    });
   }
 
   @override

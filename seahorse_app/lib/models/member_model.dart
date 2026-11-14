@@ -96,10 +96,10 @@ class MemberModel {
     String parsedLevelName = '普卡会员';
     double rate = 1.0;
 
-    if (rawLevel.contains('DIAMOND') || rawLevel.contains('钻')) {
+    if (rawLevel.contains('DIAMOND') || rawLevel.contains('钻') || rawLevel.contains('黑金')) {
       parsedLevelName = '黑钻至尊卡';
       rate = 0.80;
-    } else if (rawLevel.contains('PLATINUM') || rawLevel.contains('白金')) {
+    } else if (rawLevel.contains('PLATINUM') || rawLevel.contains('白金') || rawLevel.contains('铂金')) {
       parsedLevelName = '至尊白金卡';
       rate = 0.85;
     } else if (rawLevel == 'VIP' || rawLevel.contains('VIP') || rawLevel.contains('尊享')) {

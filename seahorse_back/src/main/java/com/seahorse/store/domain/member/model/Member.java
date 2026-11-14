@@ -19,17 +19,19 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "sh_member")
+@Table(name = "sh_member", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_tenant_member_no", columnNames = {"tenant_id", "member_no"})
+})
 @EntityListeners(AuditingEntityListener.class)
 public class Member {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 64)
+    @Column(name = "tenant_id", nullable = false, length = 64)
     private String tenantId;
 
-    @Column(nullable = false, unique = true, length = 64)
+    @Column(name = "member_no", nullable = false, length = 64)
     private String memberNo; // 8位会员号例如 HM880001
 
     @Column(nullable = false, length = 64)
@@ -58,7 +60,8 @@ public class Member {
 
     // 会员档案高级属性（对齐截图 2）
     private String cardNo; // 实体卡号 / 会员卡号
-    private String cardPassword; // 扣卡密码
+    @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.WRITE_ONLY)
+    private String cardPassword; // 扣卡密码（仅允许反序列化写入，禁止接口明文返回）
     private Boolean cardPasswordEnabled; // 扣卡密码开关
     private Boolean cardSignEnabled; // 扣卡签名开关
     private String discountName; // 会员折扣（如：暂无等级、8折黄金卡等）
@@ -123,5 +126,12 @@ public class Member {
      */
     public BigDecimal getTotalBalance() {
         return balance != null ? balance : BigDecimal.ZERO;
+    }
+
+    /**
+     * 是否已设置扣卡密码（替代明文 cardPassword 回传）
+     */
+    public boolean getHasCardPassword() {
+        return cardPassword != null && !cardPassword.trim().isEmpty();
     }
 }

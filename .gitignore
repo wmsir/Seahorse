@@ -5,7 +5,10 @@ node_modules/
 target/
 dist/
 dist-ssr/
+dist-desktop/
 build/
+release_out/
+release_assets/
 .dart_tool/
 .gradle/
 .kotlin/
@@ -13,9 +16,22 @@ __pycache__/
 *.py[cod]
 *.tsbuildinfo
 
+# Explicit Subproject Build & Cache Guards
+seahorse_web_front/dist/
+seahorse_web_front/dist-desktop/
+seahorse_desktop/src-tauri/target/
+seahorse_back/target/
+seahorse_app/build/
+seahorse_app/.dart_tool/
+seahorse_app/ohos/entry/build/
+seahorse_app/ohos/.hvigor/
+seahorse_app/ios/Pods/
+
 # Binaries & Archives
 *.apk
 *.aab
+*.ipa
+*.hap
 *.exe
 *.msi
 *.dmg
@@ -41,17 +57,26 @@ Thumbs.db
 logs/
 scratch/
 
-# Secrets & Local Env
+# Secrets, Signing Materials & Local Env
+.env
+.env.*
+!.env.example
 .env.local
 .env.*.local
 *.local
 .secrets/
-application-prod.yml
+signing/
+application-prod-local.yml
 application-secrets*.yml
 *credentials*.json
 *.key
 *.pem
 *.p12
+*.pfx
+*.cer
+*.csr
+*.p7b
+*.mobileprovision
 *.jks
 *.keystore
 key.properties

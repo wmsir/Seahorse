@@ -57,6 +57,7 @@ public class BillingCheckoutAppService {
     public BillingOrder requestBilling(Long sessionId) {
         ServiceSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ServiceException("未找到该在场会话"));
+        TenantContext.assertTenantAccess(session.getTenantId());
 
         if (session.getStatus() == SessionStatus.CLOSED) {
             throw new ServiceException("会话已结束");
@@ -128,17 +129,23 @@ public class BillingCheckoutAppService {
             }
         }
 
-        // 若依然未找到账单，且传入了支付明细，支持动态创建并持久化该账单（散客即时收银/前台快速收银自愈）
+        List<CheckoutCommand.PaymentSplitItem> rawSplits = cmd.getSplitItems() != null
+                ? cmd.getSplitItems()
+                : java.util.Collections.emptyList();
+        boolean isZeroActualRequest = cmd.getActualAmount() != null
+                && cmd.getActualAmount().compareTo(BigDecimal.ZERO) == 0;
+
+        // 若依然未找到账单，且传入了支付明细或零元免单请求，支持动态创建并持久化该账单（散客即时收银/前台快速收银自愈）
         if (order == null) {
-            if (cmd.getSplitItems() != null && !cmd.getSplitItems().isEmpty()) {
+            if (!rawSplits.isEmpty() || isZeroActualRequest) {
                 String tenantId = TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001";
                 String storeId = TenantContext.getStoreId() != null ? TenantContext.getStoreId() : "S001";
 
-                BigDecimal totalPlanAmount = cmd.getSplitItems().stream()
+                BigDecimal initPlanAmount = rawSplits.stream()
                         .map(item -> item.getAmount() != null ? item.getAmount() : BigDecimal.ZERO)
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-                BigDecimal actual = cmd.getActualAmount() != null ? cmd.getActualAmount() : totalPlanAmount;
+                BigDecimal actual = cmd.getActualAmount() != null ? cmd.getActualAmount() : initPlanAmount;
                 BigDecimal total = cmd.getTotalAmount() != null ? cmd.getTotalAmount() : actual;
                 BigDecimal fee = cmd.getFeeAmount() != null ? cmd.getFeeAmount() : BigDecimal.ZERO;
                 BigDecimal discount = cmd.getDiscountAmount() != null ? cmd.getDiscountAmount() : BigDecimal.ZERO;
@@ -176,18 +183,16 @@ public class BillingCheckoutAppService {
             } else {
                 throw new ServiceException("未找到对应账单");
             }
+        } else {
+            TenantContext.assertTenantAccess(order.getTenantId());
         }
 
         if (order.getStatus() == BillingStatus.PAID) {
             throw new ServiceException("该账单已完成结算，不可重复支付");
         }
 
-        if (cmd.getSplitItems() == null || cmd.getSplitItems().isEmpty()) {
-            throw new ServiceException("支付组合明细不能为空");
-        }
-
         // 计算组合支付覆盖金额（次卡抵扣按其等额抵扣）
-        BigDecimal totalPlanAmount = cmd.getSplitItems().stream()
+        BigDecimal totalPlanAmount = rawSplits.stream()
                 .map(item -> item.getAmount() != null ? item.getAmount() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -226,6 +231,12 @@ public class BillingCheckoutAppService {
             order = billingOrderRepository.save(order);
         }
 
+        boolean isZeroCompedOrder = order.getActualAmount() != null
+                && order.getActualAmount().compareTo(BigDecimal.ZERO) == 0;
+        if (!isZeroCompedOrder && rawSplits.isEmpty()) {
+            throw new ServiceException("支付组合明细不能为空");
+        }
+
         if (totalPlanAmount.compareTo(order.getActualAmount()) < 0) {
             throw new ServiceException("支付组合金额不足（应收: ￥" + order.getActualAmount() + ", 计划支付: ￥" + totalPlanAmount + "）");
         }
@@ -242,31 +253,40 @@ public class BillingCheckoutAppService {
             }
         }
 
-        for (CheckoutCommand.PaymentSplitItem split : cmd.getSplitItems()) {
-            PaymentChannelStrategy strategy = paymentStrategyFactory.getStrategy(split.getChannel());
+        for (CheckoutCommand.PaymentSplitItem split : rawSplits) {
+            BigDecimal splitAmount = split.getAmount() != null ? split.getAmount() : BigDecimal.ZERO;
+            boolean isTimeCardDeduct = split.getChannel() == PaymentChannel.TIME_CARD
+                    && split.getTimeCardDeductCount() != null
+                    && split.getTimeCardDeductCount() > 0;
 
-            PaymentPayContext payContext = PaymentPayContext.builder()
-                    .tenantId(order.getTenantId())
-                    .storeId(order.getStoreId())
-                    .order(order)
-                    .amount(split.getAmount())
-                    .memberId(resolvedMemberId)
-                    .timeCardSkuId(split.getTimeCardSkuId())
-                    .timeCardDeductCount(split.getTimeCardDeductCount())
-                    .tenderedAmount(split.getTenderedAmount())
-                    .build();
+            ChannelPayResult result;
+            if (splitAmount.compareTo(BigDecimal.ZERO) <= 0 && !isTimeCardDeduct) {
+                result = ChannelPayResult.success("COMP" + System.currentTimeMillis());
+            } else {
+                PaymentChannelStrategy strategy = paymentStrategyFactory.getStrategy(split.getChannel());
+                PaymentPayContext payContext = PaymentPayContext.builder()
+                        .tenantId(order.getTenantId())
+                        .storeId(order.getStoreId())
+                        .order(order)
+                        .amount(splitAmount)
+                        .memberId(resolvedMemberId)
+                        .timeCardSkuId(split.getTimeCardSkuId())
+                        .timeCardDeductCount(split.getTimeCardDeductCount())
+                        .tenderedAmount(split.getTenderedAmount())
+                        .build();
 
-            ChannelPayResult result = strategy.processPay(payContext);
-            if (!result.isSuccess()) {
-                throw new ServiceException("渠道结算失败: " + result.getErrorMessage());
+                result = strategy.processPay(payContext);
+                if (!result.isSuccess()) {
+                    throw new ServiceException("渠道结算失败: " + result.getErrorMessage());
+                }
             }
 
             // 现金记录
             if (split.getChannel() == PaymentChannel.CASH && result.getChangeAmount() != null) {
                 cashTenderRecord = CashTenderRecord.builder()
                         .billingOrderId(order.getId())
-                        .dueAmount(split.getAmount())
-                        .tenderedAmount(split.getTenderedAmount() != null ? split.getTenderedAmount() : split.getAmount())
+                        .dueAmount(splitAmount)
+                        .tenderedAmount(split.getTenderedAmount() != null ? split.getTenderedAmount() : splitAmount)
                         .changeAmount(result.getChangeAmount())
                         .drawerOpened(result.getDrawerOpened())
                         .build();
@@ -276,8 +296,8 @@ public class BillingCheckoutAppService {
             PaymentRecord record = PaymentRecord.builder()
                     .billingOrderId(order.getId())
                     .orderNo(order.getOrderNo())
-                    .channel(split.getChannel())
-                    .amount(split.getAmount())
+                    .channel(split.getChannel() != null ? split.getChannel() : PaymentChannel.CASH)
+                    .amount(splitAmount)
                     .principalAmount(result.getPrincipalDeducted())
                     .giftAmount(result.getGiftDeducted())
                     .timeCardSkuId(split.getTimeCardSkuId())
@@ -327,27 +347,26 @@ public class BillingCheckoutAppService {
             // 兜底将该空间关联的活跃服务会话均推进为已结账待复位
             List<SessionStatus> activeStatuses = Arrays.asList(
                     SessionStatus.OCCUPIED_ORDERING, SessionStatus.SERVING, SessionStatus.SETTLING);
-            List<ServiceSession> activeSessions = sessionRepository.findByTenantIdAndStatusIn(savedOrder.getTenantId(), activeStatuses);
+            List<ServiceSession> activeSessions = sessionRepository.findBySpaceIdAndStatusIn(savedOrder.getSpaceId(), activeStatuses);
             for (ServiceSession s : activeSessions) {
-                if (savedOrder.getSpaceId().equals(s.getSpaceId())) {
-                    s.setStatus(SessionStatus.SETTLED_WAIT_CLEAN);
-                    s.setEndTime(LocalDateTime.now());
-                    sessionRepository.save(s);
-                }
+                s.setStatus(SessionStatus.SETTLED_WAIT_CLEAN);
+                s.setEndTime(LocalDateTime.now());
+                sessionRepository.save(s);
             }
         }
 
         // 更新会员消费累计、到店频次、成长积分及自动晋级
         if (savedOrder.getMemberId() != null) {
             memberRepository.findById(savedOrder.getMemberId()).ifPresent(member -> {
+                BigDecimal actualAmount = savedOrder.getActualAmount() != null ? savedOrder.getActualAmount() : BigDecimal.ZERO;
                 BigDecimal spent = member.getTotalSpent() != null ? member.getTotalSpent() : BigDecimal.ZERO;
-                member.setTotalSpent(spent.add(savedOrder.getActualAmount()));
+                member.setTotalSpent(spent.add(actualAmount));
                 int visits = member.getVisitCount() != null ? member.getVisitCount() : 0;
                 member.setVisitCount(visits + 1);
                 member.setLastVisitTime(LocalDateTime.now());
 
                 // 消费 1 元累积 1 积分/经验
-                int earnedPoints = savedOrder.getActualAmount() != null ? savedOrder.getActualAmount().intValue() : 0;
+                int earnedPoints = actualAmount.intValue();
                 if (earnedPoints > 0) {
                     int currPoints = member.getPoints() != null ? member.getPoints() : 0;
                     int updatedPoints = currPoints + earnedPoints;

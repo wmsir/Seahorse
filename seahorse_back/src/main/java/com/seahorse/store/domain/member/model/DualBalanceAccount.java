@@ -45,6 +45,10 @@ public class DualBalanceAccount {
     @Column(length = 32)
     private com.seahorse.store.domain.member.enums.DeductMode deductMode; // 会员开卡时选定的储值扣减策略 (PROPORTIONAL | PRINCIPAL_FIRST)
 
+    @Version
+    @Column(nullable = false)
+    private Long version; // JPA 乐观锁版本号
+
     @CreatedDate
     private LocalDateTime createdAt;
 

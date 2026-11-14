@@ -519,12 +519,25 @@ const loadStoreRegisterConfig = async () => {
     }
   }
 
+  if (storePreferenceTags.value.length === 0) {
+    storePreferenceTags.value = getDefaultPrefTags(currentInd)
+  }
+
   if (chargeOptions.value.length === 0) {
     chargeOptions.value = getDefaultChargeOptions()
   }
 
   if (chargeOptions.value.length > 0) {
     memberForm.value.chargeOption = chargeOptions.value[0]
+  }
+}
+
+const safeDecode = (val: unknown): string => {
+  const str = String(val ?? '')
+  try {
+    return decodeURIComponent(str)
+  } catch {
+    return str
   }
 }
 
@@ -539,12 +552,12 @@ onMounted(() => {
   if (route.query.storeName || route.query.industry || route.query.address || route.query.phone || route.query.businessHours) {
     remoteStoreInfo.value = {
       storeId: targetStoreId.value,
-      storeName: route.query.storeName ? decodeURIComponent(String(route.query.storeName)) : '海马智慧门店',
+      storeName: route.query.storeName ? safeDecode(route.query.storeName) : '海马智慧门店',
       industry: route.query.industry ? String(route.query.industry) : undefined,
-      industryCategoryName: route.query.industryCategoryName ? decodeURIComponent(String(route.query.industryCategoryName)) : undefined,
-      address: route.query.address ? decodeURIComponent(String(route.query.address)) : undefined,
-      phone: route.query.phone ? decodeURIComponent(String(route.query.phone)) : undefined,
-      businessHours: route.query.businessHours ? decodeURIComponent(String(route.query.businessHours)) : undefined
+      industryCategoryName: route.query.industryCategoryName ? safeDecode(route.query.industryCategoryName) : undefined,
+      address: route.query.address ? safeDecode(route.query.address) : undefined,
+      phone: route.query.phone ? safeDecode(route.query.phone) : undefined,
+      businessHours: route.query.businessHours ? safeDecode(route.query.businessHours) : undefined
     }
   }
 

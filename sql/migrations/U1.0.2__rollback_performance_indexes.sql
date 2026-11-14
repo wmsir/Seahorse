@@ -13,10 +13,6 @@ SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_sche
 SET @sqlstmt := IF(@idx > 0, 'ALTER TABLE `sh_security_log` DROP INDEX `idx_seclog_store_created`', 'SELECT "Skip drop idx_seclog_store_created"');
 PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_security_log' AND index_name = 'idx_seclog_tenant_created');
-SET @sqlstmt := IF(@idx > 0, 'ALTER TABLE `sh_security_log` DROP INDEX `idx_seclog_tenant_created`', 'SELECT "Skip drop idx_seclog_tenant_created"');
-PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
 SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_leave_application' AND index_name = 'idx_leave_tenant_status');
 SET @sqlstmt := IF(@idx > 0, 'ALTER TABLE `sh_leave_application` DROP INDEX `idx_leave_tenant_status`', 'SELECT "Skip drop idx_leave_tenant_status"');
 PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
@@ -43,10 +39,6 @@ PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_member_recharge_record' AND index_name = 'idx_rch_store_created');
 SET @sqlstmt := IF(@idx > 0, 'ALTER TABLE `sh_member_recharge_record` DROP INDEX `idx_rch_store_created`', 'SELECT "Skip drop idx_rch_store_created"');
-PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_operation_audit_log' AND index_name = 'idx_audit_store_time');
-SET @sqlstmt := IF(@idx > 0, 'ALTER TABLE `sh_operation_audit_log` DROP INDEX `idx_audit_store_time`', 'SELECT "Skip drop idx_audit_store_time"');
 PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_commission_record' AND index_name = 'idx_comm_billing_order');
@@ -87,10 +79,6 @@ PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_member' AND index_name = 'idx_member_tenant_status_created');
 SET @sqlstmt := IF(@idx > 0, 'ALTER TABLE `sh_member` DROP INDEX `idx_member_tenant_status_created`', 'SELECT "Skip drop idx_member_tenant_status_created"');
-PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_shift_record' AND index_name = 'idx_shift_tenant_store_created');
-SET @sqlstmt := IF(@idx > 0, 'ALTER TABLE `sh_shift_record` DROP INDEX `idx_shift_tenant_store_created`', 'SELECT "Skip drop idx_shift_tenant_store_created"');
 PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_payment_record' AND index_name = 'idx_pay_time');
@@ -151,10 +139,6 @@ PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_service_space' AND index_name = 'idx_space_tenant_store_status');
 SET @sqlstmt := IF(@idx > 0, 'ALTER TABLE `sh_service_space` DROP INDEX `idx_space_tenant_store_status`', 'SELECT "Skip drop idx_space_tenant_store_status"');
-PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_employee' AND index_name = 'idx_emp_phone');
-SET @sqlstmt := IF(@idx > 0, 'ALTER TABLE `sh_employee` DROP INDEX `idx_emp_phone`', 'SELECT "Skip drop idx_emp_phone"');
 PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_employee' AND index_name = 'idx_emp_tenant_status');

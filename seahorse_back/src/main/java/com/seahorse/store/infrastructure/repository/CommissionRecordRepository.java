@@ -4,6 +4,7 @@ import com.seahorse.store.domain.commission.model.CommissionRecord;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
@@ -14,4 +15,5 @@ public interface CommissionRecordRepository extends JpaRepository<CommissionReco
     List<CommissionRecord> findByStoreIdAndEmployeeNameOrderByCreatedAtDesc(String storeId, String employeeName);
     List<CommissionRecord> findByBillingOrderId(Long billingOrderId);
     List<CommissionRecord> findByStoreIdOrderByCreatedAtDesc(String storeId);
+    List<CommissionRecord> findByStoreIdAndCreatedAtBetween(String storeId, LocalDateTime start, LocalDateTime end);
 }

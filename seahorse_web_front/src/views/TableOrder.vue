@@ -384,7 +384,7 @@
           </div>
           <div class="s-row">
             <span>包厢当前总消费：</span>
-            <b class="s-highlight">￥{{ (existingSessionAmount + lastOrderAmount).toFixed(2) }}</b>
+            <b class="s-highlight">￥{{ existingSessionAmount.toFixed(2) }}</b>
           </div>
           <div class="s-row" v-if="verifiedMember">
             <span>入账会员：</span>
@@ -517,11 +517,14 @@ const handleCallService = async (type: string) => {
       duration: 3000
     })
   } finally {
-    setTimeout(() => {
+    if (callServiceTimer) clearTimeout(callServiceTimer)
+    callServiceTimer = setTimeout(() => {
       callingService.value = false
+      callServiceTimer = null
     }, 1500)
   }
 }
+let callServiceTimer: ReturnType<typeof setTimeout> | null = null
 
 // ==============================================================================
 // 4. 品项库与分类过滤
@@ -597,15 +600,9 @@ const filteredProducts = computed(() => {
 
 const getCategoryBadge = (catKey: string) => {
   if (catKey === 'ALL') return cartTotalQty.value
-  return cartItems.value.filter(it => {
-    const itemCat = (it.categoryName || '').trim()
-    if (itemCat && itemCat === catKey) return true
-    if (catKey === 'FOOD') return isFoodItem(it)
-    if (catKey === 'DRINK') return isDrinkItem(it)
-    if (catKey === 'SERVICE') return isServiceItem(it)
-    if (catKey === 'RETAIL') return !isFoodItem(it) && !isDrinkItem(it) && !isServiceItem(it)
-    return false
-  }).reduce((acc, it) => acc + it.qty, 0)
+  return cartItems.value
+    .filter(it => (it.categoryName || '').trim() === catKey)
+    .reduce((acc, it) => acc + it.qty, 0)
 }
 
 // ==============================================================================
@@ -700,6 +697,7 @@ const handleSubmitOrder = async () => {
   submittingOrder.value = true
   try {
     let sId = currentSessionId.value
+    const prevSessionAmount = existingSessionAmount.value
 
     // 若包厢尚未开台，先自动开启在场会话
     if (!sId || !isRoomOccupied.value) {
@@ -708,6 +706,7 @@ const handleSubmitOrder = async () => {
 
       const openRes: any = await openSessionApi({
         spaceId: urlSpaceId.value || 1,
+        memberId: verifiedMember.value?.id || null,
         customerName: custName,
         customerPhone: custPhone,
         guestCount: orderDinersCount.value || 2,
@@ -737,6 +736,7 @@ const handleSubmitOrder = async () => {
     // 记录本次下单数据供结果展示
     lastOrderAmount.value = cartTotalAmount.value
     lastOrderItemsCount.value = cartTotalQty.value
+    existingSessionAmount.value = prevSessionAmount + cartTotalAmount.value
 
     // 清空本地购物车与关闭抽屉
     cartItems.value = []
@@ -890,6 +890,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopSyncTimer()
+  if (callServiceTimer) {
+    clearTimeout(callServiceTimer)
+    callServiceTimer = null
+  }
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>

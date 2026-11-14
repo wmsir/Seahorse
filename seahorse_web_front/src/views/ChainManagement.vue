@@ -392,7 +392,7 @@ const systemData = useSystemDataStore()
 
 // 严格与顶部权限逻辑保持完全一致
 const role = ref(localStorage.getItem('seahorse_role') || 'SUPER_ADMIN')
-const isMerchantBoss = computed(() => role.value === 'SUPER_ADMIN' || role.value === 'MERCHANT_ADMIN' || role.value === 'STORE_OWNER')
+const isMerchantBoss = computed(() => role.value === 'SUPER_ADMIN' || role.value === 'TENANT_ADMIN' || role.value === 'MERCHANT_ADMIN' || role.value === 'STORE_OWNER')
 
 const activeTab = ref('stores')
 const storeSearchKeyword = ref('')
@@ -569,7 +569,7 @@ const loadStoresData = async () => {
           address: s.address || '成都市高新区天府大道北段1199号新世纪环球中心E2座3层',
           businessHours: s.businessHours || s.openTime || '11:00 - 次日02:00',
           monthlyRevenue: 0,
-          status: s.status || (s.businessStatus === 'OPEN' ? 'ACTIVE' : 'ACTIVE'),
+          status: s.status || (s.businessStatus === 'OPEN' ? 'ACTIVE' : 'PAUSED'),
           slogan: s.slogan || '御境云足，东方大健康养生连锁',
           wifiSsid: s.wifiSsid || 'Seahorse_VIP_5G',
           wifiPass: s.wifiPass || '88888888'
@@ -642,7 +642,7 @@ const getStoreMonthlyRevenue = (storeId: string) => {
   const thisMonthStr = new Date().toISOString().slice(0, 7)
   const consumeRev = (systemData.consumeOrders || [])
     .filter(o => (o.storeId === storeId || !o.storeId) && o.status === 'COMPLETED' && (o.createTime?.startsWith(thisMonthStr)))
-    .reduce((sum, o) => sum + Number(o.cashierPaidAmount || o.payAmount || 0), 0)
+    .reduce((sum, o) => sum + Number(o.cashierPaidAmount || o.totalAmount || o.payAmount || 0), 0)
   const rechargeRev = (systemData.rechargeOrders || [])
     .filter(r => (r.storeId === storeId || !r.storeId) && (r.createTime?.startsWith(thisMonthStr)))
     .reduce((sum, r) => sum + Number(r.principalAmount || 0), 0)

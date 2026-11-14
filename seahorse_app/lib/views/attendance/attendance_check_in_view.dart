@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/constants.dart';
+import '../../core/utils/chinese_date_utils.dart';
 import '../../models/attendance_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/attendance_service.dart';
@@ -31,6 +32,7 @@ class _AttendanceCheckInViewState extends State<AttendanceCheckInView> {
   bool _isSubmitting = false;
 
   AttendanceRecordModel? _todayRecord;
+  List<AttendanceRecordModel> _monthRecords = [];
 
   @override
   void initState() {
@@ -109,12 +111,33 @@ class _AttendanceCheckInViewState extends State<AttendanceCheckInView> {
 
   Future<void> _loadTodayAttendance() async {
     final auth = context.read<AuthProvider>();
-    final record = await _attendanceService.getMyTodayRecord(
-      phone: auth.username,
-      staffName: auth.realName,
-    );
+    final results = await Future.wait([
+      _attendanceService.getMyTodayRecord(
+        phone: auth.username,
+        staffName: auth.realName,
+      ),
+      _attendanceService.getAllRecords(),
+    ]);
+    final record = results[0] as AttendanceRecordModel?;
+    final allRecords = results[1] as List<AttendanceRecordModel>;
+    final monthPrefix = DateFormat('yyyy-MM').format(DateTime.now());
+    final myMonth = allRecords.where((r) {
+      if (!r.workDate.startsWith(monthPrefix)) return false;
+      final matchPhone = auth.username.isNotEmpty && r.phone == auth.username;
+      final matchName = auth.realName.isNotEmpty &&
+          (r.staffName == auth.realName || r.staffName.contains(auth.realName));
+      return matchPhone || matchName;
+    }).toList();
+    if (record != null &&
+        record.workDate.startsWith(monthPrefix) &&
+        !myMonth.any((r) => r.workDate == record.workDate)) {
+      myMonth.add(record);
+    }
     if (mounted) {
-      setState(() => _todayRecord = record);
+      setState(() {
+        _todayRecord = record;
+        _monthRecords = myMonth;
+      });
     }
   }
 
@@ -191,7 +214,7 @@ class _AttendanceCheckInViewState extends State<AttendanceCheckInView> {
     _refreshLocation();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('已恢复为默认考勤基准门店 (成都总店天府大道)'),
+        content: Text('已恢复为默认考勤基准门店 (西安高新旗舰店)'),
         duration: Duration(seconds: 1),
       ),
     );
@@ -289,7 +312,7 @@ class _AttendanceCheckInViewState extends State<AttendanceCheckInView> {
           ],
         );
       },
-    );
+    ).whenComplete(noteCtrl.dispose);
   }
 
   Future<void> _executeSubmit({required String type, required String notes}) async {
@@ -333,7 +356,11 @@ class _AttendanceCheckInViewState extends State<AttendanceCheckInView> {
     final isCheckedIn = _todayRecord != null && _todayRecord!.isCheckedIn;
     final isCheckedOut = _todayRecord != null && _todayRecord!.isCheckedOut;
     final isRealMode = _locationService.sourceMode == LocationSourceMode.realDevice;
-    final isCalibrated = _locationService.storeLatitude != 30.572800;
+    final isCalibrated = (_locationService.storeLatitude - 34.265500).abs() > 0.0001 ||
+        (_locationService.storeLongitude - 108.953400).abs() > 0.0001;
+    final holidayLabel = ChineseDateUtils.getHoliday(_currentTime);
+    final isRestDay = holidayLabel != null || ChineseDateUtils.isWeekend(_currentTime);
+    final dayBadgeText = holidayLabel ?? (isRestDay ? '周末休' : '工作日');
 
     // 时间格式化
     final timeStr = DateFormat('HH:mm:ss').format(_currentTime);
@@ -557,8 +584,18 @@ class _AttendanceCheckInViewState extends State<AttendanceCheckInView> {
                       const SizedBox(width: 6),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                        decoration: BoxDecoration(color: Colors.green.withOpacity(0.12), borderRadius: BorderRadius.circular(4)),
-                        child: const Text('工作日', style: TextStyle(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold)),
+                        decoration: BoxDecoration(
+                          color: (isRestDay ? Colors.orange : Colors.green).withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          dayBadgeText,
+                          style: TextStyle(
+                            color: isRestDay ? Colors.orange.shade800 : Colors.green,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -716,7 +753,7 @@ class _AttendanceCheckInViewState extends State<AttendanceCheckInView> {
                         children: [
                           TextButton.icon(
                             icon: const Icon(Icons.restore, size: 14),
-                            label: const Text('恢复默认成都总店基准', style: TextStyle(fontSize: 11)),
+                            label: const Text('恢复默认西安旗舰店基准', style: TextStyle(fontSize: 11)),
                             onPressed: _resetStoreLocation,
                           ),
                         ],
@@ -925,22 +962,62 @@ class _AttendanceCheckInViewState extends State<AttendanceCheckInView> {
 
             const SizedBox(height: 14),
 
-            // 5. 本月考勤汇总
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border.withOpacity(0.6)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(child: _buildSummaryItem('本月出勤', '22 天', AppColors.primary)),
-                  Expanded(child: _buildSummaryItem('全勤天数', '21 天', Colors.green)),
-                  Expanded(child: _buildSummaryItem('外勤出差', '1 次', Colors.orange)),
-                  Expanded(child: _buildSummaryItem('迟到/早退', '0 次', Colors.grey)),
-                ],
-              ),
+            // 5. 本月考勤汇总（基于本月真实打卡流水动态统计）
+            Builder(
+              builder: (_) {
+                final monthPrefix = DateFormat('yyyy-MM').format(_currentTime);
+                final effectiveRecords = <String, AttendanceRecordModel>{};
+                for (final r in _monthRecords) {
+                  if (r.workDate.startsWith(monthPrefix)) {
+                    effectiveRecords[r.workDate] = r;
+                  }
+                }
+                if (_todayRecord != null && _todayRecord!.workDate.startsWith(monthPrefix)) {
+                  effectiveRecords[_todayRecord!.workDate] = _todayRecord!;
+                }
+                final vals = effectiveRecords.values.toList();
+                final attendedDays = vals.where((r) => r.checkInTime != null && r.checkInTime!.isNotEmpty).length;
+                final fullDays = vals
+                    .where((r) =>
+                        r.checkInTime != null &&
+                        r.checkInTime!.isNotEmpty &&
+                        r.checkOutTime != null &&
+                        r.checkOutTime!.isNotEmpty &&
+                        r.checkInStatus != 'LATE' &&
+                        r.checkOutStatus != 'EARLY_LEAVE')
+                    .length;
+                final fieldCount = vals
+                    .where((r) => r.checkInStatus == 'FIELD_WORK' || (r.notes?.contains('外勤') ?? false))
+                    .length;
+                final lateEarlyCount = vals
+                    .where((r) =>
+                        r.checkInStatus == 'LATE' ||
+                        r.checkOutStatus == 'EARLY_LEAVE' ||
+                        r.checkInStatus == 'ABNORMAL')
+                    .length;
+                return Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.border.withOpacity(0.6)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(child: _buildSummaryItem('本月出勤', '$attendedDays 天', AppColors.primary)),
+                      Expanded(child: _buildSummaryItem('全勤天数', '$fullDays 天', Colors.green)),
+                      Expanded(child: _buildSummaryItem('外勤出差', '$fieldCount 次', Colors.orange)),
+                      Expanded(
+                        child: _buildSummaryItem(
+                          '迟到/早退',
+                          '$lateEarlyCount 次',
+                          lateEarlyCount > 0 ? AppColors.error : Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 20),
           ],

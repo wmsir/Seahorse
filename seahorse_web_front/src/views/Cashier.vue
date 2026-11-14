@@ -43,9 +43,6 @@
           </el-button>
         </el-button-group>
 
-        <el-button v-if="isSuperAdmin" type="primary" size="small" plain icon="Monitor" @click="openScanSimulatorDialog = true">
-          调试
-        </el-button>
         <el-button v-if="isSuperAdmin" size="small" icon="Setting" @click="goToPaymentSettings">
           设置
         </el-button>
@@ -174,7 +171,7 @@
             <div class="order-items-pane">
               <div class="items-header">
                 <span class="items-title">🛒 购物车清单 ({{ (order.items || []).length }} 项)</span>
-                <el-button size="small" type="danger" link @click="order.items = []; recalcOrderTotal()" v-if="order.items?.length">
+                <el-button size="small" type="danger" link @click="handleClearCartItems" v-if="order.items?.length">
                   清空
                 </el-button>
               </div>
@@ -295,7 +292,7 @@
                 size="large"
                 :disabled="!isAmountMatched"
                 :loading="settling"
-                @click="handleDoCheckout"
+                @click="handleDoCheckout()"
               >
                 <el-icon><Check /></el-icon> 结账出票 (F8)
               </el-button>
@@ -331,7 +328,7 @@
           <div class="s-icon">🎉</div>
           <div>
             <div class="s-main-title">结账成功！工位单据已闭环推进至【待清台】</div>
-            <div class="s-sub-title">流水单号：<strong>{{ settledResult?.order?.orderNo || order?.orderNo }}</strong> · 实收总额 <strong>￥{{ (settledResult?.order?.actualAmount || order?.actualAmount || 380).toFixed(2) }}</strong></div>
+            <div class="s-sub-title">流水单号：<strong>{{ settledResult?.order?.orderNo || order?.orderNo }}</strong> · 实收总额 <strong>￥{{ Number(settledResult?.order?.actualAmount ?? order?.actualAmount ?? 380).toFixed(2) }}</strong></div>
           </div>
         </div>
         <div class="quick-action-btns">
@@ -589,19 +586,19 @@
               <div class="receipt-calc-box">
                 <div v-if="quickReceiptConfig.showOriginalPrice" class="calc-row">
                   <span>点单消费项目：</span>
-                  <span>￥{{ (Number(order?.totalAmount) || totalItemsAmount || 508).toFixed(2) }}</span>
+                  <span>￥{{ Number(order ? (order.totalAmount ?? totalItemsAmount ?? 0) : 508).toFixed(2) }}</span>
                 </div>
                 <div v-if="Number(order?.feeAmount) > 0" class="calc-row fee-calc-row">
                   <span>行业附加费 ({{ storeConfig.defaultFeeName || '茶位费/餐具费' }})：</span>
                   <span style="font-weight: 700;">+￥{{ Number(order.feeAmount).toFixed(2) }}</span>
                 </div>
-                <div v-if="quickReceiptConfig.showDiscount && (((Number(order?.totalAmount) || totalItemsAmount || 508) + (Number(order?.feeAmount) || 0)) > (order?.actualAmount || 380))" class="calc-row discount">
+                <div v-if="quickReceiptConfig.showDiscount && ((Number(order ? (order.totalAmount ?? totalItemsAmount ?? 0) : 508) + (Number(order?.feeAmount) || 0)) > Number(order ? (order.actualAmount ?? 0) : 380))" class="calc-row discount">
                   <span>优惠立减：</span>
-                  <span>-￥{{ (((Number(order?.totalAmount) || totalItemsAmount || 508) + (Number(order?.feeAmount) || 0)) - (order?.actualAmount || 380)).toFixed(2) }}</span>
+                  <span>-￥{{ ((Number(order ? (order.totalAmount ?? totalItemsAmount ?? 0) : 508) + (Number(order?.feeAmount) || 0)) - Number(order ? (order.actualAmount ?? 0) : 380)).toFixed(2) }}</span>
                 </div>
                 <div v-if="quickReceiptConfig.showActualAmount" class="calc-row total">
                   <span>实收总额：</span>
-                  <span class="bold-price">￥{{ (order?.actualAmount || 380).toFixed(2) }}</span>
+                  <span class="bold-price">￥{{ Number(order ? (order.actualAmount ?? 0) : 380).toFixed(2) }}</span>
                 </div>
 
                 <!-- 支付方式细分 -->
@@ -612,7 +609,7 @@
                   </div>
                   <div v-if="payPlan.wechat > 0 || (!payPlan.storedValue && !payPlan.alipay && !payPlan.cash)" class="pay-row">
                     <span>└ 微信在线支付：</span>
-                    <span>￥{{ (payPlan.wechat || order?.actualAmount || 380).toFixed(2) }}</span>
+                    <span>￥{{ Number(payPlan.wechat || (order ? (order.actualAmount ?? 0) : 380)).toFixed(2) }}</span>
                   </div>
                   <div v-if="payPlan.alipay > 0" class="pay-row">
                     <span>└ 支付宝支付：</span>
@@ -644,11 +641,11 @@
                   </div>
                   <div v-if="quickReceiptConfig.showEarnedPoints" class="asset-row">
                     <span>本次获赠积分：</span>
-                    <span class="mono text-green">+{{ Math.round(order?.actualAmount || 380) }} 分</span>
+                    <span class="mono text-green">+{{ Math.round(Number(order ? (order.actualAmount ?? 0) : 380)) }} 分</span>
                   </div>
                   <div v-if="quickReceiptConfig.showTotalPoints" class="asset-row">
                     <span>会员累计总积分：</span>
-                    <span class="mono">{{ ((memberProfile?.points || 0) + Math.round(order?.actualAmount || 380)) }} 分</span>
+                    <span class="mono">{{ ((memberProfile?.points || 0) + Math.round(Number(order ? (order.actualAmount ?? 0) : 380))) }} 分</span>
                   </div>
                 </div>
               </div>
@@ -684,7 +681,7 @@
                 <div class="stub-header">【 租户留存联 · 顾客签字确认 】</div>
                 <div v-if="quickReceiptConfig.showStubOrderMeta" class="stub-meta">
                   <div>流水号：{{ settledResult?.order?.orderNo || order?.orderNo }}</div>
-                  <div>实付金额：￥{{ (order?.actualAmount || 380).toFixed(2) }}</div>
+                  <div>实付金额：￥{{ Number(order ? (order.actualAmount ?? 0) : 380).toFixed(2) }}</div>
                 </div>
                 <div v-if="quickReceiptConfig.showStubSignLine" class="stub-sign-block">
                   <div class="stub-sign-row">
@@ -718,66 +715,6 @@
         </div>
       </template>
     </el-dialog>
-
-    <!-- 小票打印模板快捷配置抽屉 -->
-    <el-drawer
-      v-model="openReceiptConfigDrawer"
-      title="🖨️ 小票打印模板可视化配置"
-      size="420px"
-    >
-      <el-form label-position="top">
-        <el-alert
-          title="此处修改将即时影响收银结算后的小票内容，配置将自动保存在系统中。"
-          type="info"
-          :closable="false"
-          show-icon
-          style="margin-bottom: 16px;"
-        />
-        <el-form-item label="热敏纸张规格">
-          <el-radio-group v-model="quickReceiptConfig.paperWidth">
-            <el-radio-button label="80mm">80mm 大宽幅小票机</el-radio-button>
-            <el-radio-button label="58mm">58mm 标准前台机</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-
-        <el-form-item label="小票抬头名称">
-          <el-input v-model="quickReceiptConfig.storeHeaderTitle" placeholder="如：海马智慧旗舰店" />
-        </el-form-item>
-
-        <el-form-item label="页眉宣传标语">
-          <el-input v-model="quickReceiptConfig.headerSubTitle" placeholder="如：至臻品质 · 竭诚服务" />
-        </el-form-item>
-
-        <el-form-item label="显示控制开关">
-          <div style="display: flex; flex-direction: column; gap: 8px;">
-            <el-checkbox v-model="quickReceiptConfig.showTechnician" label="打印服务技师/工位信息" />
-            <el-checkbox v-model="quickReceiptConfig.showDualTrackBalance" label="打印双轨储值本金与赠送金余额" />
-            <el-checkbox v-model="quickReceiptConfig.showPoints" label="打印本次积分及累计积分" />
-            <el-checkbox v-model="quickReceiptConfig.showSignStub" label="打印租户留存联与顾客签字栏" />
-            <el-checkbox v-model="quickReceiptConfig.autoPrint" label="结算后自动调起本地打印" />
-          </div>
-        </el-form-item>
-
-        <el-form-item label="底部致谢提示标语">
-          <el-input
-            v-model="quickReceiptConfig.footerNotes"
-            type="textarea"
-            :rows="2"
-            placeholder="如：凭此小票享7天服务复修，欢迎再次光临！"
-          />
-        </el-form-item>
-
-        <el-form-item label="底部二维码引导语">
-          <el-input v-model="quickReceiptConfig.qrCodeText" placeholder="如：扫码领取会员礼券或进入微商城" />
-        </el-form-item>
-
-        <div style="margin-top: 24px;">
-          <el-button type="primary" style="width: 100%;" @click="handleSaveQuickConfig">
-            保存模板配置并刷新预览
-          </el-button>
-        </div>
-      </el-form>
-    </el-drawer>
 
     <!-- 会员等级晋升规则全阶梯说明弹窗 -->
     <el-dialog v-model="showLevelRulesModal" title="👑 海马会员成长与等级晋升规则" width="680px">
@@ -849,6 +786,22 @@
 </template>
 
 <script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { barcodeScanner, type BarcodeScanResult, scanAudio } from '../utils/barcodeScanner'
+import { useRoute, useRouter } from 'vue-router'
+import QRCode from 'qrcode'
+import {
+  requestBillingApi,
+  executeCheckoutApi,
+  getMemberProfileApi,
+  getSessionDetailApi,
+  searchMembersApi,
+  registerMemberApi,
+  getActiveSessionsApi
+} from '../api'
+import { useStoreConfig } from '../stores/store'
+import { useSystemDataStore, buildMemberBenefitsUrl } from '../stores/systemDataStore'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const activeProductCategory = ref('ALL')
 const productSearchKeyword = ref('')
@@ -862,6 +815,7 @@ const initWalkInOrder = () => {
   const defaultNo = 'ORD-' + Date.now().toString().slice(-6)
   order.value = {
     id: Date.now(),
+    isLocalOrder: true,
     orderNo: defaultNo,
     spaceName: '前台外带/随到散客',
     customerName: '散客顾客',
@@ -1124,22 +1078,6 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
     handleQuickF8Checkout()
   }
 }
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { barcodeScanner, type BarcodeScanResult, scanAudio } from '../utils/barcodeScanner'
-import { useRoute, useRouter } from 'vue-router'
-import QRCode from 'qrcode'
-import {
-  requestBillingApi,
-  executeCheckoutApi,
-  getMemberProfileApi,
-  getSessionDetailApi,
-  searchMembersApi,
-  registerMemberApi,
-  getActiveSessionsApi
-} from '../api'
-import { useStoreConfig } from '../stores/store'
-import { useSystemDataStore, buildMemberBenefitsUrl } from '../stores/systemDataStore'
-import { ElMessage } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
@@ -1291,7 +1229,7 @@ const handleQuickRegisterCurrentCustomer = async () => {
       phone,
       level: 'REGULAR',
       tenantId: order.value?.tenantId || storeConfig.tenantId,
-      storeId: storeConfig.storeId
+      storeId: storeConfig.currentStoreId
     })
     ElMessage.success(`🎉 散客【${name} (${phone})】已成功建档开卡！`)
     await loadStoreMembers('', order.value?.tenantId || storeConfig.tenantId)
@@ -1523,7 +1461,8 @@ const initFallbackSession = (sessionId: number) => {
   const feeAmt = Number(match.feeAmount) || 0
   const totAmt = Number(match.totalAmount) || 0
   order.value = {
-    id: 1000 + match.id,
+    id: null,
+    isLocalOrder: true,
     sessionId: match.id,
     orderNo: match.orderNo,
     spaceName: match.spaceName,
@@ -1581,41 +1520,16 @@ const initFallbackSession = (sessionId: number) => {
   }
 }
 
-// 扫码盒子免驱工作台与模拟器状态
-const openScanSimulatorDialog = ref(false)
+// 扫码盒子免驱工作台状态
 const lastScannedCode = ref('')
 const lastScannedTypeName = ref('')
-const customBarcode = ref('')
 const scanHistoryList = ref<any[]>([])
-
-const currentRouteTagType = computed(() => {
-  const r = systemData.paymentConfig?.activeRoute
-  if (r === 'ROUTE_1_INDIVIDUAL') return 'success'
-  if (r === 'ROUTE_2_AGGREGATE') return 'warning'
-  return 'primary'
-})
-
-const currentRouteDisplayName = computed(() => {
-  const r = systemData.paymentConfig?.activeRoute
-  if (r === 'ROUTE_1_INDIVIDUAL') return '路线 1: 个体工租户直连'
-  if (r === 'ROUTE_2_AGGREGATE') return '路线 2: 持牌聚合小微租户'
-  return '路线 3: 支付宝沙箱环境'
-})
 
 const goToPaymentSettings = () => {
   router.push('/settings?tab=payment')
 }
 
-const testAudioBeep = () => {
-  scanAudio.playSuccess()
-  ElMessage.success('扫码蜂鸣器硬件测试声播放正常！')
-}
-
-const simulateScanCode = async (code: string) => {
-  await barcodeScanner.simulateScan(code)
-}
-
-const handleBarcodeScanned = (res: BarcodeScanResult) => {
+const handleBarcodeScanned = async (res: BarcodeScanResult) => {
   lastScannedCode.value = res.rawCode
   lastScannedTypeName.value = res.typeName
   scanHistoryList.value.unshift({
@@ -1631,11 +1545,23 @@ const handleBarcodeScanned = (res: BarcodeScanResult) => {
 
   // 分流处理：会员码 vs 商品条码 vs 顾客付款码
   if (res.type === 'MEMBER') {
-    const cleanPhone = res.rawCode.startsWith('SEAHORSE:MEMBER:') ? res.rawCode.replace('SEAHORSE:MEMBER:', '') : res.rawCode
-    ElMessage.success({
-      message: `👤 扫码盒子识别到海马体顾客会员消费码：【${cleanPhone}】，已对齐各端统一会员协议！`,
-      duration: 3500
-    })
+    const cleanCode = (res.rawCode.startsWith('SEAHORSE:MEMBER:')
+      ? res.rawCode.replace('SEAHORSE:MEMBER:', '')
+      : res.rawCode).trim()
+    let matched = storeMembersList.value.find((m: any) =>
+      m.phone === cleanCode || m.memberNo === cleanCode || m.cardNo === cleanCode || String(m.id) === cleanCode
+    )
+    if (!matched && cleanCode) {
+      await loadStoreMembers(cleanCode)
+      matched = storeMembersList.value.find((m: any) =>
+        m.phone === cleanCode || m.memberNo === cleanCode || m.cardNo === cleanCode || String(m.id) === cleanCode
+      )
+    }
+    if (matched) {
+      await handlePayerMemberChange(matched.id)
+    } else {
+      ElMessage.warning(`未找到与会员码【${cleanCode}】匹配的在册会员`)
+    }
   } else if (res.type === 'PRODUCT') {
     handleScanProductCode(res.rawCode)
   } else if (res.type === 'WECHAT_PAY') {
@@ -1658,6 +1584,14 @@ const recalcOrderTotal = () => {
   const fee = Number(order.value.feeAmount) || 0
   const discount = Number(order.value.discountAmount) || 0
   order.value.actualAmount = Math.max(0, total + fee - discount)
+  if (order.value.actualAmount === 0) {
+    payPlan.value.wechat = 0
+    payPlan.value.alipay = 0
+    payPlan.value.storedValue = 0
+    payPlan.value.cash = 0
+    tenderedAmount.value = 0
+    return
+  }
   // 保持单通道支付计划联动
   if (!payPlan.value.alipay && !payPlan.value.storedValue && !payPlan.value.cash) {
     payPlan.value.wechat = order.value.actualAmount
@@ -1666,11 +1600,21 @@ const recalcOrderTotal = () => {
   }
 }
 
+const handleClearCartItems = () => {
+  if (!order.value) return
+  order.value.items = []
+  order.value.totalAmount = 0
+  recalcOrderTotal()
+}
+
 const changeItemQty = (index: number, delta: number) => {
   if (!order.value?.items || !order.value.items[index]) return
   order.value.items[index].qty = (order.value.items[index].qty || 1) + delta
   if (order.value.items[index].qty <= 0) {
     order.value.items.splice(index, 1)
+  }
+  if (order.value.items.length === 0) {
+    order.value.totalAmount = 0
   }
   recalcOrderTotal()
 }
@@ -1678,6 +1622,9 @@ const changeItemQty = (index: number, delta: number) => {
 const removeItem = (index: number) => {
   if (!order.value?.items) return
   order.value.items.splice(index, 1)
+  if (order.value.items.length === 0) {
+    order.value.totalAmount = 0
+  }
   recalcOrderTotal()
 }
 
@@ -1700,24 +1647,16 @@ const handleScanProductCode = (code: string) => {
     return
   }
 
-  // 1. 在门店所有项目商品库中精准查找或匹配
-  const allProds = systemData.products || []
-  let found = allProds.find((p: any) => p.code === code || String(p.id) === code)
+  // 在门店所有项目商品库中精准查找或匹配
+  const allProds = storeCatalogProducts.value?.length ? storeCatalogProducts.value : (systemData.products || [])
+  let found: any = allProds.find((p: any) => p.code === code || p.productCode === code || String(p.id) === code)
   if (!found) {
-    found = allProds.find((p: any) => code.includes(p.code) || (p.code && p.code.includes(code)))
+    found = allProds.find((p: any) => (p.code && code.includes(p.code)) || (p.code && p.code.includes(code)))
   }
 
-  // 2. 匹配常见示例或动态构造商品品项
   if (!found) {
-    if (code === '6920182736192') {
-      found = { id: 201, code: '6920182736192', name: '欧莱雅专业洗护精油 100ml', price: 168.0 }
-    } else if (code === '6901234567890') {
-      found = { id: 202, code: '6901234567890', name: '植物赋活深层发膜 500ml', price: 198.0 }
-    } else if (code.startsWith('69')) {
-      found = { id: Date.now(), code: code, name: `国际国标69扫码商品 (${code.slice(-4)})`, price: 128.0 }
-    } else {
-      found = { id: Date.now(), code: code, name: `自编码服务品项 (${code})`, price: 88.0 }
-    }
+    ElMessage.warning('未找到对应条码商品')
+    return
   }
 
   if (!order.value.items) {
@@ -1779,7 +1718,9 @@ const handleScanPaymentCode = (authCode: string, channel: 'WECHAT' | 'ALIPAY') =
   // 自动触发反扫结账闭环
   const shouldAutoCheckout = systemData.paymentConfig?.scanBox?.autoCheckoutOnPaymentCode ?? true
   if (shouldAutoCheckout) {
-    setTimeout(() => {
+    if (autoCheckoutTimer) clearTimeout(autoCheckoutTimer)
+    autoCheckoutTimer = setTimeout(() => {
+      autoCheckoutTimer = null
       handleDoCheckout({
         authCode,
         payChannel: channel,
@@ -1789,6 +1730,7 @@ const handleScanPaymentCode = (authCode: string, channel: 'WECHAT' | 'ALIPAY') =
   }
 }
 
+let autoCheckoutTimer: ReturnType<typeof setTimeout> | null = null
 let unsubscribeScanner: (() => void) | null = null
 
 const loadSessionData = async () => {
@@ -1804,8 +1746,11 @@ const loadSessionData = async () => {
       if ((order.value.feeAmount == null || Number(order.value.feeAmount) === 0) && detail?.session?.feeAmount != null) {
         order.value.feeAmount = detail.session.feeAmount
       }
-      if (detail && detail.lineItems && detail.lineItems.length > 0) {
-        order.value.items = detail.lineItems.map((it: any) => ({
+      const activeLineItems = Array.isArray(detail?.lineItems)
+        ? detail.lineItems.filter((it: any) => it.status !== 'CANCELLED')
+        : []
+      if (activeLineItems.length > 0) {
+        order.value.items = activeLineItems.map((it: any) => ({
           id: it.productId,
           productId: it.productId,
           code: it.productCode || `PRD-${it.productId}`,
@@ -1816,6 +1761,7 @@ const loadSessionData = async () => {
         }))
       } else {
         order.value.items = []
+        order.value.totalAmount = 0
       }
       recalcOrderTotal()
       await loadStoreMembers('', order.value?.tenantId || detail?.session?.tenantId || storeConfig.tenantId)
@@ -1868,8 +1814,11 @@ const handleSelectSession = async (newId: number) => {
       if ((order.value.feeAmount == null || Number(order.value.feeAmount) === 0) && detail?.session?.feeAmount != null) {
         order.value.feeAmount = detail.session.feeAmount
       }
-      if (detail && detail.lineItems && detail.lineItems.length > 0) {
-        order.value.items = detail.lineItems.map((it: any) => ({
+      const activeLineItems = Array.isArray(detail?.lineItems)
+        ? detail.lineItems.filter((it: any) => it.status !== 'CANCELLED')
+        : []
+      if (activeLineItems.length > 0) {
+        order.value.items = activeLineItems.map((it: any) => ({
           id: it.productId,
           productId: it.productId,
           code: it.productCode || `PRD-${it.productId}`,
@@ -1880,6 +1829,7 @@ const handleSelectSession = async (newId: number) => {
         }))
       } else {
         order.value.items = []
+        order.value.totalAmount = 0
       }
       recalcOrderTotal()
       await loadStoreMembers('', order.value?.tenantId || detail?.session?.tenantId || storeConfig.tenantId)
@@ -1914,7 +1864,12 @@ const currentPlanTotal = computed(() => {
 
 const isAmountMatched = computed(() => {
   if (!order.value) return false
-  return currentPlanTotal.value >= order.value.actualAmount
+  const due = Number(order.value.actualAmount ?? 0)
+  if (due <= 0) {
+    const hasBillableContext = Boolean(order.value.sessionId) || Boolean(order.value.id && !order.value.isLocalOrder) || (order.value.items?.length ?? 0) > 0
+    return hasBillableContext && currentPlanTotal.value === 0
+  }
+  return currentPlanTotal.value >= due
 })
 
 const getRemainingAmount = (channel: string) => {
@@ -2110,7 +2065,7 @@ const handleDoCheckout = async (extraScanInfo?: { authCode?: string; payChannel?
           quantity: it.qty || it.quantity || 1
         }))
       }
-      if (order.value.id && order.value.id < 1000) {
+      if (order.value.id && !order.value.isLocalOrder) {
         checkoutPayload.billingOrderId = order.value.id
       }
       if (order.value.sessionId) {
@@ -2157,7 +2112,7 @@ const handleDoCheckout = async (extraScanInfo?: { authCode?: string; payChannel?
       order.value.status = 'WAIT_CLEAN'
     }
 
-    if (extraScanInfo) {
+    if (extraScanInfo && (extraScanInfo.authCode || extraScanInfo.payChannel)) {
       res.scanInfo = extraScanInfo
       res.paymentRoute = systemData.paymentConfig?.activeRoute
     }
@@ -2262,8 +2217,6 @@ watch(successDialogVisible, (val) => {
   }
 })
 
-const openReceiptConfigDrawer = ref(false)
-
 const formatPhoneDisplay = (phone?: string) => {
   if (!phone) return '138****8888'
   if (quickReceiptConfig.value?.maskCustomerPhone) {
@@ -2343,7 +2296,6 @@ const applyConfigPreset = (preset: 'ALL' | 'RECOMMENDED' | 'MINIMAL') => {
 
 const handleSaveQuickConfig = () => {
   systemData.updateReceiptTemplate(quickReceiptConfig.value)
-  openReceiptConfigDrawer.value = false
   ElMessage.success('小票打印模板与各项开关配置已保存生效！')
 }
 
@@ -2458,7 +2410,65 @@ const handlePrintReceipt = () => {
           .sign-underline { flex: 1; border-bottom: 1px solid #000; height: 1px; margin-bottom: 2px; }
           .stub-date-row { display: flex; justify-content: flex-end; font-size: 11px; color: #000; }
           .sawtooth-tear-edge { display: none !important; }
-        
+        </style>
+      </head>
+      <body>
+        <div class="thermal-print-wrapper">
+          ${el.innerHTML}
+        </div>
+      </body>
+    </html>
+  `)
+  doc.close()
+
+  setTimeout(() => {
+    iframe.contentWindow?.focus()
+    iframe.contentWindow?.print()
+  }, 250)
+}
+
+const handleSuccessConfirm = () => {
+  successDialogVisible.value = false
+  router.push('/dashboard')
+}
+
+watch(() => storeConfig.currentStoreId, () => {
+  loadHeldOrdersFromStorage()
+})
+
+onMounted(async () => {
+  loadHeldOrdersFromStorage()
+  await loadActiveSessions()
+  await loadStoreMembers()
+  await loadSessionData()
+  systemData.syncProductsFromServer()
+  barcodeScanner.startListening()
+  window.addEventListener("keydown", handleGlobalKeydown)
+  ensureScannerFocus()
+  unsubscribeScanner = barcodeScanner.subscribe(handleBarcodeScanned)
+})
+
+onUnmounted(() => {
+  if (autoCheckoutTimer) {
+    clearTimeout(autoCheckoutTimer)
+    autoCheckoutTimer = null
+  }
+  if (unsubscribeScanner) {
+    unsubscribeScanner()
+    unsubscribeScanner = null
+  }
+  barcodeScanner.stopListening()
+  window.removeEventListener("keydown", handleGlobalKeydown)
+})
+</script>
+
+<style scoped>
+.cashier-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 /* 📷 扫码盒子免驱状态条与快捷工作台 */
 .scanbox-status-bar {
   display: flex;
@@ -2522,432 +2532,6 @@ const handlePrintReceipt = () => {
   font-family: monospace;
   color: #0f766e;
   font-size: 13px;
-}
-
-/* 消费项目明细清单 */
-.order-items-pane {
-  margin-top: 10px;
-  background: #f8fafc;
-  border-radius: 6px;
-  padding: 10px 12px;
-  border: 1px solid #e2e8f0;
-}
-.items-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-.items-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: #1e293b;
-}
-.items-list-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 180px;
-  overflow-y: auto;
-}
-.no-items-hint {
-  font-size: 12px;
-  color: #94a3b8;
-  text-align: center;
-  padding: 12px 0;
-}
-.cashier-item-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 8px;
-  background: #ffffff;
-  border-radius: 4px;
-  border: 1px solid #f1f5f9;
-}
-.it-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.it-name {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #1e293b;
-}
-.it-code {
-  font-size: 11px;
-  color: #94a3b8;
-  font-family: monospace;
-}
-.it-price-qty {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.it-price {
-  font-size: 12px;
-  color: #64748b;
-}
-.it-qty-ctrl {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: #f1f5f9;
-  border-radius: 4px;
-  padding: 0 4px;
-}
-.it-qty {
-  font-size: 12px;
-  font-weight: 700;
-  min-width: 16px;
-  text-align: center;
-}
-.it-subtotal {
-  font-size: 13px;
-  font-weight: 700;
-  color: #0f172a;
-  min-width: 60px;
-  text-align: right;
-}
-
-/* 扫码模拟器弹窗样式 */
-.simulator-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.sim-hardware-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 12px 16px;
-}
-.sim-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  color: #0f172a;
-}
-.sim-indicator {
-  width: 8px;
-  height: 8px;
-  background-color: #10b981;
-  border-radius: 50%;
-}
-.sim-meta-tags {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
-}
-.sim-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border: 1px solid #f1f5f9;
-  border-radius: 6px;
-  padding: 10px 14px;
-  background: #ffffff;
-}
-.sim-sec-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.sim-sec-title {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: #1e293b;
-}
-.sim-sec-tip {
-  font-size: 12px;
-  color: #64748b;
-}
-.sim-btn-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.custom-scan-line {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.mono-code {
-  font-family: monospace;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-
-/* === 黄金左6右4收银布局与商品网格 === */
-.cashier-main-row {
-  min-height: calc(100vh - 160px);
-}
-.product-catalog-card {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-.catalog-header-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.cat-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.cat-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: #1e293b;
-}
-.product-cards-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px;
-  max-height: calc(100vh - 250px);
-  overflow-y: auto;
-  padding: 4px;
-}
-.product-cell-card {
-  display: flex;
-  flex-direction: column;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 10px 12px;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  user-select: none;
-}
-.product-cell-card:hover {
-  background: #ffffff;
-  border-color: #3b82f6;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
-  transform: translateY(-2px);
-}
-.cell-icon {
-  font-size: 24px;
-  margin-bottom: 6px;
-}
-.cell-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1e293b;
-  margin-bottom: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cell-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-.cell-code {
-  font-size: 10.5px;
-  color: #64748b;
-}
-.cell-bottom {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: auto;
-}
-.cell-price {
-  font-size: 15px;
-  font-weight: 800;
-  color: #0f766e;
-}
-.cart-settle-col .order-pane {
-  height: 100%;
-}
-.customer-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 10px;
-  background: #f1f5f9;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  font-size: 12.5px;
-}
-.payer-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
-  border-radius: 6px;
-  margin-bottom: 8px;
-}
-.payer-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #4338ca;
-  white-space: nowrap;
-}
-.amount-summary-strip {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  border-radius: 8px;
-  padding: 10px 14px;
-  margin: 10px 0;
-}
-.due-amount-display {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.due-text {
-  font-size: 14px;
-  font-weight: 600;
-  color: #065f46;
-}
-.due-val-big {
-  font-size: 24px;
-  font-weight: 800;
-  color: #047857;
-}
-.sub-amount-notes {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 11px;
-  color: #64748b;
-  text-align: right;
-}
-.quick-pay-mini-bar {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-}
-.channel-buttons-row {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-.channels-mini-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.mini-channel-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.m-lbl {
-  font-size: 12px;
-  font-weight: 600;
-  color: #475569;
-  min-width: 38px;
-}
-.held-orders-drawer-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.held-order-card {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.held-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.held-space {
-  font-weight: 700;
-  font-size: 14px;
-  color: #1e293b;
-}
-.held-info {
-  font-size: 12px;
-  color: #64748b;
-  line-height: 1.6;
-}
-.held-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-</style>
-      </head>
-      <body>
-        <div class="thermal-print-wrapper">
-          ${el.innerHTML}
-        </div>
-      </body>
-    </html>
-  `)
-  doc.close()
-
-  setTimeout(() => {
-    iframe.contentWindow?.focus()
-    iframe.contentWindow?.print()
-  }, 250)
-}
-
-const handleSuccessConfirm = () => {
-  successDialogVisible.value = false
-  router.push('/dashboard')
-}
-
-watch(() => storeConfig.currentStoreId, () => {
-  loadHeldOrdersFromStorage()
-})
-
-onMounted(async () => {
-  loadHeldOrdersFromStorage()
-  await loadActiveSessions()
-  await loadStoreMembers()
-  await loadSessionData()
-  systemData.syncProductsFromServer()
-  barcodeScanner.startListening()
-  window.addEventListener("keydown", handleGlobalKeydown)
-  ensureScannerFocus()
-  unsubscribeScanner = barcodeScanner.subscribe(handleBarcodeScanned)
-})
-
-onUnmounted(() => {
-  if (unsubscribeScanner) {
-    unsubscribeScanner()
-    unsubscribeScanner = null
-  }
-  barcodeScanner.stopListening()
-  window.removeEventListener("keydown", handleGlobalKeydown)
-})
-</script>
-
-<style scoped>
-.cashier-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
 }
 
 .card-header {

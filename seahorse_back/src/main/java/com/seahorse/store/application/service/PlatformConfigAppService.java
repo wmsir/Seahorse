@@ -187,10 +187,9 @@ public class PlatformConfigAppService {
         }
         if (cmd.getIsDefault() != null) {
             if (Boolean.TRUE.equals(cmd.getIsDefault())) {
-                planConfigRepository.findAll().forEach(c -> {
-                    c.setIsDefault(false);
-                    planConfigRepository.save(c);
-                });
+                List<SubscriptionPlanConfig> allConfigs = planConfigRepository.findAll();
+                allConfigs.forEach(c -> c.setIsDefault(false));
+                planConfigRepository.saveAll(allConfigs);
             }
             config.setIsDefault(cmd.getIsDefault());
         }

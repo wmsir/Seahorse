@@ -3,17 +3,6 @@
     <!-- 顶部导航栏 -->
     <el-header class="layout-header">
       <div class="brand-box">
-        <button
-          class="sidebar-collapse-btn"
-          @click="toggleSidebarCollapse"
-          :title="isSidebarCollapsed ? '展开左侧导航栏' : '收起左侧导航栏 (适配小屏/平板收银台)'"
-        >
-          <span>{{ isSidebarCollapsed ? '☰' : '⇤' }}</span>
-        </button>
-        <a href="/" class="portal-back-btn" title="返回 FWPT 统一门户主站">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.2" y="3.2" width="6.8" height="6.8" rx="1.8" fill="currentColor" fill-opacity="0.22"/><rect x="14" y="3.2" width="6.8" height="6.8" rx="1.8"/><rect x="3.2" y="14" width="6.8" height="6.8" rx="1.8"/><rect x="14" y="14" width="6.8" height="6.8" rx="1.8" fill="currentColor" fill-opacity="0.22"/></svg>
-          <span>FWPT 门户</span>
-        </a>
         <div class="brand-logo" title="海马智慧门店 · 海马会员，记住每位好客。" aria-hidden="true">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 3.2C14.5 3.2 15.8 4.2 16.2 5.5L19.8 6C20.4 6.1 20.4 7.3 19.8 7.5L16 8.2C15.2 8.5 15 9.4 16 10.4C17.8 12 17.8 14.8 15.6 16.6C13.8 18 12.6 19.2 12.8 20.4C13 21.3 14.2 21.6 14.8 20.9C15.3 20.3 14.9 19.5 14.2 19.6C15.6 19.2 16.6 20.4 15.8 21.7C14.8 23 12 22.8 11 21C10 19.2 10.6 17.2 11.8 15.4C12.8 13.8 12.8 11.8 11.6 9.8C10.4 7.8 10.4 4.8 12.5 3.2Z" fill="currentColor" fill-opacity="0.24"/><path d="M11.2 4.4L10.2 2.5L12 3.4L12.8 1.8L13.8 3.3"/><path d="M12 10.5L8.2 9.6C7.6 11.2 7.6 12.8 8.4 14.2L12.2 13.6" fill="currentColor" fill-opacity="0.18"/><path d="M12.4 12L8 11.9"/><path d="M13.5 11.8C14.8 11.8 15.8 12 16.8 12.4"/><path d="M13.4 13.8C14.6 13.8 15.5 14 16.4 14.4"/><circle cx="14.2" cy="6.1" r="1" fill="currentColor" stroke="none"/><path d="M5.2 3.4l.65 1.45L7.3 5.5l-1.45.65L5.2 7.6l-.65-1.45L3.1 5.5l1.45-.65L5.2 3.4z" fill="currentColor" stroke="none"/></svg>
         </div>
@@ -237,14 +226,6 @@
             <span>🛋️ {{ storeConfig.spaceAlias }}看板</span>
           </button>
           <button
-            class="pos-quick-pill pill-handover"
-            :class="{ 'is-active': $route.path === '/shift-handover' }"
-            @click="$router.push('/shift-handover')"
-            title="收银员交接班盲盘对账与打单"
-          >
-            <span>⚖️ 交班盲盘</span>
-          </button>
-          <button
             class="pos-quick-pill pill-cmd"
             @click="openQuickCommandModal"
             title="打开全局快捷搜索与指令面板 (快捷键 Ctrl + K)"
@@ -342,8 +323,8 @@
     </el-header>
 
     <el-container class="main-body">
-      <!-- 侧边菜单栏 (支持折叠/平板紧凑模式) -->
-      <el-aside :width="isSidebarCollapsed ? '0px' : '220px'" class="layout-aside" :class="{ 'is-collapsed': isSidebarCollapsed }">
+      <!-- 侧边菜单栏 -->
+      <el-aside width="220px" class="layout-aside">
         <el-menu
           :default-active="activeNavPath"
           router
@@ -826,7 +807,7 @@
               <el-select v-model="feedbackForm.module" style="width: 100%;">
                 <el-option label="门店前台 (空间/工位/预约)" value="门店前台" />
                 <el-option label="客源营销 (会员/卡包/商城)" value="客源营销" />
-                <el-option label="收银结算 (开单/买单/交班)" value="收银结算" />
+                <el-option label="收银结算 (开单/买单/储值核销)" value="收银结算" />
                 <el-option label="规章制度与协同 (签字/公告)" value="规章协同" />
                 <el-option label="货品物资 (商品/库存/BOM)" value="货品物资" />
                 <el-option label="财务报表 (账本/利润/核算)" value="财务核算" />
@@ -1197,7 +1178,7 @@
       <div class="qc-container">
         <el-input
           v-model="quickCommandKeyword"
-          placeholder="输入功能名称、拼音首字母或业务关键字（如：收银、交班、会员、账本、库存、排班...）"
+          placeholder="输入功能名称、拼音首字母或业务关键字（如：收银、会员、账本、库存、排班...）"
           size="large"
           clearable
           autofocus
@@ -1220,11 +1201,11 @@
               <div class="qc-s-desc">实时桌台/包厢计时与加单</div>
             </div>
           </div>
-          <div class="qc-shortcut-card" @click="executeQuickCommand('/shift-handover')">
-            <span class="qc-s-icon">⚖️</span>
+          <div class="qc-shortcut-card" @click="executeQuickCommand('/members')">
+            <span class="qc-s-icon">👥</span>
             <div class="qc-s-text">
-              <div class="qc-s-name">收银交班盲盘</div>
-              <div class="qc-s-desc">点钞计算器与平账单打印</div>
+              <div class="qc-s-name">会员开卡与充值</div>
+              <div class="qc-s-desc">海马体画像、双轨储值与次卡</div>
             </div>
           </div>
           <div class="qc-shortcut-card" @click="executeQuickCommand('/expenses')">
@@ -1280,6 +1261,7 @@ import {
   getStoreNoticesApi
 } from '../api'
 import { ElMessage, ElMessageBox, ElNotification, ElButton } from 'element-plus'
+import { isPlatformAdminRole, isTenantBossRole } from '../utils/systemConfig'
 
 const router = useRouter()
 const route = useRoute()
@@ -1288,13 +1270,8 @@ const systemData = useSystemDataStore()
 const username = ref(localStorage.getItem('seahorse_user') || '管理员')
 
 // =============================================================================
-// 🧭 侧边栏折叠适配与全局快捷指令面板 (Ctrl + K)
+// 🧭 全局快捷指令面板 (Ctrl + K)
 // =============================================================================
-const isSidebarCollapsed = ref(typeof window !== 'undefined' && window.innerWidth < 1024)
-const toggleSidebarCollapse = () => {
-  isSidebarCollapsed.value = !isSidebarCollapsed.value
-}
-
 const quickCommandVisible = ref(false)
 const quickCommandKeyword = ref('')
 
@@ -1308,7 +1285,6 @@ const allQuickCommands = computed(() => [
   { path: '/cashier', title: '前台收银结算中心', desc: '商品服务点单、会员储值/次卡抵扣、组合收款', icon: '💳', category: '门店前台', keywords: 'cashier shouyin 收银 结账 买单 开单' },
   { path: '/rooms', title: `${storeConfig.spaceAlias}开单看板`, desc: `查看全店${storeConfig.spaceAlias}占用状态、计时计费与扫码点单`, icon: '🛋️', category: '门店前台', keywords: 'rooms baoxiang gongwei 包厢 工位 桌台 开台' },
   { path: '/appointments', title: '预约排班日历', desc: '全渠道客户预约登记、技师排班与到店核销', icon: '📅', category: '门店前台', keywords: 'appointments yuyue paiban 预约 排班' },
-  { path: '/shift-handover', title: '交班盲盘与对账中心', desc: '收银员班次点钞计算器、现金盲盘核销与交班单打印', icon: '⚖️', category: '门店前台', keywords: 'shift handover jiaoban 交班 盲盘 对账 点钞' },
   { path: '/members', title: '会员中心 · 海马体档案', desc: '会员画像、储值充值、专属喜好记忆与消费轨迹', icon: '👥', category: '客源营销', keywords: 'members huiyuan 会员 充值 储值 档案' },
   { path: '/card-template', title: '会员卡包与次卡管理', desc: '储值卡、次卡、年卡模板配置与办卡激活', icon: '🎫', category: '客源营销', keywords: 'card kabao 会员卡 次卡 年卡' },
   { path: '/marketing', title: '营销裂变与拓客中心', desc: '老带新分销、拼团秒杀、沉睡客唤醒与优惠券', icon: '🚀', category: '客源营销', keywords: 'marketing yingxiao 营销 裂变 优惠券 拓客' },
@@ -1360,12 +1336,19 @@ const notifiedOrderIds = new Set<string>()
 
 const totalAlertCount = computed(() => pendingServiceCalls.value.length + pendingOrderNotifications.value.length)
 
-// 1. Web Audio API 合成服务铃声 (Ding-Dong 清脆双音叮咚，APP与浏览器通用)
+// 1. Web Audio API 合成服务铃声 (复用单例 AudioContext，避免多通知句柄泄漏)
+let sharedAudioCtx: AudioContext | null = null
 const playDingDongChime = () => {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
     if (!AudioCtx) return
-    const ctx = new AudioCtx()
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+      sharedAudioCtx = new AudioCtx()
+    }
+    if (sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume().catch(() => {})
+    }
+    const ctx = sharedAudioCtx
     const now = ctx.currentTime
 
     // 叮 (D5 587.33Hz)
@@ -1421,10 +1404,11 @@ const testServiceSound = () => {
   ElMessage.success('已播放测试双音提示铃声与菜品语音报单！')
 }
 
-// 3. 轮询后台包厢呼叫服务通知与新订单出餐事件 (APP与浏览器通用)
+// 3. 轮询后台包厢呼叫服务通知与新订单出餐事件 (APP与浏览器通用，页面隐藏时自动挂起节流)
 let serviceCallTimer: any = null
 const checkServiceCalls = async () => {
   if (isPlatformDeveloper.value || isCustomerMember.value) return
+  if (typeof document !== 'undefined' && document.hidden) return
   const storeId = storeConfig.currentStoreId || 'S001'
 
   // 1) 检查包厢现场呼叫服务 (加茶水/换骨碟/催单)
@@ -1587,7 +1571,7 @@ const handleOpenRegulationModal = (notice: any) => {
 
 const handleGoToRegulations = () => {
   noticeModalVisible.value = false
-  router.push('/store-regulations')
+  router.push('/regulations')
 }
 
 const handleMarkServiceCall = async (id: string) => {
@@ -1716,14 +1700,16 @@ const handleTestQuickUnlock = () => {
   ElMessage.success('🎉 [测试模式] 已应急解除页面锁定，并自动赠送应急缓冲空间！工作台恢复正常操作。')
 }
 
+const handleQuotaUpdatedEvent = (e: any) => {
+  if (e?.detail) {
+    tenantQuota.value = e.detail
+  }
+}
+
 onMounted(() => {
   tenantQuota.value = getTenantQuota()
   if (typeof window !== 'undefined') {
-    window.addEventListener('seahorse-quota-updated', (e: any) => {
-      if (e?.detail) {
-        tenantQuota.value = e.detail
-      }
-    })
+    window.addEventListener('seahorse-quota-updated', handleQuotaUpdatedEvent)
   }
 })
 
@@ -1770,11 +1756,13 @@ try {
   permissions.value = []
 }
 
-const isPlatformDeveloper = computed(() => role.value === 'PLATFORM_DEVELOPER')
-const isMerchantBoss = computed(() => role.value === 'SUPER_ADMIN' || role.value === 'MERCHANT_ADMIN' || role.value === 'TENANT_ADMIN')
+const isPlatformDeveloper = computed(() =>
+  role.value === 'PLATFORM_DEVELOPER' || role.value === 'PLATFORM_ADMIN' || role.value === 'PLATFORM_SUPER_ADMIN'
+)
+const isMerchantBoss = computed(() => isTenantBossRole(role.value))
 const isSuperAdmin = computed(() => {
   const r = localStorage.getItem('seahorse_role') || role.value || ''
-  return r === 'SUPER_ADMIN' || r === 'PLATFORM_DEVELOPER' || r === 'PLATFORM_ADMIN' || r === 'PLATFORM_SUPER_ADMIN'
+  return isPlatformAdminRole(r, localStorage.getItem('seahorse_username')) || r === 'SUPER_ADMIN'
 })
 const isCustomerMember = computed(() => role.value === 'CUSTOMER_MEMBER')
 
@@ -2003,7 +1991,10 @@ const getStoreIndustryDesc = (s: any) => {
     BEAUTY: '美业造型',
     RESTAURANT: '餐饮美食',
     AUTO: '汽车养护',
-    RETAIL: '轻奢零售'
+    RETAIL: '轻奢零售',
+    FOOT_SPA: '足疗养生',
+    TEA_HOUSE: '茶空间雅座',
+    PET: '萌宠洗护'
   }
   const name = s.storeName || ''
   if (name.includes('火锅') || name.includes('餐') || name.includes('茶') || name.includes('酒')) return '餐饮美食'
@@ -2318,11 +2309,30 @@ const planBadgeConfig = computed(() => {
   }
 })
 
+let isLayoutUnmounted = false
+const handleWindowFocusSync = () => {
+  if (!isPlatformDeveloper.value && !isCustomerMember.value) {
+    storeConfig.fetchCurrentSubscription().then(() => {
+      if (!isLayoutUnmounted) {
+        tenantQuota.value = getTenantQuota()
+      }
+    })
+  }
+}
+
+const handleVisibilityChange = () => {
+  if (typeof document !== 'undefined' && !document.hidden) {
+    void checkServiceCalls()
+  }
+}
+
 onMounted(async () => {
+  isLayoutUnmounted = false
   window.addEventListener('keydown', handleGlobalKeydown)
-  // 如果是开发维护人，且当前在dashboard，重定向到vendor
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  // 如果是开发维护人，且当前在dashboard或根路径，重定向到全平台大盘概览
   if (isPlatformDeveloper.value && (router.currentRoute.value.path === '/dashboard' || router.currentRoute.value.path === '/')) {
-    router.replace('/vendor')
+    router.replace('/platform-dashboard')
     return
   }
   // 如果是顾客会员，且当前在dashboard，重定向到member-portal
@@ -2365,26 +2375,30 @@ onMounted(async () => {
       openOnboardingModal()
     }
 
+    if (isLayoutUnmounted) return
+
     // 开启包厢现场呼叫管家与服务实时监听与声音播报 (4秒轮询)
     checkServiceCalls()
     serviceCallTimer = setInterval(checkServiceCalls, 4000)
 
     // 监听窗口重新获得焦点，自动静默同步最新套餐与配额，杜绝超管升级后租户端有延迟
-    window.addEventListener('focus', () => {
-      if (!isPlatformDeveloper.value && !isCustomerMember.value) {
-        storeConfig.fetchCurrentSubscription().then(() => {
-          tenantQuota.value = getTenantQuota()
-        })
-      }
-    })
+    window.addEventListener('focus', handleWindowFocusSync)
   }
 })
 
 onUnmounted(() => {
+  isLayoutUnmounted = true
   window.removeEventListener('keydown', handleGlobalKeydown)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('seahorse-quota-updated', handleQuotaUpdatedEvent)
+  window.removeEventListener('focus', handleWindowFocusSync)
   if (serviceCallTimer) {
     clearInterval(serviceCallTimer)
     serviceCallTimer = null
+  }
+  if (sharedAudioCtx && sharedAudioCtx.state !== 'closed') {
+    sharedAudioCtx.close().catch(() => {})
+    sharedAudioCtx = null
   }
 })
 
@@ -2595,31 +2609,6 @@ const handleLogout = () => {
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
-}
-
-.portal-back-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 30px;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  color: #059669;
-  font-size: 11.5px;
-  font-weight: 700;
-  padding: 0 10px;
-  border-radius: 9999px;
-  text-decoration: none;
-  transition: all 0.18s ease;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.portal-back-btn:hover {
-  background: #dcfce7;
-  border-color: #6ee7b7;
-  color: #047857;
-  transform: translateY(-1px);
 }
 
 .brand-logo {
@@ -4194,39 +4183,7 @@ const handleLogout = () => {
   gap: 8px;
 }
 
-/* ================= 侧边栏折叠与顶部 POS 高频快捷导航条 ================= */
-.sidebar-collapse-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #475569;
-  font-size: 15px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  margin-right: 8px;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-}
-.sidebar-collapse-btn:hover {
-  background: #e0f2fe;
-  border-color: #7dd3fc;
-  color: #0284c7;
-}
-
-.layout-aside {
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.layout-aside.is-collapsed {
-  width: 0 !important;
-  overflow: hidden;
-  border-right: none;
-}
-
+/* ================= 顶部 POS 高频快捷导航条 ================= */
 .pos-quick-launch-bar {
   display: inline-flex;
   align-items: center;

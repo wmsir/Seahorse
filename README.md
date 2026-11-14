@@ -7,7 +7,7 @@
 ## 📌 项目寓意与核心理念
 
 * **品牌寓意**：
-  海马体态轻盈、记忆力出众（人类大脑记忆中枢就叫**海马体**）。海马智慧门店象征系统能像大脑海马体一样，**精准记住每一位会员的个性喜好、特征、双轨储值金、次卡资产与履约消费轨迹**，帮助**美业、餐饮、汽修、专营零售**等实体商家做深度的私域会员精细化运营。
+  海马体态轻盈、记忆力出众（人类大脑记忆中枢就叫**海马体**）。海马智慧门店象征系统能像大脑海马体一样，**精准记住每一位会员的个性喜好、特征、双轨储值金、次卡资产与履约消费轨迹**，帮助**美业 (`BEAUTY`)、餐饮 (`RESTAURANT`)、汽修 (`AUTO`)、专营零售 (`RETAIL`)、足疗养生 (`FOOT_SPA`)、茶馆棋牌 (`TEA_HOUSE`)、宠物门店 (`PET`)** 等 7 大实体业态商家做深度的私域会员精细化运营。
 * **统一哲学模型**：**“在场履约会话模型 (On-Site Service Session)”**
   系统打破传统垂直行业软件壁垒，通过“微内核+可插拔策略”架构，将餐饮“开台/加菜/结账”、美业“占镜台/加护理/结账”、汽修“工位进厂/增换滤芯/结账”统一抽象为同构的在场履约会话流。
 
@@ -25,7 +25,7 @@
 |  - 会员资产账户上下文 (Member Asset Context): 次卡/双轨储值/海马体记忆档案，防超扣、资金分账      |
 +---------------------------------------------------------------------------------------------------+
 |  【通用域 (Generic Domain)】                                                                       |
-|  - 统一支付网关上下文 (Payment Gateway Context): 微信/支付宝/银联/现金策略适配、原路退款、交班平账|
+|  - 统一支付网关上下文 (Payment Gateway Context): 微信/支付宝/银联/现金策略适配、原路退款、组合收银|
 |  - 组织与权限上下文 (Organization & IAM Context): 多租户、分店隔离、员工角色、细粒度数据鉴权     |
 |  - 商品与库存上下文 (Product & Inventory Context): 实物SKU、计量服务项、BOM原料配方关联扣减      |
 |  - 业绩提成上下文 (Commission Context): 售卡提成、工时施工提成、单品级多人分摊规则                 |
@@ -42,8 +42,8 @@
 
 1. **🧠 “海马体”客情常态记忆微内核**：
    - 彻底告别千人一面。毫秒级自动呼出顾客发质头皮特性、餐饮微辣免葱、汽修车型机油标号等常态偏好，免除顾客反复交代的沟通成本，熟客满意度飙升 98%。
-2. **💳 双轨储值金 + 计量次卡防并发超扣**：
-   - 科学严谨区分充值本金与赠送奖励金，支持等比分摊与优先扣本金策略；次卡单项核销绑定技师提成；基于版本号乐观锁（CAS）彻底防范并发超扣。
+2. **💳 双轨储值金 + 计量次卡 + 商品库存 `@Version` 乐观锁防并发超扣**：
+   - 科学严谨区分充值本金与赠送奖励金，支持等比分摊与优先扣本金策略；次卡单项核销绑定技师提成；`DualBalanceAccount` 与 `Product` 均基于 JPA `@Version` 乐观锁（CAS）彻底防范高并发超扣与超卖。
 3. **⚡ 全场景在场履约服务流微内核（多批次动态追加）**：
    - 抹平美业、餐饮、汽修业务鸿沟！空间工位极速占用，支持多次动态追加项目、单品级多人分工提成认领、多渠道组合混合结算（储值+次卡+微信+现金）。
 4. **💖 365天自动化客群关怀与国庆特别企划**：
@@ -77,17 +77,18 @@ seahorse/
 │   └── pom.xml
 ├── seahorse_web_front/        # PC管理后台与收银工作台 (Vue 3 + Vite + TypeScript + Element Plus)
 │   ├── src/
-│   │   ├── views/            # 看板、在场工位看板、收银台、会员海马中心、交班盲盘、行业配置
+│   │   ├── views/            # 看板、在场工位看板、收银台、会员海马中心、门店账本、7大行业配置
 │   │   ├── layout/           # 海马品牌统一工作台布局
-│   │   ├── api/              # Axios 接口层
+│   │   ├── api/              # Axios 接口层 (自适应 Web / Tauri 桌面端网关)
 │   │   └── stores/           # Pinia 状态管理
 │   └── package.json
-├── seahorse_app/              # 跨平台移动端 APP (Flutter 3.x: HarmonyOS / Android / iOS)
+├── seahorse_desktop/          # 原生跨平台桌面客户端 (Rust + Tauri v2: Windows NSIS/MSI/.exe & macOS Universal .dmg)
+│   └── src-tauri/            # 系统托盘、离线配置持久化、后端连通性探针与原生窗口容器
+├── seahorse_app/              # 跨平台移动端 APP (Flutter 3.x: Android APK / iOS IPA / HarmonyOS NEXT HAP)
 ├── seahorse_mini_program/     # 顾客端微信小程序 (扫码在场点单、动态加项、会员海马记忆档案)
 │   ├── pages/index/          # 门店首页与在场看板
 │   ├── pages/order/          # 在场点单与动态加项
-│   ├── pages/member/         # 会员中心与双轨储值总览
-│   └── pages/pay/            # 在线自助结账
+│   └── pages/member/         # 会员中心与双轨储值总览
 ├── ops/                       # 本地启停与远程 Docker 部署套件 (01_本地开发运行 / 02_远程Docker部署)
 ├── scripts/                   # 运维与数据库演示数据初始化脚本
 ├── sql/                       # 数据库脚本 (schema.sql, init_data.sql)
@@ -97,27 +98,51 @@ seahorse/
 └── docs/                      # 需求 PRD 与 DDD 规格说明书归档
 ```
 
+> 🤖 **全平台 CI/CD 自动构建流水线**：仓库级 GitHub Actions 工作流 [`.github/workflows/build-seahorse-clients.yml`](../.github/workflows/build-seahorse-clients.yml) 支持一键并行编译打包 **Windows 桌面端 (`.exe`/`.msi`)、macOS Universal 桌面端 (`.dmg`)、Android (`.apk`)、iOS (`.ipa`) 与 HarmonyOS NEXT (`.hap`)**。
+
 ---
 
-## 🚀 快速启动
+## 🖥️ 全平台客户端矩阵与快速启动
+
+| 终端形态 | 工程目录 | 技术栈 | 适用角色与场景 |
+| :--- | :--- | :--- | :--- |
+| **Web 管理与收银工作台** | `seahorse_web_front/` | Vue 3 + Vite + TS + Element Plus | 门店收银台、店长运营、平台管理端 |
+| **Windows / macOS 原生桌面端** | `seahorse_desktop/` | Rust + Tauri v2 | 前台收银机常驻托盘、多环境网关切换 |
+| **Android / iOS / HarmonyOS NEXT** | `seahorse_app/` | Flutter 3.x (Dart 3) | 店长巡店、技师接单排班、移动开单收银 |
+| **顾客端微信小程序** | `seahorse_mini_program/` | 微信小程序原生框架 | 扫码开台点单、过程动态追加、会员资产查询 |
 
 ### 后端服务启动
 ```bash
 cd seahorse_back
-# 启动内置零配置 H2 数据库开发模式，自加载初始化数据
+# 启动开发模式 (默认连接本地 MySQL 127.0.0.1:3306/seahorse_store，自动建表并初始化演示数据)
 mvn spring-boot:run
 ```
 - 后端服务端口: `http://localhost:8082`
+- 健康心跳探针: `http://localhost:8082/api/health`
 - Swagger API 文档: `http://localhost:8082/swagger-ui.html`
 
-### PC收银管理前端启动
+### PC 收银管理前端启动 (Web)
 ```bash
 cd seahorse_web_front
 npm install
 npm run dev
 ```
-- 访问地址: `http://localhost:3000`
-- 预置体验账号: `admin` / `123456` (超级管理员)、`manager` / `123456` (店长)、`cashier` / `123456` (收银员)、`tony` / `123456` (托尼总监)
+- 访问地址: `http://localhost:3000/seahorse/`
+- 预置体验账号: `admin` / `123456` (平台开发维护人/管理员)、`manager` / `123456` (店长)、`cashier` / `123456` (收银员)、`tony` / `123456` (托尼总监)
+
+### Windows & macOS 原生桌面客户端构建 (`seahorse_desktop`)
+```bash
+# 1. 构建桌面端专用前端静态包 (dist-desktop/)
+cd seahorse_web_front && npm run build:desktop
+
+# 2. 启动或打包 Rust + Tauri v2 桌面端
+cd ../seahorse_desktop/src-tauri
+cargo tauri build
+```
+
+### Android / iOS / HarmonyOS NEXT 移动端构建 (`seahorse_app`)
+- **Android APK**：运行 `powershell -ExecutionPolicy Bypass -File seahorse_app/build_android.ps1`（或 `ops/02_远程Docker部署/deploy_app_apk.bat`）。
+- **iOS / HarmonyOS NEXT / 全平台云端打包**：通过 GitHub Actions 工作流 `.github/workflows/build-seahorse-clients.yml` 按需触发构建。
 
 ### 顾客端小程序
 - 使用微信开发者工具导入 `seahorse_mini_program` 目录即可预览体验。

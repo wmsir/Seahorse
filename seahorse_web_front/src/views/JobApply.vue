@@ -37,7 +37,7 @@
 
         <div class="salary-highlight">
           <span class="salary-val">{{ postData.salaryRange || '面议' }}</span>
-          <span class="salary-tip">（底薪 ￥{{ postData.baseSalary }} + {{ (postData.commissionRate * 100).toFixed(0) }}% 提成）</span>
+          <span class="salary-tip">（底薪 ￥{{ postData.baseSalary }} + {{ (Number(postData.commissionRate || 0) * 100).toFixed(0) }}% 提成）</span>
         </div>
 
         <div class="meta-chips">
@@ -206,6 +206,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { resolveApiUrl } from '../utils/systemConfig'
 
 const route = useRoute()
 
@@ -247,36 +248,45 @@ const form = ref({
 const submitting = ref(false)
 const submittedSuccess = ref(false)
 
+const safeDecode = (val: unknown): string => {
+  const str = String(val ?? '')
+  try {
+    return decodeURIComponent(str)
+  } catch {
+    return str
+  }
+}
+
 const loadPostInfo = () => {
   const queryPostId = Number(route.query.postId) || 2
 
   // 1. 优先从 URL 动态提取当前店铺的真实信息 (门店、地址、电话、标语)
   if (route.query.store) {
-    storeInfo.value.storeName = decodeURIComponent(String(route.query.store))
+    storeInfo.value.storeName = safeDecode(route.query.store)
   }
   if (route.query.addr) {
-    storeInfo.value.address = decodeURIComponent(String(route.query.addr))
+    storeInfo.value.address = safeDecode(route.query.addr)
   }
   if (route.query.phone) {
-    storeInfo.value.phone = decodeURIComponent(String(route.query.phone))
+    storeInfo.value.phone = safeDecode(route.query.phone)
   }
 
   // 2. 优先从 URL 参数中直接获取预览海报中绑定的岗位完整真实信息 (确保手机扫码打开与管理端预览100%绝对一致)
   if (route.query.postName) {
-    const rawBenefits = route.query.benefits ? decodeURIComponent(String(route.query.benefits)).split('、') : ['包吃包住', '五险一金', '带薪年假']
+    const rawBenefits = route.query.benefits ? safeDecode(route.query.benefits).split('、') : ['包吃包住', '五险一金', '带薪年假']
     postData.value = {
       id: queryPostId,
-      postName: decodeURIComponent(String(route.query.postName)),
-      salaryRange: route.query.salary ? decodeURIComponent(String(route.query.salary)) : '面议',
+      postName: safeDecode(route.query.postName),
+      salaryRange: route.query.salary ? safeDecode(route.query.salary) : '面议',
       baseSalary: route.query.baseSalary ? Number(route.query.baseSalary) : 4500,
       commissionRate: route.query.commRate ? Number(route.query.commRate) : 0.1,
       recruitHeadcount: route.query.headcount ? Number(route.query.headcount) : 1,
-      educationReq: route.query.edu ? decodeURIComponent(String(route.query.edu)) : '学历不限',
-      experienceReq: route.query.exp ? decodeURIComponent(String(route.query.exp)) : '经验不限',
-      department: route.query.dept ? decodeURIComponent(String(route.query.dept)) : '门店现场',
+      educationReq: route.query.edu ? safeDecode(route.query.edu) : '学历不限',
+      experienceReq: route.query.exp ? safeDecode(route.query.exp) : '经验不限',
+      department: route.query.dept ? safeDecode(route.query.dept) : '门店现场',
       benefits: rawBenefits,
-      description: route.query.desc ? decodeURIComponent(String(route.query.desc)) : '负责门店日常专业服务交付与顾客接待。',
-      requirements: route.query.req ? decodeURIComponent(String(route.query.req)) : '品貌端正，具备良好服务意识与团队沟通协作精神。'
+      description: route.query.desc ? safeDecode(route.query.desc) : '负责门店日常专业服务交付与顾客接待。',
+      requirements: route.query.req ? safeDecode(route.query.req) : '品貌端正，具备良好服务意识与团队沟通协作精神。'
     }
     return
   }
@@ -347,7 +357,7 @@ const handleSubmit = async () => {
 
   // 1. 同步提交至云端后端 API (支持手机与电脑跨端协同实时呈现)
   try {
-    await fetch('/api/job-application/submit', {
+    await fetch(resolveApiUrl('/api/job-application/submit'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

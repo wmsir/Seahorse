@@ -1,7 +1,8 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import MainLayout from '../layout/MainLayout.vue'
+import { isDesktopTauriEnv, isPlatformAdminRole, isTenantBossRole } from '../utils/systemConfig'
 
-const routes = [
+const routes: RouteRecordRaw[] = [
   {
     path: '/login',
     name: 'Login',
@@ -25,6 +26,10 @@ const routes = [
     name: 'MemberRegister',
     component: () => import('../views/MemberRegister.vue'),
     meta: { title: '顾客会员自助开卡' }
+  },
+  {
+    path: '/self-register',
+    redirect: '/member-register'
   },
   {
     path: '/staff-register',
@@ -205,12 +210,6 @@ const routes = [
         meta: { title: '组合收银结算台', icon: 'Money' }
       },
       {
-        path: 'shift',
-        name: 'Shift',
-        component: () => import('../views/ShiftHandover.vue'),
-        meta: { title: '收银交班与盲盘', icon: 'Checked' }
-      },
-      {
         path: 'industry-config',
         name: 'IndustryConfig',
         component: () => import('../views/IndustryConfig.vue'),
@@ -291,7 +290,7 @@ const routes = [
       {
         path: 'vendor',
         name: 'VendorConsole',
-        component: () => import('../views/VendorTenants.vue'),
+        redirect: '/platform-dashboard',
         meta: { title: '开发商运维控制台', icon: 'Platform' }
       },
       {
@@ -305,14 +304,14 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: isDesktopTauriEnv() ? createWebHashHistory() : createWebHistory(import.meta.env.BASE_URL),
   routes
 })
 
 // 路由全局守卫：统一鉴权与员工可见页签权限拦截
 router.beforeEach((to, _from, next) => {
-  // 0. 兼容性支持：若通过 hash (如 /settings#/job-apply 或 /#/job-apply) 访问，自动重定向至纯净独立求职页面
-  if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('/job-apply')) {
+  // 0. 兼容性支持：Web History 模式下若通过 hash (如 /settings#/job-apply) 访问，自动重定向至纯净独立求职页面
+  if (!isDesktopTauriEnv() && typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('/job-apply')) {
     const rawHash = window.location.hash
     const applyIdx = rawHash.indexOf('/job-apply')
     const targetPathWithQuery = rawHash.substring(applyIdx)
@@ -376,7 +375,7 @@ router.beforeEach((to, _from, next) => {
   } catch (_err) {}
 
   // 2. 登录页、租户注册页、对外自助开卡/员工入职页、求职微页面、包厢专属扫码点餐、顾客小票会员主页直接放行 (免登录)
-  const publicPaths = ['/login', '/tenant-register', '/register', '/member-register', '/staff-register', '/job-apply', '/table-order', '/member/benefits', '/member-benefits']
+  const publicPaths = ['/login', '/tenant-register', '/register', '/member-register', '/self-register', '/staff-register', '/job-apply', '/table-order', '/member/benefits', '/member-benefits']
   if (publicPaths.includes(to.path)) {
     return next()
   }
@@ -388,15 +387,17 @@ router.beforeEach((to, _from, next) => {
   }
 
   const role = localStorage.getItem('seahorse_role') || ''
+  const uname = localStorage.getItem('seahorse_username') || ''
+  const isPlatformAdmin = isPlatformAdminRole(role, uname)
 
   // 2.5 扫码盒与支付通道权限守卫：非超级管理员严禁访问支付通道配置，一律重定向至工作台
-  const isSuperAdminRole = role === 'SUPER_ADMIN' || role === 'PLATFORM_DEVELOPER' || role === 'PLATFORM_ADMIN' || role === 'PLATFORM_SUPER_ADMIN'
+  const isSuperAdminRole = isPlatformAdmin || role === 'SUPER_ADMIN'
   if (to.path === '/payment-settings' && !isSuperAdminRole) {
     return next('/dashboard')
   }
 
   // 3. 开发商专席重定向
-  if (role === 'PLATFORM_DEVELOPER') {
+  if (role === 'PLATFORM_DEVELOPER' || role === 'PLATFORM_ADMIN' || role === 'PLATFORM_SUPER_ADMIN') {
     const devAllowedPaths = [
       '/platform-dashboard',
       '/vendor-tenants',
@@ -429,8 +430,8 @@ router.beforeEach((to, _from, next) => {
   }
 
   // 5. 租户老板拥有业务豁免权限（平台总控级支付通道与考勤定位仅限平台开发维护人）
-  if (role === 'SUPER_ADMIN' || role === 'MERCHANT_ADMIN' || role === 'TENANT_ADMIN') {
-    if (to.path === '/payment-settings' || to.path === '/map-settings') {
+  if (isTenantBossRole(role)) {
+    if ((to.path === '/payment-settings' || to.path === '/map-settings') && !isPlatformAdmin) {
       return next('/settings')
     }
     return next()
@@ -449,7 +450,7 @@ router.beforeEach((to, _from, next) => {
           allowedPaths.includes(path) ||
           (path.startsWith('/reports') && allowedPaths.includes('/reports')) ||
           (path.startsWith('/member-detail') && allowedPaths.includes('/members')) ||
-          (['/session-board', '/cashier', '/shift'].includes(path) && allowedPaths.includes('/dashboard'))
+          (['/session-board', '/cashier'].includes(path) && allowedPaths.includes('/dashboard'))
 
         if (!isAllowed) {
           // 越权拦截，自动跳转至该员工拥有的首个合法页签

@@ -2,7 +2,7 @@
   <!-- 当前在场工位绑定条 -->
   <view class="session-bar">
     <view class="bar-left">
-      <text class="bar-space">当前工位: 1号精剪镜台 (M01)</text>
+      <text class="bar-space">当前工位: {{ selectedSpace ? ((selectedSpace.spaceName || selectedSpace.name) + ' (' + (selectedSpace.spaceCode || selectedSpace.code || '工位') + ')') : '自动匹配在场工位' }}</text>
       <text class="bar-hint">在场履约中 · 支持多次动态追加</text>
     </view>
     <view class="bar-right" bindtap="loadProducts">

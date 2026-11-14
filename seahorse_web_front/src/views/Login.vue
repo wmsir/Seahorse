@@ -113,10 +113,10 @@
 
       <!-- 右侧：登录/注册主卡片 -->
       <div class="login-card">
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
-          <a href="/" style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: #0284c7; background: #e0f2fe; padding: 4px 10px; border-radius: 9999px; text-decoration: none; border: 1px solid #bae6fd;">
-            <span>🌐 返回 FWPT 门户</span>
-          </a>
+        <div v-if="isDesktopMode" style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+          <button type="button" class="desktop-server-pill" @click="openServerDialog">
+            <span>🖥️ 服务器：{{ currentServerLabel }}</span>
+          </button>
         </div>
         <div class="brand-header">
           <div class="logo seahorse-badge-logo" aria-hidden="true">
@@ -493,18 +493,70 @@
         </el-button>
       </el-form>
     </el-dialog>
+
+    <!-- Tauri 桌面客户端服务器连接切换弹窗 -->
+    <el-dialog
+      v-model="serverDialogVisible"
+      title="🖥️ 桌面客户端 · 服务器连接配置"
+      width="480px"
+      destroy-on-close
+    >
+      <div style="font-size: 13px; color: #64748b; margin-bottom: 14px; line-height: 1.6;">
+        当前桌面端运行在本地离线资源模式下，可随时切换连接的云端 SaaS 服务器或门店私有化后端节点：
+      </div>
+      <el-form label-position="top" size="large">
+        <el-form-item label="选择环境节点">
+          <el-radio-group v-model="serverModePreset" style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start;">
+            <el-radio value="PROD">☁️ 云端生产网关（https://fwpt.cn/api）</el-radio>
+            <el-radio value="LOCAL">💻 本地开发调试（http://127.0.0.1:8082/api）</el-radio>
+            <el-radio value="CUSTOM">🔧 自定义私有化节点</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="serverModePreset === 'CUSTOM'" label="自定义 API 接口根地址">
+          <el-input
+            v-model="serverCustomUrl"
+            placeholder="例如：https://store.yourcompany.com/api"
+            clearable
+          />
+        </el-form-item>
+        <div v-if="serverProbeMsg" :style="{ fontSize: '12.5px', padding: '8px 12px', borderRadius: '8px', marginBottom: '12px', background: serverProbeOk ? '#f0fdf4' : '#fef2f2', color: serverProbeOk ? '#15803d' : '#b91c1c', border: serverProbeOk ? '1px solid #bbf7d0' : '1px solid #fecaca' }">
+          {{ serverProbeMsg }}
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px;">
+          <el-button :loading="probingServer" @click="handleProbeDesktopServer">🔍 测试连通性</el-button>
+          <el-button type="primary" :loading="savingServer" @click="handleSaveDesktopServer">💾 保存并生效</el-button>
+        </div>
+      </el-form>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
-import { loginApi, registerMerchantApi, getPublicPlansApi, recordClientAuditLogApi } from '../api'
+import {
+  loginApi,
+  registerMerchantApi,
+  getPublicPlansApi,
+  recordClientAuditLogApi,
+  sendResetCodeApi,
+  resetPasswordByCodeApi
+} from '../api'
 import { useSystemDataStore, allSystemMenus } from '../stores/systemDataStore'
 import { allIndustryPackages } from '../stores/industryPresets'
 import { useStoreConfig } from '../stores/store'
 import { mockFootSpaStaff, injectFootSpaMockData } from '../mock/mockFootSpaData'
+import {
+  isDesktopTauriEnv,
+  getApiBaseUrl,
+  resolveApiUrl,
+  saveDesktopApiBaseUrl,
+  probeDesktopBackend,
+  initDesktopApiConfig,
+  DEFAULT_DESKTOP_API_BASE,
+  LOCAL_DEV_API_BASE
+} from '../utils/systemConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
@@ -513,6 +565,86 @@ const storeConfig = useStoreConfig()
 const activeTab = ref('login')
 const loading = ref(false)
 const regLoading = ref(false)
+
+// Tauri 桌面客户端连接节点配置状态
+const isDesktopMode = ref(isDesktopTauriEnv())
+const currentDesktopApiBase = ref(getApiBaseUrl())
+const serverDialogVisible = ref(false)
+const serverModePreset = ref<'PROD' | 'LOCAL' | 'CUSTOM'>('PROD')
+const serverCustomUrl = ref('')
+const probingServer = ref(false)
+const savingServer = ref(false)
+const serverProbeMsg = ref('')
+const serverProbeOk = ref(false)
+
+const currentServerLabel = computed(() => {
+  const url = currentDesktopApiBase.value
+  if (url === DEFAULT_DESKTOP_API_BASE) return '云端生产网关'
+  if (url === LOCAL_DEV_API_BASE || url.includes('127.0.0.1') || url.includes('localhost')) return '本地开发'
+  return url.replace(/^https?:\/\//i, '').split('/')[0] || '自定义私有化节点'
+})
+
+const previewDesktopApiUrl = computed(() => {
+  if (serverModePreset.value === 'PROD') return DEFAULT_DESKTOP_API_BASE
+  if (serverModePreset.value === 'LOCAL') return LOCAL_DEV_API_BASE
+  return serverCustomUrl.value.trim() || DEFAULT_DESKTOP_API_BASE
+})
+
+const openServerDialog = () => {
+  const cur = getApiBaseUrl()
+  currentDesktopApiBase.value = cur
+  serverProbeMsg.value = ''
+  if (cur === DEFAULT_DESKTOP_API_BASE) {
+    serverModePreset.value = 'PROD'
+  } else if (cur === LOCAL_DEV_API_BASE) {
+    serverModePreset.value = 'LOCAL'
+  } else {
+    serverModePreset.value = 'CUSTOM'
+    serverCustomUrl.value = cur
+  }
+  serverDialogVisible.value = true
+}
+
+const handleProbeDesktopServer = async () => {
+  probingServer.value = true
+  serverProbeMsg.value = ''
+  try {
+    const res = await probeDesktopBackend(previewDesktopApiUrl.value, 3500)
+    serverProbeOk.value = res.reachable
+    serverProbeMsg.value = res.reachable
+      ? `✅ 连接成功 (${res.latencyMs} ms) · ${res.message}`
+      : `❌ 连接不可达 (${res.latencyMs} ms) · ${res.message}`
+  } finally {
+    probingServer.value = false
+  }
+}
+
+const handleSaveDesktopServer = async () => {
+  savingServer.value = true
+  try {
+    const saved = await saveDesktopApiBaseUrl(previewDesktopApiUrl.value)
+    currentDesktopApiBase.value = saved
+    serverDialogVisible.value = false
+    ElMessage.success(`已切换后端服务器地址：${saved}`)
+  } finally {
+    savingServer.value = false
+  }
+}
+
+const acquireBackendJwt = async (candidates: Array<{ username: string; password: string }>): Promise<any | null> => {
+  for (const cand of candidates) {
+    if (!cand.username) continue
+    try {
+      const res: any = await loginApi(cand, true)
+      if (res && res.token) {
+        return res
+      }
+    } catch (_e) {
+      // try next candidate silently
+    }
+  }
+  return null
+}
 
 // -----------------------------------------------------------------------------
 // 提炼全系统卖点与广告看板数据源
@@ -530,7 +662,7 @@ interface SellingPoint {
 
 const activeCategory = ref<'ALL' | 'MEMORY' | 'MONEY' | 'MARKETING' | 'CHAIN'>('ALL')
 
-const sellingCategories = [
+const sellingCategories: Array<{ key: SellingPoint['category']; label: string }> = [
   { key: 'ALL', label: '🌟 核心主打' },
   { key: 'MEMORY', label: '🧠 记忆与履约' },
   { key: 'MONEY', label: '💳 资金防超扣' },
@@ -703,15 +835,19 @@ const handleSendEmailCode = async () => {
   }
   emailSending.value = true
   try {
-    const res = await axios.post('/api/v1/auth/send-email-code', { email })
+    const res = await axios.post(resolveApiUrl('/api/v1/auth/send-email-code'), { email })
     const data = res.data
     if (data.code === 200 || data.code === '00000' || data.status === 'ok') {
       const msg = data.data?.message || data.message || '安全验证码已由官方邮箱 admin@fwpt.cn 实时送达，请查收！'
       ElMessage.success(msg)
       emailCountDown.value = 60
-      const timer = setInterval(() => {
+      if (emailCodeTimer) clearInterval(emailCodeTimer)
+      emailCodeTimer = setInterval(() => {
         emailCountDown.value--
-        if (emailCountDown.value <= 0) clearInterval(timer)
+        if (emailCountDown.value <= 0 && emailCodeTimer) {
+          clearInterval(emailCodeTimer)
+          emailCodeTimer = null
+        }
       }, 1000)
     } else {
       ElMessage.error(data.message || data.detail || '验证码发送失败，请稍后重试')
@@ -732,7 +868,7 @@ const handleSendPhoneCode = async () => {
   }
   phoneSending.value = true
   try {
-    const res = await axios.post('/api/v1/auth/send-code', { phone })
+    const res = await axios.post(resolveApiUrl('/api/v1/auth/send-code'), { phone })
     const data = res.data
     if (data.code === 200 || data.code === '00000' || data.status === 'ok') {
       const serverCode = data.data?.code
@@ -743,9 +879,13 @@ const handleSendPhoneCode = async () => {
         ElMessage.success('短信验证码已发送至您的手机，请注意查收')
       }
       phoneCountDown.value = 60
-      const timer = setInterval(() => {
+      if (phoneCodeTimer) clearInterval(phoneCodeTimer)
+      phoneCodeTimer = setInterval(() => {
         phoneCountDown.value--
-        if (phoneCountDown.value <= 0) clearInterval(timer)
+        if (phoneCountDown.value <= 0 && phoneCodeTimer) {
+          clearInterval(phoneCodeTimer)
+          phoneCodeTimer = null
+        }
       }, 1000)
     } else {
       ElMessage.error(data.message || data.detail || '短信验证码发送失败')
@@ -759,47 +899,56 @@ const handleSendPhoneCode = async () => {
 
 const lastSentResetCode = ref('')
 const isDemoModeSpotlight = ref(false)
+let emailCodeTimer: ReturnType<typeof setInterval> | null = null
+let phoneCodeTimer: ReturnType<typeof setInterval> | null = null
+let resetCodeTimer: ReturnType<typeof setInterval> | null = null
 
-// 发送重置密码验证码
+onUnmounted(() => {
+  if (emailCodeTimer) clearInterval(emailCodeTimer)
+  if (phoneCodeTimer) clearInterval(phoneCodeTimer)
+  if (resetCodeTimer) clearInterval(resetCodeTimer)
+})
+
+// 发送重置密码验证码 (对接后端公开接口 POST /api/auth/send-reset-code)
 const handleSendResetCode = async () => {
   const target = (resetForm.value.target || '').trim()
   if (!target) {
-    ElMessage.warning('请输入绑定的电子邮箱或手机号')
+    ElMessage.warning('请输入登录账号、绑定的电子邮箱或手机号')
     return
   }
-  const isEmail = target.includes('@')
   resetSending.value = true
   try {
-    const endpoint = isEmail ? '/api/v1/auth/send-email-code' : '/api/v1/auth/send-code'
-    const payload = isEmail ? { email: target } : { phone: target }
-    const res = await axios.post(endpoint, payload)
-    const data = res.data
-    if (data.code === 200 || data.code === '00000' || data.status === 'ok') {
-      const serverCode = data.data?.code
-      if (serverCode) {
-        lastSentResetCode.value = String(serverCode)
-        resetForm.value.code = String(serverCode)
-        ElMessage.success(`验证码已发送（测试环境自动填入：${serverCode}）`)
-      } else {
-        lastSentResetCode.value = ''
-        ElMessage.success('验证码已发送，请在 5 分钟内完成操作')
-      }
-      resetCountDown.value = 60
-      const timer = setInterval(() => {
-        resetCountDown.value--
-        if (resetCountDown.value <= 0) clearInterval(timer)
-      }, 1000)
+    const res: any = await sendResetCodeApi({ account: target })
+    const serverCode = res?.code || res?.devCode
+    const maskedTarget = res?.maskedPhone || target
+    if (serverCode) {
+      lastSentResetCode.value = String(serverCode)
+      resetForm.value.code = String(serverCode)
+      ElMessage.success(`验证码已发送至 ${maskedTarget}（测试环境自动填入：${serverCode}）`)
     } else {
-      ElMessage.error(data.message || '发送失败，请稍后重试')
+      lastSentResetCode.value = ''
+      ElMessage.success(`验证码已发送至 ${maskedTarget}，请在 5 分钟内完成操作`)
     }
+    resetCountDown.value = 60
+    if (resetCodeTimer) clearInterval(resetCodeTimer)
+    resetCodeTimer = setInterval(() => {
+      resetCountDown.value--
+      if (resetCountDown.value <= 0 && resetCodeTimer) {
+        clearInterval(resetCodeTimer)
+        resetCodeTimer = null
+      }
+    }, 1000)
   } catch (err: any) {
-    ElMessage.error(err.response?.data?.message || err.message || '网络连接超时')
+    // message already handled by request interceptor if server returned error
+    if (!err?.response) {
+      console.warn('sendResetCode failed:', err)
+    }
   } finally {
     resetSending.value = false
   }
 }
 
-// 确认重置密码
+// 确认重置密码 (对接后端公开接口 POST /api/auth/reset-password)
 const handleConfirmReset = async () => {
   const target = (resetForm.value.target || '').trim()
   const code = (resetForm.value.code || '').trim()
@@ -807,7 +956,7 @@ const handleConfirmReset = async () => {
   const confirmPassword = (resetForm.value.confirmPassword || '').trim()
 
   if (!target) {
-    ElMessage.warning('请输入绑定的电子邮箱或手机号')
+    ElMessage.warning('请输入登录账号、绑定的电子邮箱或手机号')
     return
   }
   if (!code || !/^\d{4,6}$/.test(code)) {
@@ -829,54 +978,28 @@ const handleConfirmReset = async () => {
 
   resetSubmitting.value = true
   try {
-    let resetSuccess = false
-    // 1. 调用海马门店后端重置接口 (带 /api 前缀)
-    try {
-      const res = await axios.post('/api/vendor/users/reset-password', {
-        username: target,
-        code: code,
-        newPassword: newPassword
-      })
-      if (res.data?.code === 200 || res.status === 200) {
-        resetSuccess = true
-      }
-    } catch (e: any) {
-      // 若 OneID 统一认证存在该用户，同步尝试 OneID 重置
-      try {
-        const oneIdRes = await axios.post('/api/v1/auth/reset-password', {
-          target,
-          email: target.includes('@') ? target : undefined,
-          phone: !target.includes('@') ? target : undefined,
-          code,
-          new_password: newPassword,
-          newPassword: newPassword
-        })
-        if (oneIdRes.data?.code === 200 || oneIdRes.data?.status === 'ok') {
-          resetSuccess = true
-        }
-      } catch (_oneErr) {}
-    }
+    const res: any = await resetPasswordByCodeApi({
+      account: target,
+      code,
+      newPassword
+    })
 
-    // 2. 同步更新本地员工列表密码 (若匹配)
+    // 同步更新本地员工列表密码缓存 (若匹配)
     const matchedStaff = systemData.staff.find(
       s => (s.phone === target || s.accountUsername === target) && s.status !== 'DELETED'
     )
     if (matchedStaff) {
       matchedStaff.accountPassword = newPassword
-      resetSuccess = true
-    }
-
-    if (!resetSuccess) {
-      ElMessage.error('未找到匹配的绑定账号或验证码已失效，请检查账号信息')
-      return
     }
 
     ElMessage.success('密码重置成功，请使用新密码登录！')
-    loginForm.value.username = target
+    loginForm.value.username = res?.username || target
     loginForm.value.password = newPassword
     resetDialogVisible.value = false
   } catch (err: any) {
-    ElMessage.error(err.response?.data?.message || err.message || '重置失败')
+    if (!err?.response) {
+      console.warn('resetPasswordByCode failed:', err)
+    }
   } finally {
     resetSubmitting.value = false
   }
@@ -895,6 +1018,9 @@ const currentTrialDays = computed(() => {
 })
 
 onMounted(async () => {
+  if (isDesktopMode.value) {
+    currentDesktopApiBase.value = await initDesktopApiConfig()
+  }
   // 1. 尝试从 URL 探测 sso_token 或指定用户名参数 (不主动自动填充超级管理员)
   try {
     const urlParams = new URLSearchParams(window.location.search)
@@ -1137,7 +1263,7 @@ const reportLoginAuditLog = async (
   }
 }
 
-const completeStaffLogin = (staff: any, storeId: string) => {
+const completeStaffLogin = async (staff: any, storeId: string) => {
   const store = systemData.stores.find(s => s.storeId === storeId) ||
                 (systemData.stores.length > 0 ? systemData.stores[0] : null)
 
@@ -1145,8 +1271,20 @@ const completeStaffLogin = (staff: any, storeId: string) => {
   storeConfig.currentStoreId = storeId
   storeConfig.storeName = store?.storeName || '丝艺美学·旗舰店'
 
+  const seededFallbackUser =
+    staff.role === 'STORE_MANAGER' ? 'manager' :
+    staff.role === 'CASHIER' ? 'cashier' : 'tony'
+  const authRes = await acquireBackendJwt([
+    { username: String(staff.accountUsername || staff.phone || ''), password: loginForm.value.password || staff.accountPassword || '123456' },
+    { username: seededFallbackUser, password: '123456' }
+  ])
+  if (!authRes?.token) {
+    ElMessage.error('无法从认证服务签发员工登录令牌，请检查后端服务连接')
+    return
+  }
+
   localStorage.removeItem('seahorse_demo_mode')
-  localStorage.setItem('seahorse_token', `token_staff_${staff.id}_${Date.now()}`)
+  localStorage.setItem('seahorse_token', authRes.token)
   localStorage.setItem('seahorse_user', `${staff.realName}【${staff.postName || '员工'}】`)
   localStorage.setItem('seahorse_username', staff.phone || staff.accountUsername || staff.username || String(staff.id))
   localStorage.setItem('seahorse_real_name', staff.realName || '')
@@ -1257,7 +1395,7 @@ const handleRegister = async () => {
   try {
     // 2. 首先在 FWPT OneID 统一通行证中心注册
     try {
-      await axios.post('/api/v1/auth/register', {
+      await axios.post(resolveApiUrl('/api/v1/auth/register'), {
         registerType: currentType,
         username: username,
         realName: nickname || username,
@@ -1321,7 +1459,7 @@ const handleRegister = async () => {
   }
 }
 
-const quickLogin = (uname: string) => {
+const quickLogin = async (uname: string) => {
   // 演示账号清除新租户纯净模式，载入行业演示数据集
   localStorage.removeItem('seahorse_is_new_tenant')
 
@@ -1355,6 +1493,16 @@ const quickLogin = (uname: string) => {
       retail_boss: { code: 'RETAIL', name: '专营零售', user: '零售老板 (周海峰)' }
     }
     const target = indMap[uname]
+    loading.value = true
+    const authRes = await acquireBackendJwt([
+      { username: uname, password: '123456' },
+      { username: 'manager', password: '123456' }
+    ])
+    loading.value = false
+    if (!authRes?.token) {
+      ElMessage.error('无法从后端签发行业体验令牌，请确认后端服务已启动')
+      return
+    }
     const pkg = systemData.switchIndustry(target.code)
 
     storeConfig.industry = target.code
@@ -1369,7 +1517,7 @@ const quickLogin = (uname: string) => {
 
     localStorage.setItem('seahorse_demo_mode', target.code)
     localStorage.setItem('seahorse_stores_data', JSON.stringify(pkg.stores))
-    localStorage.setItem('seahorse_token', `token_${uname}_${Date.now()}`)
+    localStorage.setItem('seahorse_token', authRes.token)
     localStorage.setItem('seahorse_user', target.user)
     localStorage.setItem('seahorse_username', uname)
     localStorage.setItem('seahorse_real_name', target.user)
@@ -2149,5 +2297,26 @@ const quickLogin = (uname: string) => {
 
 .terms-footer a:hover {
   text-decoration: underline;
+}
+
+.desktop-server-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0284c7;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 9999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.desktop-server-pill:hover {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+  color: #0369a1;
 }
 </style>

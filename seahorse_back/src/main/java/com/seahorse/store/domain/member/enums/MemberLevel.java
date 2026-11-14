@@ -94,6 +94,21 @@ public enum MemberLevel {
         return REGULAR;
     }
 
+    /**
+     * 根据累计充值本金自动计算对应的最高会员等级
+     */
+    public static MemberLevel calculateLevelByRecharge(BigDecimal rechargedAmount) {
+        if (rechargedAmount == null) {
+            return REGULAR;
+        }
+        if (rechargedAmount.compareTo(new BigDecimal("3500")) >= 0) return DIAMOND;
+        if (rechargedAmount.compareTo(new BigDecimal("2000")) >= 0) return PLATINUM;
+        if (rechargedAmount.compareTo(new BigDecimal("1200")) >= 0) return VIP;
+        if (rechargedAmount.compareTo(new BigDecimal("800")) >= 0) return GOLD;
+        if (rechargedAmount.compareTo(new BigDecimal("300")) >= 0) return SILVER;
+        return REGULAR;
+    }
+
     @JsonCreator
     public static MemberLevel fromString(String value) {
         if (value == null || value.trim().isEmpty()) {
@@ -105,10 +120,10 @@ public enum MemberLevel {
                 return level;
             }
         }
-        if (v.contains("DIAMOND") || v.contains("钻")) return DIAMOND;
-        if (v.contains("PLATINUM") || v.contains("白金")) return PLATINUM;
-        if (v.contains("VIP尊享") || v.equals("VIP")) return VIP;
-        if (v.contains("GOLD") || v.contains("金")) return GOLD;
+        if (v.contains("DIAMOND") || v.contains("黑钻") || v.contains("黑金") || v.contains("钻")) return DIAMOND;
+        if (v.contains("PLATINUM") || v.contains("白金") || v.contains("铂金")) return PLATINUM;
+        if (v.contains("VIP尊享") || v.contains("尊享") || v.equals("VIP")) return VIP;
+        if (v.contains("GOLD") || v.contains("黄金") || v.contains("金")) return GOLD;
         if (v.contains("SILVER") || v.contains("银")) return SILVER;
         return REGULAR;
     }

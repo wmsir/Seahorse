@@ -81,6 +81,8 @@ class NotificationPollService {
   final ApiClient _client = ApiClient();
   Timer? _timer;
   bool _isRunning = false;
+  bool _isChecking = false;
+  String _currentStoreId = 'S001';
   int _pollTicks = 0;
 
   // 记录每个通知 ID 已播报的次数 (持久化存储于 LocalStorage，APP 重启绝不重播)
@@ -177,22 +179,35 @@ class NotificationPollService {
     }
   }
 
+  /// 更新当前轮询监听的门店 ID
+  void updateStoreId(String storeId) {
+    if (storeId.isEmpty || storeId == _currentStoreId) return;
+    _currentStoreId = storeId;
+    _isNoticeInitLoaded = false;
+    if (_isRunning) {
+      checkAlerts(storeId: _currentStoreId);
+    }
+  }
+
   /// 启动轮询 (默认每 4 秒查询一次)
   void startPolling({String storeId = 'S001'}) {
+    if (storeId.isNotEmpty) {
+      _currentStoreId = storeId;
+    }
     if (_isRunning) return;
     _isRunning = true;
     _pollTicks = 0;
     fetchVoiceRepeatConfig();
-    checkAlerts(storeId: storeId);
+    checkAlerts(storeId: _currentStoreId);
     _timer = Timer.periodic(const Duration(seconds: 4), (_) {
       _pollTicks++;
       // 每 15 次轮询 (约 60 秒) 重新同步一次策略配置
       if (_pollTicks % 15 == 0) {
         fetchVoiceRepeatConfig();
       }
-      checkAlerts(storeId: storeId);
+      checkAlerts(storeId: _currentStoreId);
     });
-    debugPrint('🔔 [NotificationPollService] 移动APP强提醒与语音报单服务已启动 (门店: $storeId)');
+    debugPrint('🔔 [NotificationPollService] 移动APP强提醒与语音报单服务已启动 (门店: $_currentStoreId)');
   }
 
   /// 停止轮询
@@ -203,74 +218,90 @@ class NotificationPollService {
   }
 
   /// 手动或定时执行巡检
-  Future<void> checkAlerts({String storeId = 'S001'}) async {
-    // 1. 检查包厢呼叫服务
+  Future<void> checkAlerts({String? storeId}) async {
+    if (_isChecking) return;
+    _isChecking = true;
+    final targetStoreId = (storeId != null && storeId.isNotEmpty) ? storeId : _currentStoreId;
     try {
-      final res = await _client.dio.get(
-        '/space/service-calls',
-        queryParameters: {'storeId': storeId, 'status': 'PENDING', 'limit': 20},
-      );
-      if (res.statusCode == 200 && res.data != null) {
-        final list = res.data['data'];
-        if (list is List) {
-          for (final item in list) {
-            final call = ServiceCallItem.fromJson(item as Map<String, dynamic>);
-            final count = _broadcastCounts[call.id] ?? 0;
-            if (count < _targetRepeatCount) {
-              _broadcastCounts[call.id] = count + 1;
-              _saveBroadcastCounts();
-              _handleNewServiceCall(call, repeatIndex: count + 1);
+      bool broadcastChanged = false;
+      // 1. 检查包厢呼叫服务
+      try {
+        final res = await _client.dio.get(
+          '/space/service-calls',
+          queryParameters: {'storeId': targetStoreId, 'status': 'PENDING', 'limit': 20},
+        );
+        if (res.statusCode == 200 && res.data != null) {
+          final list = res.data['data'];
+          if (list is List) {
+            for (final item in list) {
+              final call = ServiceCallItem.fromJson(item as Map<String, dynamic>);
+              final count = _broadcastCounts[call.id] ?? 0;
+              if (count < _targetRepeatCount) {
+                _broadcastCounts[call.id] = count + 1;
+                broadcastChanged = true;
+                _handleNewServiceCall(call, repeatIndex: count + 1);
+              }
             }
           }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
 
-    // 2. 检查新订单出餐与语音报单 (报出菜品、服务名)
-    try {
-      final res = await _client.dio.get(
-        '/space/order-notifications',
-        queryParameters: {'storeId': storeId, 'status': 'PENDING', 'limit': 20},
-      );
-      if (res.statusCode == 200 && res.data != null) {
-        final list = res.data['data'];
-        if (list is List) {
-          for (final item in list) {
-            final order = OrderNotificationItem.fromJson(item as Map<String, dynamic>);
-            final count = _broadcastCounts[order.id] ?? 0;
-            if (count < _targetRepeatCount) {
-              _broadcastCounts[order.id] = count + 1;
-              _saveBroadcastCounts();
-              _handleNewOrderNotification(order, repeatIndex: count + 1);
+      // 2. 检查新订单出餐与语音报单 (报出菜品、服务名)
+      try {
+        final res = await _client.dio.get(
+          '/space/order-notifications',
+          queryParameters: {'storeId': targetStoreId, 'status': 'PENDING', 'limit': 20},
+        );
+        if (res.statusCode == 200 && res.data != null) {
+          final list = res.data['data'];
+          if (list is List) {
+            for (final item in list) {
+              final order = OrderNotificationItem.fromJson(item as Map<String, dynamic>);
+              final count = _broadcastCounts[order.id] ?? 0;
+              if (count < _targetRepeatCount) {
+                _broadcastCounts[order.id] = count + 1;
+                broadcastChanged = true;
+                _handleNewOrderNotification(order, repeatIndex: count + 1);
+              }
             }
           }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
 
-    // 3. 检查门店最新规章制度与日常公告 (全端实时推送强提醒，无需手动下拉刷新)
-    try {
-      final notices = await _noticeService.getStoreNotices(storeId);
-      if (notices.isNotEmpty) {
-        if (!_isNoticeInitLoaded && _knownNoticeIds.isEmpty) {
-          // 首次冷启动时将当前全部历史公告记为已知，避免初次开启弹窗刷屏
-          for (final n in notices) {
-            _knownNoticeIds.add(n.id);
-          }
-          await _saveKnownNoticeIds();
-          _isNoticeInitLoaded = true;
-        } else {
-          _isNoticeInitLoaded = true;
-          for (final notice in notices) {
-            if (!_knownNoticeIds.contains(notice.id)) {
-              _knownNoticeIds.add(notice.id);
+      if (broadcastChanged) {
+        await _saveBroadcastCounts();
+      }
+
+      // 3. 检查门店最新规章制度与日常公告 (全端实时推送强提醒，无需手动下拉刷新)
+      try {
+        final notices = await _noticeService.getStoreNotices(targetStoreId);
+        if (notices.isNotEmpty) {
+          if (!_isNoticeInitLoaded && _knownNoticeIds.isEmpty) {
+            // 首次冷启动时将当前全部历史公告记为已知，避免初次开启弹窗刷屏
+            for (final n in notices) {
+              _knownNoticeIds.add(n.id);
+            }
+            await _saveKnownNoticeIds();
+            _isNoticeInitLoaded = true;
+          } else {
+            _isNoticeInitLoaded = true;
+            bool noticesChanged = false;
+            for (final notice in notices) {
+              if (!_knownNoticeIds.contains(notice.id)) {
+                _knownNoticeIds.add(notice.id);
+                noticesChanged = true;
+                _handleNewStoreNotice(notice);
+              }
+            }
+            if (noticesChanged) {
               await _saveKnownNoticeIds();
-              _handleNewStoreNotice(notice);
             }
           }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    } finally {
+      _isChecking = false;
+    }
   }
 
   /// 处理新规章制度与运营规范发布 (响铃 + 语音播报 + 浮层弹窗通知)

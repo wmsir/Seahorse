@@ -207,12 +207,11 @@ const loadPermissions = async () => {
         {
           roleCode: 'CASHIER',
           roleName: '前台收银员 (CASHIER)',
-          description: '负责门店前台顾客接待、会员开卡充值、组合结算开单及盲盘交班',
-          currentPermissions: ['MENU_CASHIER', 'MENU_MEMBER_RECHARGE', 'MENU_SHIFT'],
+          description: '负责门店前台顾客接待、会员开卡充值与组合收银开单核销',
+          currentPermissions: ['MENU_CASHIER', 'MENU_MEMBER_RECHARGE'],
           availablePermissions: [
             { code: 'MENU_CASHIER', name: '快捷收银结算与动态追加项目', description: '卡券微信现金多轨结算' },
-            { code: 'MENU_MEMBER_RECHARGE', name: '会员快速开卡与储值充值', description: '双轨扣减与次卡发放' },
-            { code: 'MENU_SHIFT', name: '收银日结盲盘与钱箱交班登记', description: '盲盘防作弊对账' }
+            { code: 'MENU_MEMBER_RECHARGE', name: '会员快速开卡与储值充值', description: '双轨扣减与次卡发放' }
           ]
         },
         {

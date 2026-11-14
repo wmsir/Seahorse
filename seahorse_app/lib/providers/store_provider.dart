@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../core/storage/local_storage.dart';
 import '../models/store_model.dart';
+import '../services/notification_poll_service.dart';
 import '../services/store_service.dart';
 import 'space_provider.dart';
 import 'member_provider.dart';
@@ -26,8 +28,11 @@ class StoreProvider extends ChangeNotifier {
     return _currentStore?.industry.defaultSpaceAlias ?? '养生包厢';
   }
 
-  StoreProvider() {
-    loadStores();
+  StoreProvider({bool autoLoad = false}) {
+    final hasToken = (LocalStorage.getString('seahorse_token') ?? '').isNotEmpty;
+    if (autoLoad || hasToken) {
+      loadStores();
+    }
   }
 
   Future<void> loadStores() async {
@@ -57,6 +62,7 @@ class StoreProvider extends ChangeNotifier {
     final matched = _stores.firstWhere((s) => s.storeId == storeId, orElse: () => _stores.first);
     _currentStore = matched;
     await _storeService.switchStore(matched.storeId, matched.storeName, tenantId: matched.tenantId);
+    NotificationPollService().updateStoreId(matched.storeId);
     notifyListeners();
 
     if (context != null) {
@@ -68,7 +74,7 @@ class StoreProvider extends ChangeNotifier {
   void reloadAllProviders(BuildContext context) {
     final sId = currentStoreId;
     final tId = _currentStore?.tenantId;
-    final ind = _currentStore?.industry.name;
+    final ind = _currentStore?.industry.code;
 
     try {
       context.read<SpaceProvider>().loadSpaces(sId);
@@ -92,6 +98,7 @@ class StoreProvider extends ChangeNotifier {
       _stores = [store, ..._stores];
     }
     await _storeService.switchStore(store.storeId, store.storeName, tenantId: store.tenantId);
+    NotificationPollService().updateStoreId(store.storeId);
     notifyListeners();
   }
 

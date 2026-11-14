@@ -30,8 +30,15 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         try {
             String token = resolveToken(request);
-            if (StringUtils.hasText(token) && jwtUtil.validateToken(token)) {
-                Claims claims = jwtUtil.parseToken(token);
+            Claims claims = null;
+            if (StringUtils.hasText(token)) {
+                try {
+                    claims = jwtUtil.parseToken(token);
+                } catch (Exception ignored) {
+                    // 非本系统签发的外部令牌走下方免登/请求头上下文分支
+                }
+            }
+            if (claims != null) {
                 Object uidObj = claims.get("userId");
                 Long userId = uidObj instanceof Number ? ((Number) uidObj).longValue() : 1L;
                 String username = claims.get("username", String.class);
@@ -43,7 +50,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 String jwtTenantId = tenantId;
                 String jwtStoreId = storeId;
                 boolean isPlatformAdmin = "PLATFORM".equalsIgnoreCase(jwtTenantId)
-                        || "T001".equalsIgnoreCase(jwtTenantId)
                         || "PLATFORM_DEVELOPER".equalsIgnoreCase(role);
 
                 String headerStoreId = request.getHeader("X-Store-Id");
@@ -52,12 +58,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     tenantId = headerTenantId.trim();
                 }
 
+                String lookedUpStoreId = null;
+                java.util.Optional<com.seahorse.store.domain.iam.model.Store> lookedUpStoreOpt = java.util.Optional.empty();
+
                 // 若指定了请求头门店ID，校验该门店是否归属当前租户（或当前为平台管理员），防止旧缓存跨租户污染
                 if (StringUtils.hasText(headerStoreId)) {
                     String candidateStoreId = headerStoreId.trim();
-                    java.util.Optional<com.seahorse.store.domain.iam.model.Store> sOpt = storeRepository.findByStoreId(candidateStoreId);
-                    if (sOpt.isPresent()) {
-                        com.seahorse.store.domain.iam.model.Store s = sOpt.get();
+                    lookedUpStoreId = candidateStoreId;
+                    lookedUpStoreOpt = storeRepository.findByStoreId(candidateStoreId);
+                    if (lookedUpStoreOpt.isPresent()) {
+                        com.seahorse.store.domain.iam.model.Store s = lookedUpStoreOpt.get();
                         String storeOwnerTenant = s.getTenantId();
                         if (isPlatformAdmin || (storeOwnerTenant != null && storeOwnerTenant.equalsIgnoreCase(jwtTenantId))) {
                             storeId = candidateStoreId;
@@ -75,9 +85,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     }
                 }
 
-                // 若当前选定门店存在，同步其真实行业属性
+                // 若当前选定门店存在，同步其真实行业属性（复用上方已查询结果，避免每次请求重复 SELECT）
                 if (StringUtils.hasText(storeId)) {
-                    java.util.Optional<com.seahorse.store.domain.iam.model.Store> sOpt = storeRepository.findByStoreId(storeId.trim());
+                    String trimmedStoreId = storeId.trim();
+                    java.util.Optional<com.seahorse.store.domain.iam.model.Store> sOpt = trimmedStoreId.equals(lookedUpStoreId)
+                            ? lookedUpStoreOpt
+                            : storeRepository.findByStoreId(trimmedStoreId);
                     if (sOpt.isPresent()) {
                         com.seahorse.store.domain.iam.model.Store s = sOpt.get();
                         if (isPlatformAdmin && s.getTenantId() != null && !s.getTenantId().trim().isEmpty()) {
@@ -89,20 +102,22 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     }
                 }
 
+                String effectiveRole = role != null ? role : "STORE_MANAGER";
                 TenantContext.set(TenantContext.TenantInfo.builder()
                         .userId(userId)
                         .username(username)
                         .tenantId(tenantId != null ? tenantId : "T001")
                         .storeId(storeId != null && !storeId.isEmpty() ? storeId : (("T001".equalsIgnoreCase(tenantId) || "PLATFORM".equalsIgnoreCase(tenantId)) ? "S001" : null))
-                        .role(role != null ? role : "STORE_MANAGER")
+                        .role(effectiveRole)
                         .industry(industry != null ? industry : "BEAUTY")
+                        .authenticated(true)
                         .build());
 
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                        username, null, Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role)));
+                        username, null, Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + effectiveRole)));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             } else {
-                // 默认上下文用于方便测试或免登开发模式
+                // 未携带有效 JWT 令牌：仅提取请求头中的公开门店/租户定位上下文，不授予已登录 Security 权限
                 String headerTenantId = request.getHeader("X-Tenant-Id");
                 String headerStoreId = request.getHeader("X-Store-Id");
                 String headerUsername = request.getHeader("X-User-Name");
@@ -111,7 +126,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         headerUsername = java.net.URLDecoder.decode(headerUsername.trim(), java.nio.charset.StandardCharsets.UTF_8);
                     } catch (Exception ignored) {}
                 }
-                String effUser = StringUtils.hasText(headerUsername) ? headerUsername.trim() : "admin";
+                String effUser = StringUtils.hasText(headerUsername) ? headerUsername.trim() : "guest";
                 String effStore = StringUtils.hasText(headerStoreId) ? headerStoreId.trim() : null;
                 String effTenant = StringUtils.hasText(headerTenantId) ? headerTenantId.trim() : null;
                 String effIndustry = "BEAUTY";
@@ -128,25 +143,22 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         }
                     }
                 }
-                if (!StringUtils.hasText(effTenant)) {
+                if (!StringUtils.hasText(effTenant) || "PLATFORM".equalsIgnoreCase(effTenant)) {
                     effTenant = "T001";
                 }
-                if (!StringUtils.hasText(effStore) && ("T001".equalsIgnoreCase(effTenant) || "PLATFORM".equalsIgnoreCase(effTenant))) {
+                if (!StringUtils.hasText(effStore) && "T001".equalsIgnoreCase(effTenant)) {
                     effStore = "S001";
                 }
 
                 TenantContext.set(TenantContext.TenantInfo.builder()
-                        .userId(1L)
+                        .userId(null)
                         .username(effUser)
                         .tenantId(effTenant)
                         .storeId(effStore)
-                        .role("STORE_MANAGER")
+                        .role(null)
                         .industry(effIndustry)
+                        .authenticated(false)
                         .build());
-
-                UsernamePasswordAuthenticationToken guestAuth = new UsernamePasswordAuthenticationToken(
-                        effUser, null, Collections.singletonList(new SimpleGrantedAuthority("ROLE_STORE_MANAGER")));
-                SecurityContextHolder.getContext().setAuthentication(guestAuth);
             }
             filterChain.doFilter(request, response);
         } finally {

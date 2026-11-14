@@ -1,5 +1,6 @@
 package com.seahorse.store.infrastructure.id;
 
+import com.seahorse.store.context.TenantContext;
 import com.seahorse.store.infrastructure.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,9 +33,17 @@ public class DistributedMemberNoGenerator {
     private volatile String currentDay = LocalDate.now().format(DATE_FORMATTER);
 
     /**
-     * 生成下一个全局唯一会员号
+     * 生成当前租户下唯一的会员号
      */
     public synchronized String nextMemberNo() {
+        return nextMemberNo(TenantContext.getTenantId());
+    }
+
+    /**
+     * 生成指定租户下唯一的会员号
+     */
+    public synchronized String nextMemberNo(String tenantId) {
+        String effTenantId = (tenantId != null && !tenantId.trim().isEmpty()) ? tenantId.trim() : "T001";
         String today = LocalDate.now().format(DATE_FORMATTER);
         if (!today.equals(currentDay)) {
             currentDay = today;
@@ -47,10 +56,10 @@ public class DistributedMemberNoGenerator {
             // 格式化为 6 位数字，超出则自动扩展
             String seqStr = String.format("%06d", seq);
             String candidate = PREFIX + currentDay + seqStr;
-            if (!memberRepository.existsByMemberNo(candidate)) {
+            if (!memberRepository.existsByTenantIdAndMemberNo(effTenantId, candidate)) {
                 return candidate;
             }
-            log.warn("【会员发号器】检测到会员号 {} 已存在，自动向后递增跳过", candidate);
+            log.warn("【会员发号器】检测到租户 {} 下会员号 {} 已存在，自动向后递增跳过", effTenantId, candidate);
         }
     }
 }

@@ -40,13 +40,13 @@
       <el-col :xs="12" :sm="6">
         <el-card shadow="hover" class="stat-box">
           <div class="stat-label">本金余额 (可退/保值)</div>
-          <div class="stat-val principal">¥{{ (profile.balance?.principalBalance || 0).toFixed(2) }}</div>
+          <div class="stat-val principal">¥{{ Number(profile.dualBalance?.principalBalance ?? profile.balance?.principalBalance ?? 0).toFixed(2) }}</div>
         </el-card>
       </el-col>
       <el-col :xs="12" :sm="6">
         <el-card shadow="hover" class="stat-box">
           <div class="stat-label">赠金余额 (不可提现)</div>
-          <div class="stat-val gift">¥{{ (profile.balance?.giftBalance || 0).toFixed(2) }}</div>
+          <div class="stat-val gift">¥{{ Number(profile.dualBalance?.giftBalance ?? profile.balance?.giftBalance ?? 0).toFixed(2) }}</div>
         </el-card>
       </el-col>
       <el-col :xs="12" :sm="6">
@@ -153,10 +153,10 @@
             >
               <div class="pref-card">
                 <div class="pref-top">
-                  <span class="pref-key">{{ pref.preferenceKey }}</span>
+                  <span class="pref-key">{{ pref.tagKey || pref.preferenceKey }}</span>
                   <el-tag size="small" type="info">{{ getCategoryName(pref.category) }}</el-tag>
                 </div>
-                <div class="pref-val">{{ pref.preferenceValue }}</div>
+                <div class="pref-val">{{ pref.tagValue || pref.preferenceValue }}</div>
                 <div class="pref-notes" v-if="pref.notes">备注：{{ pref.notes }}</div>
               </div>
             </el-col>
@@ -178,9 +178,9 @@
               :key="tc.id"
             >
               <div class="timecard-ticket">
-                <div class="tc-name">{{ tc.itemName }}</div>
+                <div class="tc-name">{{ tc.skuName || tc.cardName || tc.itemName }}</div>
                 <div class="tc-remaining">
-                  剩余 <span class="num">{{ tc.remainingCount }}</span> / {{ tc.totalCount }} 次
+                  剩余 <span class="num">{{ tc.remainingTimes ?? tc.remainingCount ?? 0 }}</span> / {{ tc.totalTimes ?? tc.totalCount ?? 0 }} 次
                 </div>
                 <div class="tc-expire">有效期至：{{ tc.expireDate }}</div>
               </div>
@@ -199,36 +199,40 @@
           </div>
 
           <el-table :data="orders" v-loading="ordersLoading" style="width: 100%; margin-top: 14px" border stripe>
-            <el-table-column prop="id" label="账单号" width="90" align="center" />
+            <el-table-column prop="orderNo" label="账单号" min-width="150" align="center">
+              <template #default="scope">
+                <span style="font-family: monospace;">{{ scope.row.orderNo || scope.row.id }}</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="sessionId" label="会话ID" width="90" align="center" />
             <el-table-column prop="totalAmount" label="消费总额" width="120" align="right">
               <template #default="scope">
-                <span style="font-weight: 700">¥{{ (scope.row.totalAmount || 0).toFixed(2) }}</span>
+                <span style="font-weight: 700">¥{{ Number(scope.row.totalAmount || 0).toFixed(2) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="principalPaid" label="本金扣除" width="110" align="right">
+            <el-table-column prop="actualAmount" label="实收金额" width="120" align="right">
               <template #default="scope">
-                ¥{{ (scope.row.principalPaid || 0).toFixed(2) }}
+                ¥{{ Number(scope.row.actualAmount ?? scope.row.paidAmount ?? scope.row.principalPaid ?? scope.row.totalAmount ?? 0).toFixed(2) }}
               </template>
             </el-table-column>
-            <el-table-column prop="giftPaid" label="赠金抵扣" width="110" align="right">
+            <el-table-column prop="discountAmount" label="优惠/抵扣" width="110" align="right">
               <template #default="scope">
-                ¥{{ (scope.row.giftPaid || 0).toFixed(2) }}
+                ¥{{ Number(scope.row.discountAmount ?? scope.row.giftPaid ?? 0).toFixed(2) }}
               </template>
             </el-table-column>
             <el-table-column prop="payMethod" label="结算通道" width="110" align="center">
               <template #default="scope">
-                <el-tag size="small">{{ scope.row.payMethod || '会员双轨' }}</el-tag>
+                <el-tag size="small">{{ scope.row.payMethod || '会员结算' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="status" label="支付状态" width="100" align="center">
+            <el-table-column prop="status" label="支付状态" width="105" align="center">
               <template #default="scope">
-                <el-tag :type="scope.row.status === 'PAID' ? 'success' : 'info'" size="small">
-                  {{ scope.row.status === 'PAID' ? '已付讫' : scope.row.status }}
+                <el-tag :type="scope.row.status === 'PAID' || scope.row.status === 'COMPLETED' ? 'success' : (scope.row.status === 'PENDING' ? 'warning' : 'info')" size="small">
+                  {{ formatOrderStatus(scope.row.status) }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="createdAt" label="消费时间">
+            <el-table-column prop="createdAt" label="消费时间" min-width="160">
               <template #default="scope">
                 {{ formatDate(scope.row.createdAt) }}
               </template>
@@ -408,13 +412,32 @@ const activeTab = ref('memory')
 
 const profile = ref<any>({
   member: null,
+  dualBalance: null,
   balance: null,
   timeCards: [],
   preferences: []
 })
 
+const formatOrderStatus = (status?: string) => {
+  switch (status) {
+    case 'PAID':
+    case 'COMPLETED':
+      return '已付讫'
+    case 'PENDING':
+      return '待支付'
+    case 'REFUNDED':
+      return '已全额退款'
+    case 'PARTIAL_REFUNDED':
+      return '已部分退款'
+    case 'CANCELLED':
+      return '已取消'
+    default:
+      return status || '-'
+  }
+}
+
 const storeSloganText = computed(() => {
-  const s = systemData.stores.find((st: any) => st.storeId === profile.value.member?.registeredStoreId) || systemData.stores[0]
+  const s: any = systemData.stores.find((st: any) => st.storeId === profile.value.member?.registeredStoreId) || systemData.stores[0]
   if (s && s.slogan) return `${s.slogan} ｜ 私域专属会员档案`
   if (s && s.storeName) return `${s.storeName} ｜ 私域专属会员中心`
   return '海马会员，记住每位好客 ｜ 私域专属记忆档案'
@@ -449,7 +472,12 @@ const fetchProfile = async () => {
   try {
     const res: any = await getMyProfileApi(memberId, phone)
     if (res) {
-      profile.value = res.member ? res : (res.data || res)
+      const normalized = res.member ? res : (res.data || res)
+      profile.value = {
+        ...normalized,
+        dualBalance: normalized.dualBalance || normalized.balance || null,
+        balance: normalized.balance || normalized.dualBalance || null
+      }
     }
   } catch (err: any) {
     // 演示/断网兜底：从系统数据中精准匹配当前会员 (以手机号优先，绝不能用 ID=1 误匹配预置林清雅)
@@ -481,15 +509,24 @@ const fetchProfile = async () => {
           notes: '开卡自主登记'
         }))
       }
-      const stats = systemData.membersWithStats.find(m => m.id === found.id)
+      let stats: any = null
+      try {
+        stats = systemData.membersWithStats.find(m => m.id === found.id)
+      } catch {}
+      const dualBal = {
+        principalBalance: stats?.principalBalance ?? found.principalBalance ?? found.balance ?? 0,
+        giftBalance: stats?.giftBalance ?? found.giftBalance ?? 0,
+        totalBalance: stats?.totalBalance ?? found.totalBalance ?? found.balance ?? 0
+      }
       profile.value = {
         member: found,
-        balance: {
-          principalBalance: stats?.principalBalance || 0,
-          giftBalance: stats?.giftBalance || 0,
-          totalBalance: stats?.totalBalance || 0
-        },
-        timeCards: stats?.timeCards || [],
+        dualBalance: dualBal,
+        balance: dualBal,
+        timeCards: (stats?.timeCards || found.timeCards || []).map((tc: any) => ({
+          ...tc,
+          skuName: tc.skuName || tc.cardName || tc.itemName,
+          remainingTimes: tc.remainingTimes ?? Math.max(0, Number(tc.totalTimes || 0) - Number(tc.usedTimes || 0))
+        })),
         preferences: prefs
       }
     } else {
@@ -567,7 +604,12 @@ const submitAddPref = async () => {
   savingPref.value = true
   const { memberId, phone } = getTargetMemberIdentity()
   try {
-    await saveMyPreferenceApi(prefForm.value, memberId, phone)
+    await saveMyPreferenceApi({
+      category: prefForm.value.category,
+      tagKey: prefForm.value.preferenceKey.trim(),
+      tagValue: prefForm.value.preferenceValue.trim(),
+      notes: prefForm.value.notes.trim()
+    }, memberId, phone)
     ElMessage.success('偏好保存成功，海马体已精准记忆！')
     addPrefDialogVisible.value = false
     await fetchProfile()

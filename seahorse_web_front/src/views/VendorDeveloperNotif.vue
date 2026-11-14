@@ -135,7 +135,7 @@
                 <el-row :gutter="14">
                   <el-col :span="12">
                     <el-form-item label="SecretId" required>
-                      <el-input v-model="notifConfig.tencentSms.secretId" placeholder="例如: AKIDz89abcdef1234567890TencentKey" />
+                      <el-input v-model="notifConfig.tencentSms.secretId" placeholder="例如: AKID8899DemoTencentKey" />
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
@@ -688,8 +688,8 @@ const notifConfig = ref<any>({
   },
   aliyunSms: {
     enabled: true,
-    accessKeyId: 'LTAI5t89KxxxDirectKey',
-    accessKeySecret: 'w89Jk2LxxxxDirectSecretKey',
+    accessKeyId: '',
+    accessKeySecret: '',
     signName: '海马智慧商业',
     templateCodeAuth: 'SMS_202688001',
     templateCodeConsume: 'SMS_202688002',
@@ -699,8 +699,8 @@ const notifConfig = ref<any>({
   },
   tencentSms: {
     enabled: true,
-    secretId: 'AKIDz89abcdef1234567890TencentKey',
-    secretKey: 'TxKey8899aabbccddeeff001122334455',
+    secretId: '',
+    secretKey: '',
     sdkAppId: '1400889900',
     signName: '海马智慧商业',
     templateIdAuth: '1209381',
@@ -781,7 +781,7 @@ const handlePingAliyunSms = () => {
 const handleApplyTencentDemoKeys = () => {
   notifConfig.value.tencentSms = {
     enabled: true,
-    secretId: 'AKID8899TencentCloudSecretDemo',
+    secretId: 'AKID8899DemoTencentOfficial',
     secretKey: 'TxKeyOfficialDemoV2SecretKey88',
     sdkAppId: '1400889922',
     signName: '海马商业',

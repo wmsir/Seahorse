@@ -928,6 +928,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { getReferralRecords } from '@/utils/systemConfig'
 import {
   getVendorStatsApi,
   getVendorSubscriptionsApi,
@@ -992,6 +994,7 @@ const getTenantStorageDisplay = (tenantId: string) => {
 }
 
 // 基础数据与过滤状态
+const router = useRouter()
 const loading = ref(false)
 const searchQuery = ref('')
 const warningFilter = ref<'ALL' | 'TRIAL' | 'EXPIRING_SOON' | 'NORMAL' | 'EXPIRED'>('ALL')
@@ -1572,7 +1575,7 @@ const handleConfirmResetPassword = async () => {
   resettingPassword.value = true
   try {
     await resetUserPasswordApi({
-      userId: resetPasswordForm.value.userId,
+      userId: resetPasswordForm.value.userId ? Number(resetPasswordForm.value.userId) : undefined,
       username: resetPasswordForm.value.username,
       tenantId: activeTenant.value?.tenantId,
       newPassword: resetPasswordForm.value.newPassword
@@ -1673,7 +1676,7 @@ const handleMoreAction = (cmd: string, row: any) => {
     unlockTenant(row.tenantId)
     ElMessage.success(`🟢 已为租户【${row.tenantName}】应急解除锁屏，页面操作已即刻恢复！`)
   } else if (cmd === 'grant_quota_storage') {
-    rechargeTenantStorage(row.tenantId, 10240, 0, '开发商特批赠送10GB')
+    rechargeTenantStorage(row.tenantId, '开发商特批赠送 10GB 扶持包', 0, 10240, '开发商特批赠送10GB')
     ElMessage.success(`🎉 已成功为租户【${row.tenantName}】赠送 10GB 云存储空间并自动解除锁屏！`)
   } else if (cmd === 'record_storage') {
     ElMessageBox.prompt('请输入本次租户补缴的云存储服务费金额 (元)：', '补录存储服务费', {
@@ -1760,9 +1763,10 @@ const handleConfirmCreateTenant = async () => {
 
 // 裂变转介绍
 const referralModalVisible = ref(false)
-const referralList = ref<any[]>([])
+const referralList = ref<any[]>(getReferralRecords())
 
 const openReferralModal = () => {
+  referralList.value = getReferralRecords()
   referralModalVisible.value = true
 }
 
@@ -1850,11 +1854,7 @@ const loadSubscriptions = async () => {
 }
 
 const openPromotionCampaignDrawer = () => {
-  campaignsExpanded.value = true
-  const el = document.querySelector('.campaign-banner-wrap')
-  if (el) {
-    el.scrollIntoView({ behavior: 'smooth' })
-  }
+  router.push('/vendor-campaigns')
 }
 
 onMounted(async () => {

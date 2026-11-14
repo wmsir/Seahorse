@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../core/network/api_client.dart';
 import '../core/storage/local_storage.dart';
 import 'account_manager.dart';
+import 'leave_service.dart';
 
 class AuthService {
   final ApiClient _client = ApiClient();
@@ -32,7 +33,7 @@ class AuthService {
           'clientDevice': device,
         });
       } on DioException catch (dioErr) {
-        // 如果网络超时或无法连通，尝试双通道智能自愈（80端口与8080端口互为备份重试）
+        // 如果网络超时或无法连通，尝试云端与本地 8082 开发端口通道自愈重试
         final isNetworkErr = dioErr.type == DioExceptionType.connectionTimeout ||
             dioErr.type == DioExceptionType.connectionError ||
             dioErr.type == DioExceptionType.sendTimeout ||
@@ -41,7 +42,8 @@ class AuthService {
           final candidates = <String>[
             'https://fwpt.cn/api',
             'http://39.97.158.22/api',
-            'http://39.97.158.22:8080/api',
+            if (Platform.isAndroid) 'http://10.0.2.2:8082/api',
+            'http://127.0.0.1:8082/api',
           ].where((u) => u != _client.baseUrl).toList();
           Response? recovered;
           for (final altUrl in candidates) {
@@ -178,6 +180,7 @@ class AuthService {
   }
 
   Future<void> logout() async {
+    LeaveService.clearLocalCache();
     await LocalStorage.remove('seahorse_token');
     await LocalStorage.remove('seahorse_user');
     await LocalStorage.remove('seahorse_role');

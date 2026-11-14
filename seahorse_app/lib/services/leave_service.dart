@@ -9,6 +9,10 @@ class LeaveService {
   // 本地/离线容错缓存 (纯净无死数据)
   static final List<LeaveApplicationModel> _localCache = [];
 
+  static void clearLocalCache() {
+    _localCache.clear();
+  }
+
   /// 查询员工请假单据列表
   Future<List<LeaveApplicationModel>> getLeaveList({String? status, String? keyword}) async {
     try {

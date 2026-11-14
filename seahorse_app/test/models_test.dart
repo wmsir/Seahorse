@@ -128,6 +128,31 @@ void main() {
       expect(order.status, 'PAID');
       expect(order.items.length, 1);
     });
+
+    test('OrderModel.fromJson maps backend BillingOrder keys and IndustryType codes', () {
+      final backendOrderJson = {
+        'orderNo': 'BO20260915009',
+        'storeId': 'S001',
+        'totalAmount': 300.0,
+        'discountAmount': 45.0,
+        'actualAmount': 255.0,
+        'payChannel': 'STORED_VALUE',
+        'status': 'PAID',
+        'createdAt': '2026-09-15T18:20:00',
+        'settledAt': '2026-09-15T18:21:05',
+      };
+
+      final order = OrderModel.fromJson(backendOrderJson);
+      expect(order.payableAmount, 255.0);
+      expect(order.paymentMethod, PaymentMethod.memberCard);
+      expect(order.createTime, DateTime.parse('2026-09-15T18:20:00'));
+      expect(order.payTime, DateTime.parse('2026-09-15T18:21:05'));
+
+      expect(IndustryType.fromCode('TEA_HOUSE'), IndustryType.teaHouse);
+      expect(IndustryType.fromCode('PET'), IndustryType.pet);
+      expect(IndustryType.fromCode('DINING'), IndustryType.restaurant);
+      expect(IndustryType.fromCode('AUTO_SERVICE'), IndustryType.auto);
+    });
   });
 
   group('3. SpaceModel Tests', () {

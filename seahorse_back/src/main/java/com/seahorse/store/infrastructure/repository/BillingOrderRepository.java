@@ -11,7 +11,6 @@ import java.util.Optional;
 
 @Repository
 public interface BillingOrderRepository extends JpaRepository<BillingOrder, Long> {
-    Optional<BillingOrder> findByOrderNo(String orderNo);
     Optional<BillingOrder> findBySessionId(Long sessionId);
     List<BillingOrder> findByStoreIdAndStatus(String storeId, BillingStatus status);
     List<BillingOrder> findByStoreIdAndSettledAtBetween(String storeId, LocalDateTime start, LocalDateTime end);

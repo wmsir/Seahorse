@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/storage/local_storage.dart';
 import '../models/member_model.dart';
 import '../services/member_service.dart';
 
@@ -20,8 +21,11 @@ class MemberProvider extends ChangeNotifier {
   String? _currentTenantId;
   String? get currentTenantId => _currentTenantId;
 
-  MemberProvider() {
-    loadMembers();
+  MemberProvider({bool autoLoad = false}) {
+    final hasToken = (LocalStorage.getString('seahorse_token') ?? '').isNotEmpty;
+    if (autoLoad || hasToken) {
+      loadMembers();
+    }
   }
 
   Future<void> loadMembers({String? query, String? tenantId, String? storeId}) async {

@@ -9,7 +9,7 @@
             <el-tag effect="plain" type="success">24小时不打烊 · 顾客自主购卡/选品 · 快递包邮到家</el-tag>
           </div>
           <div class="header-right">
-            <el-button type="success" plain icon="Share" @click="openQrDialog = true">商城访问码</el-button>
+            <el-button type="success" plain icon="Share" @click="handleOpenQrDialog">商城访问码</el-button>
             <el-button type="warning" plain icon="Refresh" @click="handleBatchSyncProducts">
               ⚡ 一键同步门店在售商品
             </el-button>
@@ -213,13 +213,16 @@
     <el-dialog v-model="openQrDialog" title="微信微商城直达码" width="400px">
       <div style="text-align: center; padding: 12px 0;">
         <div style="width: 180px; height: 180px; margin: 0 auto; background: #f0fdf4; border: 2px dashed #86efac; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #16a34a;">
-          <el-icon style="font-size: 60px;"><Shop /></el-icon>
-          <span style="font-size: 13px; margin-top: 6px; font-weight: 600;">微信在线商城小程序</span>
+          <img v-if="mallQrDataUrl" :src="mallQrDataUrl" alt="微商城直达码" style="width: 164px; height: 164px; border-radius: 8px;" />
+          <template v-else>
+            <el-icon style="font-size: 60px;"><Shop /></el-icon>
+            <span style="font-size: 13px; margin-top: 6px; font-weight: 600;">微信在线商城小程序</span>
+          </template>
         </div>
         <p style="margin-top: 14px; font-size: 13px; color: #64748b;">海马智慧会员微商城 · 支持微信支付与会员储值本金安全免密抵扣</p>
       </div>
       <template #footer>
-        <el-button type="primary" style="width: 100%;" @click="openQrDialog = false">复制商城直达链接</el-button>
+        <el-button type="primary" style="width: 100%;" @click="handleCopyMallLink">复制商城直达链接</el-button>
       </template>
     </el-dialog>
 
@@ -406,6 +409,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import QRCode from 'qrcode'
 import { useSystemDataStore } from '../stores/systemDataStore'
 
 const systemData = useSystemDataStore()
@@ -440,8 +444,8 @@ const filteredOrders = computed(() => {
   return currentOrders.value.filter(item => {
     if (orderStatusFilter.value !== 'ALL' && item.status !== orderStatusFilter.value) return false
     if (orderKeyword.value) {
-      const q = orderKeyword.value.toLowerCase()
-      return item.orderNo.toLowerCase().includes(q) || item.buyerName.includes(q) || item.buyerPhone.includes(q)
+      const q = orderKeyword.value.trim().toLowerCase()
+      return (item.orderNo || '').toLowerCase().includes(q) || (item.buyerName || '').toLowerCase().includes(q) || (item.buyerPhone || '').includes(q)
     }
     return true
   })
@@ -474,17 +478,8 @@ const getOrderStatusName = (status: string) => {
 
 // 货架商品数据与分页 (直接响应式绑定 systemData.mallGoods)
 const goodsKeyword = ref('')
-const goodsCategoryFilter = ref('ALL')
 const goodsPage = ref(1)
 const goodsPageSize = ref(10)
-
-const mallCategories = computed(() => {
-  const cats = new Set<string>()
-  systemData.mallGoods.forEach(g => {
-    if (g.category) cats.add(g.category)
-  })
-  return Array.from(cats)
-})
 
 const currentGoods = computed(() => {
   return systemData.mallGoods
@@ -492,12 +487,9 @@ const currentGoods = computed(() => {
 
 const filteredGoods = computed(() => {
   return currentGoods.value.filter(item => {
-    if (goodsCategoryFilter.value && goodsCategoryFilter.value !== 'ALL' && item.category !== goodsCategoryFilter.value) {
-      return false
-    }
     if (goodsKeyword.value.trim()) {
       const q = goodsKeyword.value.trim().toLowerCase()
-      return item.title.toLowerCase().includes(q) || item.category.toLowerCase().includes(q)
+      return (item.title || '').toLowerCase().includes(q) || (item.category || '').toLowerCase().includes(q)
     }
     return true
   })
@@ -709,6 +701,22 @@ const currentOrder = ref<any>(null)
 const shipForm = ref({ expressCompany: 'SF', trackingNo: '' })
 
 const handleShipOrder = (row: any) => {
+  if (row.deliveryType !== 'EXPRESS') {
+    ElMessageBox.confirm(
+      `确认为顾客【${row.buyerName} (${row.buyerPhone})】现场核销自提订单【${row.productTitle}】（单号：${row.orderNo}）吗？`,
+      '到店自提核销确认',
+      {
+        confirmButtonText: '确认核销完结',
+        cancelButtonText: '取消',
+        type: 'success'
+      }
+    ).then(() => {
+      systemData.shipMallOrder(row.orderNo, 'STORE_PICKUP', `VERIFY-${Date.now()}`)
+      row.status = 'COMPLETED'
+      ElMessage.success('到店自提核销成功！订单已标记为已完成。')
+    }).catch(() => {})
+    return
+  }
   currentOrder.value = row
   shipForm.value.trackingNo = 'SF' + Math.floor(1000000000 + Math.random() * 9000000000)
   openShipDialog.value = true
@@ -736,6 +744,34 @@ const handleViewOrderDetail = (row: any) => {
 }
 
 const openQrDialog = ref(false)
+const mallQrDataUrl = ref('')
+
+const mallDirectUrl = computed(() => {
+  const sId = encodeURIComponent(systemData.stores[0]?.storeId || localStorage.getItem('seahorse_store_id') || 'S001')
+  return `${window.location.origin}/seahorse/table-order?storeId=${sId}`
+})
+
+const handleOpenQrDialog = async () => {
+  openQrDialog.value = true
+  try {
+    mallQrDataUrl.value = await QRCode.toDataURL(mallDirectUrl.value, {
+      width: 180,
+      margin: 1
+    })
+  } catch (e) {
+    mallQrDataUrl.value = ''
+  }
+}
+
+const handleCopyMallLink = () => {
+  navigator.clipboard.writeText(mallDirectUrl.value).then(() => {
+    ElMessage.success('商城直达链接已复制到剪贴板！')
+    openQrDialog.value = false
+  }).catch(() => {
+    ElMessage.info(`请复制链接：${mallDirectUrl.value}`)
+    openQrDialog.value = false
+  })
+}
 
 const handleDeleteGoods = (row: any) => {
   ElMessageBox.confirm(`确定要从微商城中删除【${row.title}】吗？`, '安全提示', {
@@ -745,7 +781,7 @@ const handleDeleteGoods = (row: any) => {
   }).then(() => {
     systemData.deleteMallGoods(row.id)
     ElMessage.success('删除成功')
-  })
+  }).catch(() => {})
 }
 </script>
 

@@ -30,8 +30,9 @@
             placeholder="输入员工姓名或手机号检索"
             style="width: 240px;"
             clearable
-            @clear="loadStaffList"
-            @keyup.enter="loadStaffList"
+            @input="currentPage = 1"
+            @clear="currentPage = 1; loadStaffList()"
+            @keyup.enter="currentPage = 1; loadStaffList()"
           >
             <template #prefix>
               <el-icon><Search /></el-icon>
@@ -42,7 +43,7 @@
 
       <!-- 员工列表表格 (严格对齐截图3) -->
       <el-table
-        :data="filteredStaffList"
+        :data="paginatedStaffList"
         style="width: 100%; margin-top: 16px;"
         v-loading="loading"
         :header-cell-style="{ background: '#f8fafc', color: '#475569', fontWeight: '600' }"
@@ -1554,7 +1555,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import QRCode from 'qrcode'
 import {
   getMerchantStaffListApi,
@@ -1582,7 +1583,7 @@ import {
   saveStaffDisplayModeApi
 } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useSystemDataStore, allSystemMenus, type SystemMenuOption } from '../stores/systemDataStore'
+import { useSystemDataStore, allSystemMenus } from '../stores/systemDataStore'
 import { useStoreConfig } from '../stores/store'
 
 const systemData = useSystemDataStore()
@@ -1834,14 +1835,14 @@ const attendanceKeyword = ref('')
 
 const attendanceConfig = ref({
   platform: 'WECHAT_WORK',
-  corpId: 'ww78a9c33d8e90',
-  agentId: '1000088',
-  appSecret: 'wK8s9xP2mQ0Lz4v',
-  dingAppKey: 'dingabc12345678',
-  dingAppSecret: 'sec-8899aabbccddeeff',
+  corpId: '',
+  agentId: '',
+  appSecret: '',
+  dingAppKey: '',
+  dingAppSecret: '',
   autoSync: true,
   syncIntervalMinutes: 15,
-  lastSyncTime: '2026-09-07 18:30:00'
+  lastSyncTime: ''
 })
 
 const normalAttendanceCount = computed(() => {
@@ -1874,18 +1875,63 @@ const filteredAttendanceList = computed(() => {
   })
 })
 
+const formatLocalDate = (d: Date = new Date()) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+const normalizeAttendanceRecord = (r: any) => ({
+  ...r,
+  staffName: r.staffName || r.employeeName || '员工',
+  phone: r.phone || '',
+  postName: r.postName || '员工',
+  workDate: r.workDate || r.recordDate || '',
+  checkInTime: r.checkInTime || '',
+  checkInStatus: r.checkInStatus || r.status || 'NORMAL',
+  checkOutTime: r.checkOutTime || '',
+  checkOutStatus: r.checkOutStatus || (r.checkOutTime ? 'NORMAL' : ''),
+  workHours: r.workHours ?? 8,
+  checkInLocation: r.checkInLocation || r.location || '门店考勤机/移动定位打卡',
+  platformSource: r.platformSource || r.platform || attendanceConfig.value.platform || 'WECHAT_WORK',
+  notes: r.notes || r.remark || ''
+})
+
+const loadAttendanceData = async () => {
+  try {
+    const cfgRes: any = await getAttendanceConfigApi()
+    const cfg = cfgRes?.data || cfgRes
+    if (cfg && typeof cfg === 'object' && !Array.isArray(cfg) && cfg.platform) {
+      attendanceConfig.value = { ...attendanceConfig.value, ...cfg }
+    }
+  } catch (_) {}
+
+  try {
+    const recRes: any = await getAttendanceRecordsApi({ storeId: effectiveStoreId.value })
+    const list: any[] = Array.isArray(recRes) ? recRes : (Array.isArray(recRes?.data) ? recRes.data : [])
+    if (list.length > 0) {
+      systemData.attendanceRecords = list.map(normalizeAttendanceRecord) as any
+    }
+  } catch (_) {}
+}
+
 const handleSyncAttendance = async () => {
   syncingAttendance.value = true
   try {
-    const res = await syncAttendanceDataApi({ platform: attendanceConfig.value.platform })
-    if (res.data?.success && Array.isArray(res.data.data)) {
-      systemData.attendanceRecords = res.data.data
-      attendanceConfig.value.lastSyncTime = new Date().toLocaleString()
-      ElMessage.success(res.data.message || '打卡流水同步成功！')
+    const syncRes: any = await syncAttendanceDataApi(attendanceConfig.value.platform)
+    const recRes: any = await getAttendanceRecordsApi({ storeId: effectiveStoreId.value })
+    const records: any[] = Array.isArray(recRes)
+      ? recRes
+      : (Array.isArray(recRes?.data) ? recRes.data : (Array.isArray(syncRes?.data) ? syncRes.data : []))
+    if (records.length > 0) {
+      systemData.attendanceRecords = records.map(normalizeAttendanceRecord) as any
+      attendanceConfig.value.lastSyncTime = syncRes?.syncTime || new Date().toLocaleString()
+      ElMessage.success(syncRes?.message || '打卡流水同步成功！')
     } else {
       await systemData.syncAttendanceFromPlatform(attendanceConfig.value.platform as any)
-      attendanceConfig.value.lastSyncTime = new Date().toLocaleString()
-      ElMessage.success(`成功从【${attendanceConfig.value.platform === 'WECHAT_WORK' ? '企业微信' : '阿里巴巴钉钉'}】同步最新考勤打卡流水！`)
+      attendanceConfig.value.lastSyncTime = syncRes?.syncTime || new Date().toLocaleString()
+      ElMessage.success(syncRes?.message || `成功从【${attendanceConfig.value.platform === 'WECHAT_WORK' ? '企业微信' : '阿里巴巴钉钉'}】同步最新考勤打卡流水！`)
     }
   } catch (e) {
     await systemData.syncAttendanceFromPlatform(attendanceConfig.value.platform as any)
@@ -1896,10 +1942,16 @@ const handleSyncAttendance = async () => {
   }
 }
 
+let testConnTimer: ReturnType<typeof setTimeout> | null = null
+
 const handleTestConnection = async () => {
   testingConnection.value = true
-  setTimeout(() => {
+  if (testConnTimer) {
+    clearTimeout(testConnTimer)
+  }
+  testConnTimer = setTimeout(() => {
     testingConnection.value = false
+    testConnTimer = null
     ElMessage.success(`连通性测试通过！成功连通【${attendanceConfig.value.platform === 'WECHAT_WORK' ? '企业微信通讯录与打卡应用' : '阿里巴巴钉钉考勤套件'}】，响应延迟 38ms`)
   }, 800)
 }
@@ -1930,7 +1982,7 @@ const openTimelineDialog = ref(false)
 const activeTimelineLeave = ref<any>(null)
 
 const applyLeaveForm = ref({
-  staffId: '',
+  staffId: '' as string | number,
   staffName: '',
   department: '',
   postName: '',
@@ -2031,8 +2083,8 @@ const getLeaveTypeTag = (type: string) => {
   }
 }
 
-const handleSelectLeaveStaff = (staffId: string) => {
-  const staff = systemData.staff.find(s => s.id === staffId)
+const handleSelectLeaveStaff = (staffId: string | number) => {
+  const staff = systemData.staff.find(s => String(s.id) === String(staffId))
   if (staff) {
     applyLeaveForm.value.staffName = staff.realName
     applyLeaveForm.value.department = staff.department || '门店运营组'
@@ -2088,7 +2140,10 @@ const handleConfirmApplyLeave = async () => {
     openApplyLeaveDialog.value = false
     await loadLeaveList()
   } catch (e) {
-    systemData.applyLeave(applyLeaveForm.value)
+    systemData.applyLeave({
+      ...applyLeaveForm.value,
+      staffId: String(applyLeaveForm.value.staffId)
+    } as any)
     ElMessage.success('请假单已成功发起并流转至主管审批队列！')
     openApplyLeaveDialog.value = false
     await loadLeaveList()
@@ -2341,6 +2396,11 @@ const filteredStaffList = computed(() => {
   )
 })
 
+const paginatedStaffList = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredStaffList.value.slice(start, start + pageSize.value)
+})
+
 const getRoleDefaultPost = (role?: string) => {
   switch (role) {
     case 'SUPER_ADMIN': return '租户总负责人'
@@ -2443,7 +2503,7 @@ const handleEdit = (row: any) => {
     phone: row.phone || '',
     postName: row.postName || getRoleDefaultPost(row.role),
     role: row.role || 'TECHNICIAN',
-    baseSalary: row.baseSalary || 4500,
+    baseSalary: row.baseSalary ?? 4500,
     commissionPercentage: row.defaultCommissionRate !== undefined ? Number((row.defaultCommissionRate * 100).toFixed(0)) : 0,
     gender: row.gender || 'MALE'
   }
@@ -2467,6 +2527,8 @@ const handleSaveStaff = async () => {
       autoRole = 'TECHNICIAN'
     }
 
+    const commRate = (Number(staffForm.value.commissionPercentage) || 0) / 100
+
     const payload: any = {
       realName: staffForm.value.realName,
       nickname: staffForm.value.nickname,
@@ -2474,7 +2536,7 @@ const handleSaveStaff = async () => {
       postName: staffForm.value.postName,
       role: autoRole,
       baseSalary: staffForm.value.baseSalary,
-      defaultCommissionRate: (staffForm.value.commissionPercentage || 0) / 100,
+      defaultCommissionRate: commRate,
       gender: staffForm.value.gender
     }
     if (isEditing.value && staffForm.value.id) {
@@ -2488,11 +2550,11 @@ const handleSaveStaff = async () => {
         nickname: staffForm.value.nickname,
         phone: staffForm.value.phone,
         postName: staffForm.value.postName,
-        role: staffForm.value.role,
+        role: autoRole,
         baseSalary: staffForm.value.baseSalary,
-        serviceCommissionRate: staffForm.value.commissionPercentage / 100,
-        gender: staffForm.value.gender
-      })
+        serviceCommissionRate: commRate,
+        gender: staffForm.value.gender === 'FEMALE' ? 'FEMALE' : 'MALE'
+      } as any)
       ElMessage.success('员工档案保存成功，底薪已自动同步至成本中心！')
     } else {
       let newId = Date.now()
@@ -2513,11 +2575,11 @@ const handleSaveStaff = async () => {
         nickname: staffForm.value.nickname,
         phone: staffForm.value.phone,
         postName: staffForm.value.postName,
-        role: staffForm.value.role,
+        role: autoRole,
         baseSalary: staffForm.value.baseSalary,
-        serviceCommissionRate: staffForm.value.commissionPercentage / 100,
-        gender: staffForm.value.gender
-      })
+        serviceCommissionRate: commRate,
+        gender: staffForm.value.gender === 'FEMALE' ? 'FEMALE' : 'MALE'
+      } as any)
       ElMessage.success('新增员工成功，底薪已自动纳入成本中心固定成本！')
     }
     staffDialogVisible.value = false
@@ -2540,7 +2602,11 @@ const handleDelete = (row: any) => {
     } catch (e) {}
     systemData.deleteStaff(row.id)
     ElMessage.success('已删除员工，成本中心已自动更新')
-    loadStaffList()
+    await loadStaffList()
+    const maxPage = Math.max(1, Math.ceil(filteredStaffList.value.length / pageSize.value))
+    if (currentPage.value > maxPage) {
+      currentPage.value = maxPage
+    }
   }).catch(() => {})
 }
 
@@ -2552,7 +2618,7 @@ const rewardPunishForm = ref({
   type: 'REWARD',
   amount: 200,
   reason: '',
-  recordDate: new Date().toISOString().substring(0, 10)
+  recordDate: formatLocalDate()
 })
 
 const openRewardPunishModal = (staffId?: number) => {
@@ -2561,7 +2627,7 @@ const openRewardPunishModal = (staffId?: number) => {
     type: 'REWARD',
     amount: 200,
     reason: '',
-    recordDate: new Date().toISOString().substring(0, 10)
+    recordDate: formatLocalDate()
   }
   rewardPunishDialogVisible.value = true
 }
@@ -2630,7 +2696,8 @@ const openRestoreModal = async () => {
 const handleRestoreStaff = async (id: number) => {
   try {
     await restoreStaffApi(id)
-    ElMessage.success('员工已成功恢复在职')
+    systemData.updateStaff(id, { status: 'ACTIVE' })
+    ElMessage.success('员工已成功恢复在职，成本中心已同步更新')
     openRestoreModal()
     loadStaffList()
   } catch (e) {
@@ -2811,7 +2878,7 @@ const handleConfirmSalaryPay = () => {
     const comm = Number(currentStaffCommissionTotal.value || 0)
     const rp = Number(currentStaffRewardPunishTotal.value || 0)
     const actual = Math.max(0, Number((base + comm + rp).toFixed(2)))
-    const nowMonth = new Date().toISOString().slice(0, 7)
+    const nowMonth = formatLocalDate().slice(0, 7)
     if (!salaryPaidRecordsMap.value[staffId]) {
       salaryPaidRecordsMap.value[staffId] = []
     }
@@ -2829,6 +2896,10 @@ const handleConfirmSalaryPay = () => {
 
 // 9. 工资记录 (新注册租户无发薪历史，纯净化显示空状态；核算后动态呈现真实记录)
 const salaryRecordsVisible = ref(false)
+const handleSalaryRecords = (row: any) => {
+  currentStaff.value = row
+  salaryRecordsVisible.value = true
+}
 const salaryMockRecords = computed(() => {
   if (!currentStaff.value) return []
   const staffId = String(currentStaff.value.id)
@@ -2950,7 +3021,15 @@ onMounted(() => {
   storeConfig.fetchCurrentSubscription()
   loadStaffList()
   loadAuditStaffList()
+  loadAttendanceData()
   loadLeaveList()
+})
+
+onUnmounted(() => {
+  if (testConnTimer) {
+    clearTimeout(testConnTimer)
+    testConnTimer = null
+  }
 })
 </script>
 

@@ -15,10 +15,6 @@ SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_sche
 SET @sqlstmt := IF(@tbl > 0 AND @idx = 0, 'ALTER TABLE `sh_employee` ADD INDEX `idx_emp_tenant_status` (`tenant_id`, `status`) ALGORITHM=INPLACE, LOCK=NONE', 'SELECT "Skip idx_emp_tenant_status"');
 PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_employee' AND index_name = 'idx_emp_phone');
-SET @sqlstmt := IF(@tbl > 0 AND @idx = 0, 'ALTER TABLE `sh_employee` ADD INDEX `idx_emp_phone` (`phone`) ALGORITHM=INPLACE, LOCK=NONE', 'SELECT "Skip idx_emp_phone"');
-PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
 -- 2. sh_service_space 二级索引
 SET @tbl := (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'sh_service_space');
 SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_service_space' AND index_name = 'idx_space_tenant_store_status');
@@ -66,7 +62,7 @@ SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_sche
 SET @sqlstmt := IF(@tbl > 0 AND @idx = 0, 'ALTER TABLE `sh_performer_share` ADD INDEX `idx_perf_line_item` (`line_item_id`) ALGORITHM=INPLACE, LOCK=NONE', 'SELECT "Skip idx_perf_line_item"');
 PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- 5. sh_billing_order, sh_payment_record, sh_shift_record 二级索引
+-- 5. sh_billing_order, sh_payment_record 二级索引
 SET @tbl := (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'sh_billing_order');
 SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_billing_order' AND index_name = 'idx_bill_tenant_store_status');
 SET @sqlstmt := IF(@tbl > 0 AND @idx = 0, 'ALTER TABLE `sh_billing_order` ADD INDEX `idx_bill_tenant_store_status` (`tenant_id`, `store_id`, `status`) ALGORITHM=INPLACE, LOCK=NONE', 'SELECT "Skip idx_bill_tenant_store_status"');
@@ -87,11 +83,6 @@ PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_payment_record' AND index_name = 'idx_pay_time');
 SET @sqlstmt := IF(@tbl > 0 AND @idx = 0, 'ALTER TABLE `sh_payment_record` ADD INDEX `idx_pay_time` (`pay_time`) ALGORITHM=INPLACE, LOCK=NONE', 'SELECT "Skip idx_pay_time"');
-PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @tbl := (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'sh_shift_record');
-SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_shift_record' AND index_name = 'idx_shift_tenant_store_created');
-SET @sqlstmt := IF(@tbl > 0 AND @idx = 0, 'ALTER TABLE `sh_shift_record` ADD INDEX `idx_shift_tenant_store_created` (`tenant_id`, `store_id`, `created_at`) ALGORITHM=INPLACE, LOCK=NONE', 'SELECT "Skip idx_shift_tenant_store_created"');
 PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 6. sh_member, sh_dual_balance_account, sh_time_card_bucket 二级索引
@@ -144,11 +135,6 @@ SET @sqlstmt := IF(@tbl > 0 AND @idx = 0, 'ALTER TABLE `sh_commission_record` AD
 PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 8. 审计日志与扩展业务表二级索引 (若表存在则创建)
-SET @tbl := (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'sh_operation_audit_log');
-SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_operation_audit_log' AND index_name = 'idx_audit_store_time');
-SET @sqlstmt := IF(@tbl > 0 AND @idx = 0, 'ALTER TABLE `sh_operation_audit_log` ADD INDEX `idx_audit_store_time` (`store_id`, `created_at`) ALGORITHM=INPLACE, LOCK=NONE', 'SELECT "Skip idx_audit_store_time"');
-PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
 SET @tbl := (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'sh_member_recharge_record');
 SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_member_recharge_record' AND index_name = 'idx_rch_store_created');
 SET @sqlstmt := IF(@tbl > 0 AND @idx = 0, 'ALTER TABLE `sh_member_recharge_record` ADD INDEX `idx_rch_store_created` (`store_id`, `created_at`) ALGORITHM=INPLACE, LOCK=NONE', 'SELECT "Skip idx_rch_store_created"');
@@ -181,10 +167,6 @@ SET @sqlstmt := IF(@tbl > 0 AND @idx = 0, 'ALTER TABLE `sh_leave_application` AD
 PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @tbl := (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'sh_security_log');
-SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_security_log' AND index_name = 'idx_seclog_tenant_created');
-SET @sqlstmt := IF(@tbl > 0 AND @idx = 0, 'ALTER TABLE `sh_security_log` ADD INDEX `idx_seclog_tenant_created` (`tenant_id`, `created_at`) ALGORITHM=INPLACE, LOCK=NONE', 'SELECT "Skip idx_seclog_tenant_created"');
-PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
 SET @idx := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sh_security_log' AND index_name = 'idx_seclog_store_created');
 SET @sqlstmt := IF(@tbl > 0 AND @idx = 0, 'ALTER TABLE `sh_security_log` ADD INDEX `idx_seclog_store_created` (`store_id`, `created_at`) ALGORITHM=INPLACE, LOCK=NONE', 'SELECT "Skip idx_seclog_store_created"');
 PREPARE stmt FROM @sqlstmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;

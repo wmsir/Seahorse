@@ -1,0 +1,679 @@
+name: 构建海马智慧门店全平台客户端 (Seahorse Multi-Platform Clients)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: '选择需要构建的目标客户端平台 (all / windows / macos / ios / harmonyos / android)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
+          - ios
+          - harmonyos
+          - android
+  push:
+    tags:
+      - 'seahorse-v*'
+
+env:
+  SEAHORSE_VERSION: '1.0.0'
+  TAURI_CLI_TAG: 'tauri-cli-v2.12.4'
+
+jobs:
+  # ============================================================================
+  # 1. Windows 原生桌面客户端 (Rust + Tauri v2: NSIS .exe / .msi / Standalone .exe)
+  # ============================================================================
+  build-windows-tauri:
+    name: 构建 Windows 桌面端 (Tauri v2 x64)
+    runs-on: windows-latest
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'windows'
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js 20 运行环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: seahorse_web_front/package-lock.json
+
+      - name: 构建桌面端前端静态资源 (dist-desktop)
+        working-directory: seahorse_web_front
+        run: |
+          npm ci
+          npm run build:desktop
+
+      - name: 安装 Rust Stable 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Rust 编译产物
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: seahorse_desktop/src-tauri
+
+      - name: 安装预编译 Tauri CLI v2
+        shell: pwsh
+        run: |
+          $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+          New-Item -ItemType Directory -Force -Path $cargoBin | Out-Null
+          $zipUrl = "https://github.com/tauri-apps/tauri/releases/download/$($env:TAURI_CLI_TAG)/cargo-tauri-x86_64-pc-windows-msvc.zip"
+          try {
+            Invoke-WebRequest -Uri $zipUrl -OutFile "cargo-tauri.zip" -UseBasicParsing
+            Expand-Archive -Path "cargo-tauri.zip" -DestinationPath $cargoBin -Force
+            Remove-Item "cargo-tauri.zip" -Force -ErrorAction SilentlyContinue
+          } catch {
+            Write-Host "预编译二进制下载失败，回退至 cargo install tauri-cli..."
+            cargo install tauri-cli --version "^2.0.0" --locked
+          }
+          cargo tauri --version
+
+      - name: 编译与打包 Windows 桌面安装包 (双模签名自动探测)
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SEAHORSE_WINDOWS_PFX_BASE64: ${{ secrets.SEAHORSE_WINDOWS_PFX_BASE64 }}
+          SEAHORSE_WINDOWS_PFX_PASSWORD: ${{ secrets.SEAHORSE_WINDOWS_PFX_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+            Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+            Write-Host "::notice::未检测到 TAURI_SIGNING_PRIVATE_KEY，以无 Updater 签名模式编译 Windows 安装包。"
+          } else {
+            if ([string]::IsNullOrEmpty($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) {
+              Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+            }
+            Write-Host "已启用 Tauri v2 构建产物签名 (TAURI_SIGNING_PRIVATE_KEY)。"
+          }
+
+          Push-Location seahorse_desktop/src-tauri
+          cargo tauri build
+          Pop-Location
+
+          $outDir = "release_out/windows"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+          $nsisExe = Get-ChildItem -Path "seahorse_desktop/src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($nsisExe) {
+            Copy-Item $nsisExe.FullName -Destination "$outDir/SeahorseStore-v$($env:SEAHORSE_VERSION)-windows-x64-setup.exe" -Force
+          }
+
+          $msiPkg = Get-ChildItem -Path "seahorse_desktop/src-tauri/target/release/bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($msiPkg) {
+            Copy-Item $msiPkg.FullName -Destination "$outDir/SeahorseStore-v$($env:SEAHORSE_VERSION)-windows-x64.msi" -Force
+          }
+
+          $rawExe = "seahorse_desktop/src-tauri/target/release/seahorse_desktop.exe"
+          if (Test-Path $rawExe) {
+            Copy-Item $rawExe -Destination "$outDir/seahorse_desktop.exe" -Force
+          }
+
+          if ((-not [string]::IsNullOrWhiteSpace($env:SEAHORSE_WINDOWS_PFX_BASE64)) -and (-not [string]::IsNullOrWhiteSpace($env:SEAHORSE_WINDOWS_PFX_PASSWORD))) {
+            $pfxPath = Join-Path $env:RUNNER_TEMP "seahorse-win-codesign.pfx"
+            $cleanB64 = $env:SEAHORSE_WINDOWS_PFX_BASE64 -replace '\s+', ''
+            [System.IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($cleanB64))
+            $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match 'x64\\signtool\.exe$' } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+            if ($signtool) {
+              Write-Host "已检测到 SEAHORSE_WINDOWS_PFX_BASE64，正在对 Windows 安装包执行 Authenticode 数字签名..."
+              foreach ($artifact in (Get-ChildItem -Path $outDir -Include "*.exe", "*.msi" -Recurse)) {
+                & $signtool.FullName sign /f $pfxPath /p $env:SEAHORSE_WINDOWS_PFX_PASSWORD /fd SHA256 /tr "http://timestamp.digicert.com" /td SHA256 $artifact.FullName
+                if ($LASTEXITCODE -ne 0) { throw "signtool 签名失败: $($artifact.Name)" }
+              }
+            }
+          } else {
+            Write-Host "::notice::未配置 SEAHORSE_WINDOWS_PFX_BASE64，保持无 Authenticode 签名模式输出。"
+          }
+
+          Get-ChildItem -Path $outDir | Format-Table Name, Length
+
+      - name: 清理 Windows 临时签名证书
+        if: always()
+        shell: pwsh
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "seahorse-win-codesign.pfx"
+          if (Test-Path $pfxPath) {
+            Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: 上传构建产物 (Windows NSIS / MSI / EXE)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Seahorse-Windows-x64
+          path: release_out/windows/*
+          if-no-files-found: error
+
+  # ============================================================================
+  # 2. macOS 原生桌面客户端 (Rust + Tauri v2: Universal Apple Silicon + Intel)
+  # ============================================================================
+  build-macos-tauri:
+    name: 构建 macOS 桌面端 (Universal DMG & App)
+    runs-on: macos-latest
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'macos'
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js 20 运行环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: seahorse_web_front/package-lock.json
+
+      - name: 构建桌面端前端静态资源 (dist-desktop)
+        working-directory: seahorse_web_front
+        run: |
+          npm ci
+          npm run build:desktop
+
+      - name: 安装 Rust 工具链 (Apple Silicon + Intel 双架构)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: 缓存 Rust 编译产物
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: seahorse_desktop/src-tauri
+
+      - name: 安装预编译 Tauri CLI v2
+        run: |
+          mkdir -p ~/.cargo/bin
+          if curl -fsSL "https://github.com/tauri-apps/tauri/releases/download/${TAURI_CLI_TAG}/cargo-tauri-aarch64-apple-darwin.zip" -o cargo-tauri.zip; then
+            unzip -qo cargo-tauri.zip -d ~/.cargo/bin
+            chmod +x ~/.cargo/bin/cargo-tauri
+            rm -f cargo-tauri.zip
+          else
+            cargo install tauri-cli --version "^2.0.0" --locked
+          fi
+          cargo tauri --version
+
+      - name: 编译与打包 macOS Universal DMG 与 App 归档 (双模签名与公证自动探测)
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          # 仅在对应 Secret 非空时透传给 Tauri Bundler，避免空字符串触发证书解析异常
+          for var in \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_ID \
+            APPLE_PASSWORD \
+            APPLE_TEAM_ID \
+            TAURI_SIGNING_PRIVATE_KEY \
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            if [ -z "${!var:-}" ]; then
+              unset "$var"
+            fi
+          done
+
+          if [ -n "${APPLE_CERTIFICATE:-}" ]; then
+            echo "检测到 APPLE_CERTIFICATE，启用 macOS Developer ID 签名模式..."
+            if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+              echo "同时检测到 APPLE_ID / APPLE_TEAM_ID，将在打包后自动执行 Apple 公证 (Notarization)..."
+            fi
+          else
+            echo "::notice::未配置 APPLE_CERTIFICATE，回退至无签名 Universal DMG / App 构建模式。"
+          fi
+
+          cd seahorse_desktop/src-tauri
+          cargo tauri build --target universal-apple-darwin
+          cd ../..
+
+          mkdir -p release_out/macos
+          BUNDLE_DIR="seahorse_desktop/src-tauri/target/universal-apple-darwin/release/bundle"
+
+          DMG_PATH=$(find "$BUNDLE_DIR/dmg" -name "*.dmg" | head -n 1)
+          cp "$DMG_PATH" "release_out/macos/SeahorseStore-v${SEAHORSE_VERSION}-macos-universal.dmg"
+
+          APP_TAR=$(find "$BUNDLE_DIR/macos" -name "*.app.tar.gz" | head -n 1 || true)
+          if [ -n "$APP_TAR" ] && [ -f "$APP_TAR" ]; then
+            cp "$APP_TAR" "release_out/macos/SeahorseStore-v${SEAHORSE_VERSION}-macos-universal.app.tar.gz"
+          elif [ -d "$BUNDLE_DIR/macos/SeahorseStore.app" ]; then
+            tar -czf "release_out/macos/SeahorseStore-v${SEAHORSE_VERSION}-macos-universal.app.tar.gz" \
+              -C "$BUNDLE_DIR/macos" SeahorseStore.app
+          fi
+          ls -lh release_out/macos/
+
+      - name: 上传构建产物 (macOS Universal DMG & App)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Seahorse-macOS-Universal
+          path: release_out/macos/*
+          if-no-files-found: error
+
+  # ============================================================================
+  # 3. iOS 原生移动客户端 (双模构建：有证书走正式签名 IPA，无证书优雅回退 Unsigned IPA)
+  # ============================================================================
+  build-ios-flutter:
+    name: 构建 iOS 移动端 (Signed / Unsigned IPA)
+    runs-on: macos-latest
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'ios'
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 配置 Flutter Stable 环境
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: 编译 iOS Release 安装包 (双模签名自动探测)
+        env:
+          IOS_P12_BASE64: ${{ secrets.SEAHORSE_IOS_P12_BASE64 }}
+          IOS_P12_PASSWORD: ${{ secrets.SEAHORSE_IOS_P12_PASSWORD }}
+          IOS_PROVISION_BASE64: ${{ secrets.SEAHORSE_IOS_PROVISION_BASE64 }}
+          IOS_EXPORT_METHOD: ${{ secrets.SEAHORSE_IOS_EXPORT_METHOD }}
+          IOS_TEAM_ID_OVERRIDE: ${{ secrets.SEAHORSE_IOS_TEAM_ID }}
+          IOS_SIGNING_STYLE: ${{ secrets.SEAHORSE_IOS_SIGNING_STYLE }}
+        run: |
+          mkdir -p release_out/ios
+          cd seahorse_app
+          flutter pub get
+
+          if [ -n "${IOS_P12_BASE64}" ] && [ -n "${IOS_PROVISION_BASE64}" ]; then
+            echo "检测到 SEAHORSE_IOS_P12_BASE64 与 SEAHORSE_IOS_PROVISION_BASE64，启用 iOS 生产签名构建模式..."
+
+            KEYCHAIN_PATH="${RUNNER_TEMP}/seahorse-build.keychain"
+            KEYCHAIN_PASSWORD=$(uuidgen)
+            CERT_P12="${RUNNER_TEMP}/seahorse-dist.p12"
+            PROVISION_FILE="${RUNNER_TEMP}/seahorse.mobileprovision"
+            PROVISION_PLIST="${RUNNER_TEMP}/seahorse-provision.plist"
+
+            printf '%s' "${IOS_P12_BASE64}" | tr -d ' \t\r\n' | base64 --decode > "${CERT_P12}"
+            printf '%s' "${IOS_PROVISION_BASE64}" | tr -d ' \t\r\n' | base64 --decode > "${PROVISION_FILE}"
+
+            # 1. 创建并解锁临时构建钥匙串 seahorse-build.keychain
+            security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+            security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+            security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+            security import "${CERT_P12}" -P "${IOS_P12_PASSWORD}" -A -t cert -f pkcs12 -k "${KEYCHAIN_PATH}"
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+
+            EXISTING_KEYCHAINS=$(security list-keychains -d user | tr -d '"' | xargs)
+            security list-keychains -d user -s "${KEYCHAIN_PATH}" ${EXISTING_KEYCHAINS}
+
+            # 2. 解析描述文件提取 UUID / TeamID / ProfileName / BundleID
+            security cms -D -i "${PROVISION_FILE}" > "${PROVISION_PLIST}"
+            PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" "${PROVISION_PLIST}")
+            EXTRACTED_TEAM_ID=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" "${PROVISION_PLIST}")
+            PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "${PROVISION_PLIST}")
+            RAW_APP_ID=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "${PROVISION_PLIST}")
+
+            TEAM_ID="${IOS_TEAM_ID_OVERRIDE:-${EXTRACTED_TEAM_ID}}"
+            EXPORT_METHOD="${IOS_EXPORT_METHOD:-app-store}"
+            SIGNING_STYLE="${IOS_SIGNING_STYLE:-manual}"
+
+            EXTRACTED_BUNDLE_ID="${RAW_APP_ID#${EXTRACTED_TEAM_ID}.}"
+            if [ -z "${EXTRACTED_BUNDLE_ID}" ] || [[ "${EXTRACTED_BUNDLE_ID}" == *"*"* ]]; then
+              BUNDLE_ID="com.seahorse.store.app"
+            else
+              BUNDLE_ID="${EXTRACTED_BUNDLE_ID}"
+            fi
+
+            if [ "${EXPORT_METHOD}" = "development" ]; then
+              SIGNING_CERTIFICATE="Apple Development"
+            else
+              SIGNING_CERTIFICATE="Apple Distribution"
+            fi
+
+            PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+            mkdir -p "${PROFILES_DIR}"
+            INSTALLED_PROFILE="${PROFILES_DIR}/${PROFILE_UUID}.mobileprovision"
+            cp "${PROVISION_FILE}" "${INSTALLED_PROFILE}"
+            echo "INSTALLED_IOS_PROFILE=${INSTALLED_PROFILE}" >> "$GITHUB_ENV"
+
+            # 3. 基于 ios/ExportOptions.template.plist 渲染 ExportOptions.plist 并同步 Xcode Target 签名参数
+            TEAM_ID="${TEAM_ID}" \
+            EXPORT_METHOD="${EXPORT_METHOD}" \
+            SIGNING_STYLE="${SIGNING_STYLE}" \
+            SIGNING_CERTIFICATE="${SIGNING_CERTIFICATE}" \
+            BUNDLE_ID="${BUNDLE_ID}" \
+            PROFILE_NAME="${PROFILE_NAME}" \
+            python3 - <<'PY'
+          import os
+          import plistlib
+          from pathlib import Path
+
+          tpl = Path("ios/ExportOptions.template.plist").read_text(encoding="utf-8")
+          replacements = {
+              "${EXPORT_METHOD}": os.environ["EXPORT_METHOD"],
+              "${TEAM_ID}": os.environ["TEAM_ID"],
+              "${SIGNING_STYLE}": os.environ["SIGNING_STYLE"],
+              "${SIGNING_CERTIFICATE}": os.environ["SIGNING_CERTIFICATE"],
+              "${BUNDLE_ID}": os.environ["BUNDLE_ID"],
+              "${PROFILE_NAME}": os.environ["PROFILE_NAME"],
+          }
+          for k, v in replacements.items():
+              tpl = tpl.replace(k, v)
+
+          plist_data = plistlib.loads(tpl.encode("utf-8"))
+          if os.environ["SIGNING_STYLE"].lower() == "automatic":
+              plist_data.pop("provisioningProfiles", None)
+              plist_data.pop("signingCertificate", None)
+
+          with open("ios/ExportOptions.plist", "wb") as fh:
+              plistlib.dump(plist_data, fh)
+
+          pbx_path = Path("ios/Runner.xcodeproj/project.pbxproj")
+          pbx = pbx_path.read_text(encoding="utf-8")
+          pbx = pbx.replace(
+              "PRODUCT_BUNDLE_IDENTIFIER = com.seahorse.store.app;",
+              f'PRODUCT_BUNDLE_IDENTIFIER = {os.environ["BUNDLE_ID"]};\n'
+              f'\t\t\t\tDEVELOPMENT_TEAM = {os.environ["TEAM_ID"]};\n'
+              f'\t\t\t\tCODE_SIGN_STYLE = {"Automatic" if os.environ["SIGNING_STYLE"].lower() == "automatic" else "Manual"};\n'
+              f'\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "{os.environ["PROFILE_NAME"]}";\n'
+              f'\t\t\t\t"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "{os.environ["SIGNING_CERTIFICATE"]}";',
+          )
+          pbx_path.write_text(pbx, encoding="utf-8")
+          PY
+
+            # 4. 构建正式签名 IPA
+            flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+            SIGNED_IPA=$(find build/ios/ipa -name "*.ipa" | head -n 1)
+            if [ -z "${SIGNED_IPA}" ] || [ ! -f "${SIGNED_IPA}" ]; then
+              echo "::error::未找到编译生成的已签名 .ipa 安装包"
+              exit 1
+            fi
+            cp "${SIGNED_IPA}" "../release_out/ios/seahorse_app-v${SEAHORSE_VERSION}-ios-signed.ipa"
+          else
+            echo "::notice::未配置 SEAHORSE_IOS_P12_BASE64 / SEAHORSE_IOS_PROVISION_BASE64，优雅回退构建 Unsigned IPA..."
+            flutter build ios --release --no-codesign
+
+            rm -rf Payload
+            mkdir -p Payload
+            cp -R build/ios/iphoneos/Runner.app Payload/Runner.app
+            zip -qry "../release_out/ios/seahorse_app-v${SEAHORSE_VERSION}-ios-unsigned.ipa" Payload
+            rm -rf Payload
+          fi
+
+          ls -lh ../release_out/ios/
+
+      - name: 清理 iOS 临时钥匙串与描述文件
+        if: always()
+        run: |
+          security delete-keychain "${RUNNER_TEMP}/seahorse-build.keychain" 2>/dev/null || true
+          rm -f "${RUNNER_TEMP}/seahorse-build.keychain"* \
+                "${RUNNER_TEMP}/seahorse-dist.p12" \
+                "${RUNNER_TEMP}/seahorse.mobileprovision" \
+                "${RUNNER_TEMP}/seahorse-provision.plist" \
+                "seahorse_app/ios/ExportOptions.plist"
+          if [ -n "${INSTALLED_IOS_PROFILE:-}" ] && [ -f "${INSTALLED_IOS_PROFILE}" ]; then
+            rm -f "${INSTALLED_IOS_PROFILE}"
+          fi
+
+      - name: 上传构建产物 (iOS Signed / Unsigned IPA)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Seahorse-iOS-IPA
+          path: release_out/ios/seahorse_app-v*-ios-*.ipa
+          if-no-files-found: error
+
+  # ============================================================================
+  # 4. HarmonyOS NEXT 原生移动客户端 (OpenHarmony SDK + Flutter OHOS HAP)
+  # ============================================================================
+  build-harmonyos-hap:
+    name: 构建 HarmonyOS NEXT 端 (HAP)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'harmonyos'
+    env:
+      OHOS_FLUTTER_BRANCH: ${{ vars.OHOS_FLUTTER_BRANCH || 'oh-3.22.0' }}
+      OHOS_CMDLINE_TOOLS_URL: ${{ vars.OHOS_CMDLINE_TOOLS_URL || 'https://repo.huaweicloud.com/harmonyos/ohpm/5.0.2/commandline-tools-linux-x64-5.0.3.900.zip' }}
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 配置 Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 配置 Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 缓存 OpenHarmony Command Line Tools 与 Flutter OHOS SDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ohos-cmdline-tools
+            ~/.ohos-sdk
+            ~/flutter_ohos
+          key: ohos-flutter-${{ runner.os }}-${{ env.OHOS_FLUTTER_BRANCH }}-v1
+
+      - name: 安装 OpenHarmony 命令行工具链与 Flutter OHOS 引擎
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl git unzip xz-utils zip libglu1-mesa
+
+          # 1. 拉取 OpenHarmony SIG 官方适配版 Flutter SDK (优先 GitCode，回退 Gitee / dev 分支)
+          if [ ! -d "$HOME/flutter_ohos/.git" ]; then
+            rm -rf "$HOME/flutter_ohos"
+            git clone --depth 1 -b "${OHOS_FLUTTER_BRANCH}" https://gitcode.com/openharmony-sig/flutter_flutter.git "$HOME/flutter_ohos" \
+              || git clone --depth 1 -b "${OHOS_FLUTTER_BRANCH}" https://gitee.com/openharmony-sig/flutter_flutter.git "$HOME/flutter_ohos" \
+              || git clone --depth 1 -b dev https://gitcode.com/openharmony-sig/flutter_flutter.git "$HOME/flutter_ohos" \
+              || git clone --depth 1 -b dev https://gitee.com/openharmony-sig/flutter_flutter.git "$HOME/flutter_ohos"
+          fi
+
+          # 2. 安装 OpenHarmony Command Line Tools (含 ohpm / hvigorw / sdkmgr)
+          if [ ! -d "$HOME/.ohos-cmdline-tools/command-line-tools" ]; then
+            mkdir -p "$HOME/.ohos-cmdline-tools"
+            if curl -fsSL "${OHOS_CMDLINE_TOOLS_URL}" -o /tmp/ohos-cmdline.zip; then
+              unzip -qo /tmp/ohos-cmdline.zip -d "$HOME/.ohos-cmdline-tools"
+              rm -f /tmp/ohos-cmdline.zip
+            else
+              echo "::warning::未能从默认镜像拉取 commandline-tools，尝试通过 npm 全局安装 ohpm / hvigor..."
+              npm install -g @ohos/ohpm || true
+            fi
+          fi
+
+          CMD_TOOLS="$HOME/.ohos-cmdline-tools/command-line-tools"
+          if [ -d "$CMD_TOOLS" ]; then
+            chmod +x "$CMD_TOOLS/bin/"* "$CMD_TOOLS/ohpm/bin/"* "$CMD_TOOLS/hvigor/bin/"* 2>/dev/null || true
+            echo "$CMD_TOOLS/bin" >> "$GITHUB_PATH"
+            echo "$CMD_TOOLS/ohpm/bin" >> "$GITHUB_PATH"
+            echo "$CMD_TOOLS/hvigor/bin" >> "$GITHUB_PATH"
+            export PATH="$CMD_TOOLS/bin:$CMD_TOOLS/ohpm/bin:$CMD_TOOLS/hvigor/bin:$PATH"
+            echo "DEVECO_SDK_HOME=$CMD_TOOLS/sdk" >> "$GITHUB_ENV"
+            echo "HOS_SDK_HOME=$CMD_TOOLS/sdk" >> "$GITHUB_ENV"
+            echo "OHOS_SDK_HOME=$CMD_TOOLS/sdk" >> "$GITHUB_ENV"
+            if command -v sdkmgr >/dev/null 2>&1 && [ ! -d "$CMD_TOOLS/sdk/default/openharmony" ]; then
+              yes | sdkmgr install OpenHarmony:12 --accept-license 2>/dev/null || true
+            fi
+          fi
+
+          echo "$HOME/flutter_ohos/bin" >> "$GITHUB_PATH"
+
+      - name: 配置 HarmonyOS NEXT 生产签名 (双模自动探测)
+        working-directory: seahorse_app
+        env:
+          SEAHORSE_OHOS_P12_BASE64: ${{ secrets.SEAHORSE_OHOS_P12_BASE64 }}
+          SEAHORSE_OHOS_CER_BASE64: ${{ secrets.SEAHORSE_OHOS_CER_BASE64 }}
+          SEAHORSE_OHOS_P7B_BASE64: ${{ secrets.SEAHORSE_OHOS_P7B_BASE64 }}
+          SEAHORSE_OHOS_STORE_PASSWORD: ${{ secrets.SEAHORSE_OHOS_STORE_PASSWORD }}
+          SEAHORSE_OHOS_KEY_ALIAS: ${{ secrets.SEAHORSE_OHOS_KEY_ALIAS }}
+          SEAHORSE_OHOS_KEY_PASSWORD: ${{ secrets.SEAHORSE_OHOS_KEY_PASSWORD }}
+          SEAHORSE_OHOS_BUNDLE_NAME: ${{ secrets.SEAHORSE_OHOS_BUNDLE_NAME }}
+        run: |
+          python3 ohos/configure_ohos_signing.py
+
+      - name: 编译 HarmonyOS NEXT 安装包 (.hap)
+        run: |
+          cd seahorse_app
+          flutter --version
+          flutter config --no-analytics
+
+          if [ -d "ohos" ] && command -v ohpm >/dev/null 2>&1; then
+            (cd ohos && ohpm install --all || true)
+          fi
+
+          flutter pub get
+          if ! flutter build hap --release; then
+            echo "::notice::回退使用 hvigorw 直接组装 HAP..."
+            cd ohos
+            hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+            cd ..
+          fi
+
+          mkdir -p ../release_out/harmonyos
+          HAP_FILE=$(find build/ohos ohos/entry/build -name "*-signed.hap" 2>/dev/null | head -n 1 || true)
+          if [ -z "$HAP_FILE" ] || [ ! -f "$HAP_FILE" ]; then
+            HAP_FILE=$(find build/ohos ohos/entry/build -name "*.hap" 2>/dev/null | head -n 1 || true)
+          fi
+          if [ -z "$HAP_FILE" ] || [ ! -f "$HAP_FILE" ]; then
+            echo "::error::未找到编译生成的 .hap 安装包产物"
+            exit 1
+          fi
+          cp "$HAP_FILE" "../release_out/harmonyos/seahorse_app-v${SEAHORSE_VERSION}-harmonyos.hap"
+          ls -lh ../release_out/harmonyos/
+
+      - name: 清理 HarmonyOS 临时签名文件
+        if: always()
+        working-directory: seahorse_app
+        run: |
+          python3 ohos/configure_ohos_signing.py --cleanup
+          rm -rf ohos/signing
+
+      - name: 上传构建产物 (HarmonyOS HAP)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Seahorse-HarmonyOS-HAP
+          path: release_out/harmonyos/seahorse_app-v*-harmonyos.hap
+          if-no-files-found: error
+
+  # ============================================================================
+  # 5. Android 原生移动客户端 (双模构建：有 Keystore 走生产签名，无则回退兼容签名)
+  # ============================================================================
+  build-android-flutter:
+    name: 构建 Android 移动端 (Release APK)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'android'
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 配置 Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 配置 Flutter Stable 环境
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: 配置 Android 生产签名证书 (双模自动探测)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.SEAHORSE_ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.SEAHORSE_ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.SEAHORSE_ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.SEAHORSE_ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "${ANDROID_KEYSTORE_BASE64}" ] && [ -n "${ANDROID_STORE_PASSWORD}" ]; then
+            echo "检测到 SEAHORSE_ANDROID_KEYSTORE_BASE64，启用 Android 生产正式签名模式..."
+            python3 - <<'PY'
+          import base64
+          import os
+          import re
+          from pathlib import Path
+
+          b64 = re.sub(r"\s+", "", os.environ["ANDROID_KEYSTORE_BASE64"])
+          ks_path = Path("seahorse_app/android/app/upload-keystore.jks")
+          ks_path.write_bytes(base64.b64decode(b64))
+
+          store_pwd = os.environ["ANDROID_STORE_PASSWORD"]
+          key_alias = os.environ.get("ANDROID_KEY_ALIAS", "").strip() or "seahorse"
+          key_pwd = os.environ.get("ANDROID_KEY_PASSWORD", "").strip() or store_pwd
+
+          def esc(val: str) -> str:
+              return val.replace("\\", "\\\\").replace("\n", "")
+
+          props = (
+              f"storePassword={esc(store_pwd)}\n"
+              f"keyPassword={esc(key_pwd)}\n"
+              f"keyAlias={esc(key_alias)}\n"
+              "storeFile=upload-keystore.jks\n"
+          )
+          Path("seahorse_app/android/key.properties").write_text(props, encoding="utf-8")
+          print(f"[Android Signing] Decoded upload-keystore.jks ({ks_path.stat().st_size}B, alias={key_alias}).")
+          PY
+          else
+            echo "::notice::未检测到 SEAHORSE_ANDROID_KEYSTORE_BASE64 / SEAHORSE_ANDROID_STORE_PASSWORD，回退至默认兼容签名构建 APK。"
+            rm -f seahorse_app/android/key.properties seahorse_app/android/app/upload-keystore.jks
+          fi
+
+      - name: 编译 Android Release APK
+        run: |
+          cd seahorse_app
+          flutter pub get
+          flutter build apk --release
+          mkdir -p ../release_out/android
+          cp build/app/outputs/flutter-apk/app-release.apk "../release_out/android/seahorse_app-v${SEAHORSE_VERSION}-android.apk"
+          ls -lh ../release_out/android/
+
+      - name: 清理 Android 临时签名证书
+        if: always()
+        run: |
+          rm -f seahorse_app/android/key.properties \
+                seahorse_app/android/app/upload-keystore.jks
+
+      - name: 上传构建产物 (Android APK)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Seahorse-Android-APK
+          path: release_out/android/seahorse_app-v*-android.apk
+          if-no-files-found: error
+
+  # ============================================================================
+  # 6. 自动汇聚五端安装包并发布至 GitHub Releases (Tag: seahorse-v*)
+  # ============================================================================
+  publish-release:
+    name: 发布 GitHub Release 全平台发行包
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/seahorse-v')
+    needs:
+      - build-windows-tauri
+      - build-macos-tauri
+      - build-ios-flutter
+      - build-harmonyos-hap
+      - build-android-flutter
+    permissions:
+      contents: write
+    steps:
+      - name: 下载全部平台构建制品
+        uses: actions/download-artifact@v4
+        with:
+          path: release_assets
+          merge-multiple: true
+
+      - name: 生成 SHA-256 完整性校验清单
+        working-directory: release_assets
+        run: |
+          sha256sum * > SHA256SUMS-seahorse.txt
+          cat SHA256SUMS-seahorse.txt
+
+      - name: 发布至 GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_assets/*
+          generate_release_notes: true
