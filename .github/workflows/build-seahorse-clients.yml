@@ -531,7 +531,9 @@ jobs:
           if [ "${OHOS_SIGN_MODE:-unsigned}" = "signed" ]; then
             flutter build hap --release
           else
-            flutter build hap --release --no-codesign || flutter build hap --release
+            # flutter_ohos 3.27 runs hvigorw assembleHap to generate entry-default-unsigned.hap,
+            # then exits non-zero solely to remind configuring DevEco Studio signing when signingConfigs is empty.
+            flutter build hap --release || echo "::notice::Hvigor assembleHap 无签名编译完成，正在校验生成的 .hap 安装包完整性..."
           fi
 
           mkdir -p ../release_out/harmonyos
@@ -539,10 +541,12 @@ jobs:
           if [ -z "$HAP_FILE" ] || [ ! -f "$HAP_FILE" ]; then
             HAP_FILE=$(find build/ohos ohos/entry/build -name "*.hap" 2>/dev/null | head -n 1 || true)
           fi
-          if [ -z "$HAP_FILE" ] || [ ! -f "$HAP_FILE" ]; then
-            echo "::error::未找到编译生成的 .hap 安装包产物"
+          if [ -z "$HAP_FILE" ] || [ ! -s "$HAP_FILE" ]; then
+            echo "::error::未找到编译生成的有效 .hap 安装包产物"
             exit 1
           fi
+          echo "校验 .hap 内部模块与原生引擎产物 ($HAP_FILE):"
+          unzip -l "$HAP_FILE" | grep -E "module\.json|libflutter\.so|libapp\.so"
           cp "$HAP_FILE" "../release_out/harmonyos/seahorse_app-v${SEAHORSE_VERSION}-harmonyos.hap"
           ls -lh ../release_out/harmonyos/
 
