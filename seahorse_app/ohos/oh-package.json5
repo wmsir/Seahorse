@@ -1,9 +1,14 @@
 {
   "modelVersion": "5.0.0",
+  "name": "seahorse_app",
+  "version": "1.0.0",
   "description": "Seahorse Store HarmonyOS App",
-  "dependencies": {
-    "@ohos/hvigor": "5.0.2",
-    "@ohos/hvigor-ohos-plugin": "5.0.2"
+  "main": "",
+  "author": "Seahorse",
+  "license": "Apache-2.0",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.6"
   },
-  "devDependencies": {}
+  "overrides": {}
 }

@@ -4,9 +4,20 @@
     "products": [
       {
         "name": "default",
-        "compileSdkVersion": "5.0.0(12)",
+        "signingConfig": "default",
         "compatibleSdkVersion": "5.0.0(12)",
         "runtimeOS": "HarmonyOS"
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "profile"
+      },
+      {
+        "name": "release"
       }
     ]
   },

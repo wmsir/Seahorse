@@ -196,7 +196,6 @@ def configure_signing(ohos_dir: Path) -> int:
             {
                 "name": "default",
                 "signingConfig": "release",
-                "compileSdkVersion": "5.0.0(12)",
                 "compatibleSdkVersion": "5.0.0(12)",
                 "runtimeOS": "HarmonyOS",
             }

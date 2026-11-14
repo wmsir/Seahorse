@@ -21,7 +21,6 @@ on:
 
 env:
   SEAHORSE_VERSION: '1.0.0'
-  TAURI_CLI_TAG: 'tauri-cli-v2.12.4'
 
 jobs:
   # ============================================================================
@@ -56,21 +55,13 @@ jobs:
         with:
           workspaces: seahorse_desktop/src-tauri
 
-      - name: 安装预编译 Tauri CLI v2
+      - name: 安装预编译 Tauri CLI v2 (npm)
         shell: pwsh
         run: |
-          $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
-          New-Item -ItemType Directory -Force -Path $cargoBin | Out-Null
-          $zipUrl = "https://github.com/tauri-apps/tauri/releases/download/$($env:TAURI_CLI_TAG)/cargo-tauri-x86_64-pc-windows-msvc.zip"
-          try {
-            Invoke-WebRequest -Uri $zipUrl -OutFile "cargo-tauri.zip" -UseBasicParsing
-            Expand-Archive -Path "cargo-tauri.zip" -DestinationPath $cargoBin -Force
-            Remove-Item "cargo-tauri.zip" -Force -ErrorAction SilentlyContinue
-          } catch {
-            Write-Host "预编译二进制下载失败，回退至 cargo install tauri-cli..."
-            cargo install tauri-cli --version "^2.0.0" --locked
-          }
-          cargo tauri --version
+          npm install -g @tauri-apps/cli@^2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          tauri --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: 编译与打包 Windows 桌面安装包 (双模签名自动探测)
         shell: pwsh
@@ -92,7 +83,8 @@ jobs:
           }
 
           Push-Location seahorse_desktop/src-tauri
-          cargo tauri build
+          tauri build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Pop-Location
 
           $outDir = "release_out/windows"
@@ -184,17 +176,36 @@ jobs:
         with:
           workspaces: seahorse_desktop/src-tauri
 
-      - name: 安装预编译 Tauri CLI v2
+      - name: 安装预编译 Tauri CLI v2 (npm)
         run: |
-          mkdir -p ~/.cargo/bin
-          if curl -fsSL "https://github.com/tauri-apps/tauri/releases/download/${TAURI_CLI_TAG}/cargo-tauri-aarch64-apple-darwin.zip" -o cargo-tauri.zip; then
-            unzip -qo cargo-tauri.zip -d ~/.cargo/bin
-            chmod +x ~/.cargo/bin/cargo-tauri
-            rm -f cargo-tauri.zip
+          npm install -g @tauri-apps/cli@^2
+          tauri --version
+
+      - name: 校验并确保 macOS ICNS 应用图标容器有效
+        run: |
+          ICNS_FILE="seahorse_desktop/src-tauri/icons/icon.icns"
+          SRC_PNG="seahorse_desktop/src-tauri/icons/128x128@2x.png"
+          MAGIC=$(head -c 4 "$ICNS_FILE" 2>/dev/null || true)
+          if [ "$MAGIC" != "icns" ]; then
+            echo "检测到 icon.icns 需要重建，使用 macOS sips + iconutil 生成标准多分辨率 ICNS..."
+            ICONSET_DIR="${RUNNER_TEMP}/Seahorse.iconset"
+            rm -rf "$ICONSET_DIR"
+            mkdir -p "$ICONSET_DIR"
+            sips -z 16 16     "$SRC_PNG" --out "$ICONSET_DIR/icon_16x16.png"
+            sips -z 32 32     "$SRC_PNG" --out "$ICONSET_DIR/icon_16x16@2x.png"
+            sips -z 32 32     "$SRC_PNG" --out "$ICONSET_DIR/icon_32x32.png"
+            sips -z 64 64     "$SRC_PNG" --out "$ICONSET_DIR/icon_32x32@2x.png"
+            sips -z 128 128   "$SRC_PNG" --out "$ICONSET_DIR/icon_128x128.png"
+            sips -z 256 256   "$SRC_PNG" --out "$ICONSET_DIR/icon_128x128@2x.png"
+            sips -z 256 256   "$SRC_PNG" --out "$ICONSET_DIR/icon_256x256.png"
+            sips -z 512 512   "$SRC_PNG" --out "$ICONSET_DIR/icon_256x256@2x.png"
+            sips -z 512 512   "$SRC_PNG" --out "$ICONSET_DIR/icon_512x512.png"
+            sips -z 1024 1024 "$SRC_PNG" --out "$ICONSET_DIR/icon_512x512@2x.png"
+            iconutil -c icns "$ICONSET_DIR" -o "$ICNS_FILE"
+            rm -rf "$ICONSET_DIR"
           else
-            cargo install tauri-cli --version "^2.0.0" --locked
+            echo "icon.icns 魔数校验通过 (Apple ICNS container)."
           fi
-          cargo tauri --version
 
       - name: 编译与打包 macOS Universal DMG 与 App 归档 (双模签名与公证自动探测)
         env:
@@ -207,7 +218,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          # 仅在对应 Secret 非空时透传给 Tauri Bundler，避免空字符串触发证书解析异常
           for var in \
             APPLE_CERTIFICATE \
             APPLE_CERTIFICATE_PASSWORD \
@@ -232,19 +242,36 @@ jobs:
           fi
 
           cd seahorse_desktop/src-tauri
-          cargo tauri build --target universal-apple-darwin
+          if ! tauri build --target universal-apple-darwin; then
+            echo "::warning::全量打包在无头 Finder AppleScript 阶段返回非零，检查或使用 --bundles app 重试..."
+            if [ ! -d "target/universal-apple-darwin/release/bundle/macos/SeahorseStore.app" ]; then
+              tauri build --target universal-apple-darwin --bundles app
+            fi
+          fi
           cd ../..
 
           mkdir -p release_out/macos
           BUNDLE_DIR="seahorse_desktop/src-tauri/target/universal-apple-darwin/release/bundle"
 
-          DMG_PATH=$(find "$BUNDLE_DIR/dmg" -name "*.dmg" | head -n 1)
-          cp "$DMG_PATH" "release_out/macos/SeahorseStore-v${SEAHORSE_VERSION}-macos-universal.dmg"
+          if [ ! -d "$BUNDLE_DIR/macos/SeahorseStore.app" ]; then
+            echo "::error::未找到编译生成的 Universal SeahorseStore.app"
+            exit 1
+          fi
 
-          APP_TAR=$(find "$BUNDLE_DIR/macos" -name "*.app.tar.gz" | head -n 1 || true)
+          DMG_PATH=$(find "$BUNDLE_DIR/dmg" -name "*.dmg" 2>/dev/null | head -n 1 || true)
+          if [ -n "$DMG_PATH" ] && [ -f "$DMG_PATH" ]; then
+            cp "$DMG_PATH" "release_out/macos/SeahorseStore-v${SEAHORSE_VERSION}-macos-universal.dmg"
+          else
+            hdiutil create -volname "SeahorseStore" \
+              -srcfolder "$BUNDLE_DIR/macos/SeahorseStore.app" \
+              -ov -format UDZO \
+              "release_out/macos/SeahorseStore-v${SEAHORSE_VERSION}-macos-universal.dmg"
+          fi
+
+          APP_TAR=$(find "$BUNDLE_DIR/macos" -name "*.app.tar.gz" 2>/dev/null | head -n 1 || true)
           if [ -n "$APP_TAR" ] && [ -f "$APP_TAR" ]; then
             cp "$APP_TAR" "release_out/macos/SeahorseStore-v${SEAHORSE_VERSION}-macos-universal.app.tar.gz"
-          elif [ -d "$BUNDLE_DIR/macos/SeahorseStore.app" ]; then
+          else
             tar -czf "release_out/macos/SeahorseStore-v${SEAHORSE_VERSION}-macos-universal.app.tar.gz" \
               -C "$BUNDLE_DIR/macos" SeahorseStore.app
           fi
@@ -268,9 +295,10 @@ jobs:
       - name: 检出源码
         uses: actions/checkout@v4
 
-      - name: 配置 Flutter Stable 环境
+      - name: 配置 Flutter 3.27.0 环境
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.27.0'
           channel: 'stable'
           cache: true
 
@@ -285,7 +313,9 @@ jobs:
         run: |
           mkdir -p release_out/ios
           cd seahorse_app
+          rm -f ios/Flutter/Generated.xcconfig ios/Flutter/flutter_export_environment.sh
           flutter pub get
+          (cd ios && (pod install --repo-update || pod install))
 
           if [ -n "${IOS_P12_BASE64}" ] && [ -n "${IOS_PROVISION_BASE64}" ]; then
             echo "检测到 SEAHORSE_IOS_P12_BASE64 与 SEAHORSE_IOS_PROVISION_BASE64，启用 iOS 生产签名构建模式..."
@@ -426,18 +456,23 @@ jobs:
           if-no-files-found: error
 
   # ============================================================================
-  # 4. HarmonyOS NEXT 原生移动客户端 (OpenHarmony SDK + Flutter OHOS HAP)
+  # 4. HarmonyOS NEXT 原生移动客户端 (HarmonyOS SDK + Flutter OHOS HAP)
   # ============================================================================
   build-harmonyos-hap:
     name: 构建 HarmonyOS NEXT 端 (HAP)
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'harmonyos'
     env:
-      OHOS_FLUTTER_BRANCH: ${{ vars.OHOS_FLUTTER_BRANCH || 'oh-3.22.0' }}
-      OHOS_CMDLINE_TOOLS_URL: ${{ vars.OHOS_CMDLINE_TOOLS_URL || 'https://repo.huaweicloud.com/harmonyos/ohpm/5.0.2/commandline-tools-linux-x64-5.0.3.900.zip' }}
+      OHOS_FLUTTER_TAG: ${{ vars.OHOS_FLUTTER_BRANCH || '3.27.5-ohos-1.0.0' }}
+      OHOS_CLI_VERSION: ${{ vars.OHOS_CLI_VERSION || '6.1.1.280' }}
     steps:
       - name: 检出源码
         uses: actions/checkout@v4
+
+      - name: 安装 Linux 原生构建系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl git unzip xz-utils zip libglu1-mesa libgl1-mesa-dev jq cmake ninja-build g++
 
       - name: 配置 Java 17 (Temurin)
         uses: actions/setup-java@v4
@@ -445,61 +480,29 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 配置 Node.js 20
-        uses: actions/setup-node@v4
+      - name: 安装 HarmonyOS NEXT CLI 与 SDK 工具链
+        uses: ErBWs/setup-ohos@v2
         with:
-          node-version: '20'
+          version: ${{ env.OHOS_CLI_VERSION }}
+          cache: true
 
-      - name: 缓存 OpenHarmony Command Line Tools 与 Flutter OHOS SDK
+      - name: 缓存 Flutter OHOS 引擎源码与工具链
+        id: cache-flutter-ohos
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.ohos-cmdline-tools
-            ~/.ohos-sdk
-            ~/flutter_ohos
-          key: ohos-flutter-${{ runner.os }}-${{ env.OHOS_FLUTTER_BRANCH }}-v1
+          path: ~/flutter_ohos
+          key: flutter-ohos-${{ runner.os }}-${{ env.OHOS_FLUTTER_TAG }}-v2
 
-      - name: 安装 OpenHarmony 命令行工具链与 Flutter OHOS 引擎
+      - name: 配置 Flutter OHOS 3.27 环境与 SDK 路径
         run: |
-          sudo apt-get update
-          sudo apt-get install -y curl git unzip xz-utils zip libglu1-mesa
+          echo "DEVECO_SDK_HOME=${HOS_SDK_HOME}" >> "$GITHUB_ENV"
+          echo "OHOS_SDK_HOME=${HOS_SDK_HOME}" >> "$GITHUB_ENV"
 
-          # 1. 拉取 OpenHarmony SIG 官方适配版 Flutter SDK (优先 GitCode，回退 Gitee / dev 分支)
           if [ ! -d "$HOME/flutter_ohos/.git" ]; then
             rm -rf "$HOME/flutter_ohos"
-            git clone --depth 1 -b "${OHOS_FLUTTER_BRANCH}" https://gitcode.com/openharmony-sig/flutter_flutter.git "$HOME/flutter_ohos" \
-              || git clone --depth 1 -b "${OHOS_FLUTTER_BRANCH}" https://gitee.com/openharmony-sig/flutter_flutter.git "$HOME/flutter_ohos" \
-              || git clone --depth 1 -b dev https://gitcode.com/openharmony-sig/flutter_flutter.git "$HOME/flutter_ohos" \
-              || git clone --depth 1 -b dev https://gitee.com/openharmony-sig/flutter_flutter.git "$HOME/flutter_ohos"
+            git clone --depth 1 -b "${OHOS_FLUTTER_TAG}" https://gitcode.com/openharmony-sig/flutter_flutter.git "$HOME/flutter_ohos" \
+              || git clone --depth 1 -b "oh-3.27.0-release" https://gitcode.com/openharmony-sig/flutter_flutter.git "$HOME/flutter_ohos"
           fi
-
-          # 2. 安装 OpenHarmony Command Line Tools (含 ohpm / hvigorw / sdkmgr)
-          if [ ! -d "$HOME/.ohos-cmdline-tools/command-line-tools" ]; then
-            mkdir -p "$HOME/.ohos-cmdline-tools"
-            if curl -fsSL "${OHOS_CMDLINE_TOOLS_URL}" -o /tmp/ohos-cmdline.zip; then
-              unzip -qo /tmp/ohos-cmdline.zip -d "$HOME/.ohos-cmdline-tools"
-              rm -f /tmp/ohos-cmdline.zip
-            else
-              echo "::warning::未能从默认镜像拉取 commandline-tools，尝试通过 npm 全局安装 ohpm / hvigor..."
-              npm install -g @ohos/ohpm || true
-            fi
-          fi
-
-          CMD_TOOLS="$HOME/.ohos-cmdline-tools/command-line-tools"
-          if [ -d "$CMD_TOOLS" ]; then
-            chmod +x "$CMD_TOOLS/bin/"* "$CMD_TOOLS/ohpm/bin/"* "$CMD_TOOLS/hvigor/bin/"* 2>/dev/null || true
-            echo "$CMD_TOOLS/bin" >> "$GITHUB_PATH"
-            echo "$CMD_TOOLS/ohpm/bin" >> "$GITHUB_PATH"
-            echo "$CMD_TOOLS/hvigor/bin" >> "$GITHUB_PATH"
-            export PATH="$CMD_TOOLS/bin:$CMD_TOOLS/ohpm/bin:$CMD_TOOLS/hvigor/bin:$PATH"
-            echo "DEVECO_SDK_HOME=$CMD_TOOLS/sdk" >> "$GITHUB_ENV"
-            echo "HOS_SDK_HOME=$CMD_TOOLS/sdk" >> "$GITHUB_ENV"
-            echo "OHOS_SDK_HOME=$CMD_TOOLS/sdk" >> "$GITHUB_ENV"
-            if command -v sdkmgr >/dev/null 2>&1 && [ ! -d "$CMD_TOOLS/sdk/default/openharmony" ]; then
-              yes | sdkmgr install OpenHarmony:12 --accept-license 2>/dev/null || true
-            fi
-          fi
-
           echo "$HOME/flutter_ohos/bin" >> "$GITHUB_PATH"
 
       - name: 配置 HarmonyOS NEXT 生产签名 (双模自动探测)
@@ -518,19 +521,17 @@ jobs:
       - name: 编译 HarmonyOS NEXT 安装包 (.hap)
         run: |
           cd seahorse_app
+          hvigorw -v || true
           flutter --version
           flutter config --no-analytics
+          flutter doctor -v || true
 
-          if [ -d "ohos" ] && command -v ohpm >/dev/null 2>&1; then
-            (cd ohos && ohpm install --all || true)
-          fi
+          GIT_LFS_SKIP_SMUDGE=1 flutter pub get
 
-          flutter pub get
-          if ! flutter build hap --release; then
-            echo "::notice::回退使用 hvigorw 直接组装 HAP..."
-            cd ohos
-            hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
-            cd ..
+          if [ "${OHOS_SIGN_MODE:-unsigned}" = "signed" ]; then
+            flutter build hap --release
+          else
+            flutter build hap --release --no-codesign || flutter build hap --release
           fi
 
           mkdir -p ../release_out/harmonyos
@@ -575,10 +576,12 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+          cache: 'gradle'
 
-      - name: 配置 Flutter Stable 环境
+      - name: 配置 Flutter 3.27.0 环境
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.27.0'
           channel: 'stable'
           cache: true
 
@@ -625,6 +628,7 @@ jobs:
       - name: 编译 Android Release APK
         run: |
           cd seahorse_app
+          chmod +x android/gradlew
           flutter pub get
           flutter build apk --release
           mkdir -p ../release_out/android

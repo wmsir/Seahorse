@@ -6,8 +6,10 @@ import {
   MethodChannel,
   MethodResult
 } from '@ohos/flutter_ohos';
-import { common, Want } from '@kit.AbilityKit';
+import common from '@ohos.app.ability.common';
+import Want from '@ohos.app.ability.Want';
 import vibrator from '@ohos.vibrator';
+import { GeneratedPluginRegistrant } from '../plugins/GeneratedPluginRegistrant';
 
 class ScannerSoundMethodHandler implements MethodCallHandler {
   onMethodCall(call: MethodCall, result: MethodResult): void {
@@ -40,7 +42,7 @@ class ScannerSoundMethodHandler implements MethodCallHandler {
       vibrator.startVibration(
         { type: 'time', duration: durationMs },
         { id: 0, usage: 'notification' }
-      );
+      ).catch(() => {});
     } catch (_err) {
       // Ignore vibration errors on emulators or unsupported devices
     }
@@ -89,6 +91,7 @@ export default class EntryAbility extends FlutterAbility {
 
   configureFlutterEngine(flutterEngine: FlutterEngine): void {
     super.configureFlutterEngine(flutterEngine);
+    GeneratedPluginRegistrant.registerWith(flutterEngine);
     const messenger = flutterEngine.dartExecutor.getBinaryMessenger();
 
     this.soundChannel = new MethodChannel(messenger, 'com.seahorse.app/scanner_sound');
@@ -96,9 +99,5 @@ export default class EntryAbility extends FlutterAbility {
 
     this.dialerChannel = new MethodChannel(messenger, 'com.seahorse.app/phone_dialer');
     this.dialerChannel.setMethodCallHandler(new PhoneDialerMethodHandler(this.context));
-  }
-
-  onCreate(want: Want): void {
-    super.onCreate(want);
   }
 }
