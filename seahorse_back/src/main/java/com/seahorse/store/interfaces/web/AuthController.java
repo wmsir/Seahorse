@@ -53,6 +53,7 @@ public class AuthController {
     private final com.seahorse.store.infrastructure.repository.MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final com.seahorse.store.context.JwtAuthFilter jwtAuthFilter;
     private final com.seahorse.store.application.service.AuditLogAppService auditLogAppService;
     private final jakarta.servlet.http.HttpServletRequest request;
 
@@ -266,6 +267,58 @@ public class AuthController {
             throw new ServiceException(401, "用户名或密码错误");
         }
 
+        LoginResponseVO vo = buildLoginResponse(emp, clientIp, clientDevice, "账号密码登录");
+        return ApiResponse.success("登录成功", vo);
+    }
+
+    @Operation(summary = "FWPT OneID 通行证令牌单点交换接口")
+    @PostMapping("/oneid-exchange")
+    public ApiResponse<LoginResponseVO> oneidExchange(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody(required = false) Map<String, Object> body
+    ) {
+        String oneIdToken = null;
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            oneIdToken = authHeader.substring(7).trim();
+        } else if (body != null && body.get("token") != null) {
+            oneIdToken = String.valueOf(body.get("token")).trim();
+        }
+        if (oneIdToken == null || oneIdToken.isEmpty()) {
+            throw new ServiceException(400, "缺少 OneID 通行证令牌");
+        }
+
+        com.seahorse.store.context.JwtAuthFilter.OneIdPrincipal principal = jwtAuthFilter.verifyOneIdToken(oneIdToken);
+        if (principal == null) {
+            throw new ServiceException(401, "OneID 通行证无效或已过期");
+        }
+
+        String clientIp = getClientIp(request);
+        String clientDevice = getClientDevice(request);
+        String uname = principal.getUsername();
+        Employee emp = employeeRepository.findByUsername(uname).orElse(null);
+        if (emp == null) {
+            boolean isDev = "admin".equalsIgnoreCase(uname) || "PLATFORM_DEVELOPER".equalsIgnoreCase(principal.getRole());
+            String displayName = (principal.getRealName() != null && !principal.getRealName().isEmpty())
+                    ? principal.getRealName() : uname;
+            emp = Employee.builder()
+                    .tenantId("T001")
+                    .storeId("S001")
+                    .username(uname)
+                    .password(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
+                    .realName(displayName)
+                    .nickname(displayName)
+                    .phone("")
+                    .role(isDev ? EmployeeRole.PLATFORM_DEVELOPER : EmployeeRole.STORE_MANAGER)
+                    .status(CommonConstants.STATUS_ACTIVE)
+                    .build();
+            emp = employeeRepository.save(emp);
+        }
+
+        LoginResponseVO vo = buildLoginResponse(emp, clientIp, clientDevice, "OneID单点交换登录");
+        return ApiResponse.success("OneID 单点登录成功", vo);
+    }
+
+    private LoginResponseVO buildLoginResponse(Employee emp, String clientIp, String clientDevice, String actionLabel) {
         if (!CommonConstants.STATUS_ACTIVE.equals(emp.getStatus())) {
             auditLogAppService.recordLog(
                     emp.getTenantId(),
@@ -275,7 +328,7 @@ public class AuthController {
                     emp.getId(),
                     emp.getUsername(),
                     emp.getRealName(),
-                    "账号密码登录",
+                    actionLabel,
                     "LOGIN",
                     clientIp,
                     clientDevice,
@@ -303,7 +356,7 @@ public class AuthController {
                             emp.getId(),
                             emp.getUsername(),
                             emp.getRealName(),
-                            "账号密码登录",
+                            actionLabel,
                             "LOGIN",
                             clientIp,
                             clientDevice,
@@ -387,7 +440,7 @@ public class AuthController {
                 emp.getId(),
                 emp.getUsername(),
                 isPlatformDev ? "系统开发维护人" : emp.getRealName(),
-                "账号密码登录",
+                actionLabel,
                 "LOGIN",
                 clientIp,
                 clientDevice,
@@ -395,7 +448,7 @@ public class AuthController {
                 "登录成功 · 身份: " + roleStr
         );
 
-        return ApiResponse.success("登录成功", vo);
+        return vo;
     }
 
     @Operation(summary = "顾客会员手机号登录")

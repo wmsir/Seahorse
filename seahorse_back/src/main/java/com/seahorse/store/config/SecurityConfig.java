@@ -72,6 +72,7 @@ public class SecurityConfig {
                 // 2. 认证、自助注册、找回密码与小程序免登端点
                 .requestMatchers(
                     "/api/auth/login",
+                    "/api/auth/oneid-exchange",
                     "/api/auth/member-login",
                     "/api/auth/register-merchant",
                     "/api/auth/plans",
