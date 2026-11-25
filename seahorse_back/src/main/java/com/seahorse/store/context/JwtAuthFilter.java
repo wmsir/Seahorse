@@ -24,6 +24,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
     private final com.seahorse.store.infrastructure.repository.StoreRepository storeRepository;
+    private final AuthCenterJwksVerifier authCenterJwksVerifier;
+    private final com.seahorse.store.infrastructure.repository.IdentityBindingRepository identityBindingRepository;
 
     private static final long STORE_CACHE_TTL_MS = 60_000L;
     private static final int STORE_CACHE_MAX_SIZE = 1024;
@@ -42,6 +44,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     public static final class OneIdPrincipal {
         private final Long userId;
+        private final Long boundEmployeeId;
         private final String username;
         private final String realName;
         private final String role;
@@ -49,7 +52,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         private final String storeId;
 
         public OneIdPrincipal(Long userId, String username, String realName, String role, String tenantId, String storeId) {
+            this(userId, null, username, realName, role, tenantId, storeId);
+        }
+
+        public OneIdPrincipal(Long userId, Long boundEmployeeId, String username, String realName, String role, String tenantId, String storeId) {
             this.userId = userId;
+            this.boundEmployeeId = boundEmployeeId;
             this.username = username;
             this.realName = realName;
             this.role = role;
@@ -58,6 +66,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         public Long getUserId() { return userId; }
+        public Long getBoundEmployeeId() { return boundEmployeeId; }
         public String getUsername() { return username; }
         public String getRealName() { return realName; }
         public String getRole() { return role; }
@@ -101,6 +110,74 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         } catch (Exception e) {
             return String.valueOf(input.hashCode());
         }
+    }
+
+    private static final class CachedBinding {
+        final com.seahorse.store.domain.iam.model.IdentityBinding binding;
+        final long expiresAt;
+        CachedBinding(com.seahorse.store.domain.iam.model.IdentityBinding binding, long expiresAt) {
+            this.binding = binding;
+            this.expiresAt = expiresAt;
+        }
+    }
+    private final java.util.concurrent.ConcurrentHashMap<String, CachedBinding> bindingCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private java.util.Optional<com.seahorse.store.domain.iam.model.IdentityBinding> findBindingCached(String sub) {
+        if (!StringUtils.hasText(sub)) {
+            return java.util.Optional.empty();
+        }
+        String key = sub.trim();
+        long now = System.currentTimeMillis();
+        CachedBinding cached = bindingCache.get(key);
+        if (cached != null && cached.expiresAt > now) {
+            return java.util.Optional.ofNullable(cached.binding);
+        }
+        java.util.Optional<com.seahorse.store.domain.iam.model.IdentityBinding> loaded =
+                identityBindingRepository.findFirstByOneidSubOrderByIdAsc(key);
+        if (bindingCache.size() >= ONEID_CACHE_MAX_SIZE) {
+            bindingCache.clear();
+        }
+        bindingCache.put(key, new CachedBinding(loaded.orElse(null), now + STORE_CACHE_TTL_MS));
+        return loaded;
+    }
+
+    /**
+     * 通过统一认证中心 (OneID 2.0) JWKS 本地零 RPC 核验 RS256 令牌并映射海马门店上下文；
+     * 若非 RS256 统一令牌则回退兼容 OneID 1.0 HTTP 核验。
+     */
+    public OneIdPrincipal verifyAnyOneIdToken(String token) {
+        Claims acClaims = authCenterJwksVerifier.verifyToken(token);
+        if (acClaims != null && StringUtils.hasText(acClaims.getSubject())) {
+            String sub = acClaims.getSubject().trim();
+            String name = StringUtils.hasText(acClaims.get("name", String.class))
+                    ? acClaims.get("name", String.class).trim() : sub;
+            String rawRole = acClaims.get("role", String.class);
+            java.util.Optional<com.seahorse.store.domain.iam.model.IdentityBinding> bOpt = findBindingCached(sub);
+            if (bOpt.isPresent()) {
+                com.seahorse.store.domain.iam.model.IdentityBinding b = bOpt.get();
+                return new OneIdPrincipal(
+                        b.getEmployeeId(),
+                        b.getEmployeeId(),
+                        name,
+                        name,
+                        StringUtils.hasText(b.getRoleCode()) ? b.getRoleCode() : "STORE_MANAGER",
+                        StringUtils.hasText(b.getTenantId()) ? b.getTenantId() : "T001",
+                        StringUtils.hasText(b.getStoreId()) ? b.getStoreId() : "S001"
+                );
+            }
+            boolean isDev = "admin".equalsIgnoreCase(name)
+                    || (rawRole != null && (rawRole.equalsIgnoreCase("ADMIN") || rawRole.equalsIgnoreCase("PLATFORM_DEVELOPER")));
+            return new OneIdPrincipal(
+                    1L,
+                    name,
+                    name,
+                    isDev ? "PLATFORM_DEVELOPER" : "STORE_MANAGER",
+                    isDev ? "PLATFORM" : "T001",
+                    isDev ? "PLATFORM" : "S001"
+            );
+        }
+        return verifyOneIdToken(token);
     }
 
     /**
@@ -277,8 +354,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 try {
                     claims = jwtUtil.parseToken(token);
                 } catch (Exception ignored) {
-                    // 非海马原生 JWT：自动回源 FWPT OneID 通行证核验并缓存
-                    oneId = verifyOneIdToken(token);
+                    // 非海马原生 JWT：优先通过 Auth Center JWKS 本地零 RPC 验签，兼容回退 OneID 1.0
+                    oneId = verifyAnyOneIdToken(token);
                 }
             }
             if (claims != null) {

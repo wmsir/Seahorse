@@ -287,7 +287,7 @@ public class AuthController {
             throw new ServiceException(400, "缺少 OneID 通行证令牌");
         }
 
-        com.seahorse.store.context.JwtAuthFilter.OneIdPrincipal principal = jwtAuthFilter.verifyOneIdToken(oneIdToken);
+        com.seahorse.store.context.JwtAuthFilter.OneIdPrincipal principal = jwtAuthFilter.verifyAnyOneIdToken(oneIdToken);
         if (principal == null) {
             throw new ServiceException(401, "OneID 通行证无效或已过期");
         }
@@ -295,7 +295,13 @@ public class AuthController {
         String clientIp = getClientIp(request);
         String clientDevice = getClientDevice(request);
         String uname = principal.getUsername();
-        Employee emp = employeeRepository.findByUsername(uname).orElse(null);
+        Employee emp = null;
+        if (principal.getBoundEmployeeId() != null) {
+            emp = employeeRepository.findById(principal.getBoundEmployeeId()).orElse(null);
+        }
+        if (emp == null) {
+            emp = employeeRepository.findByUsername(uname).orElse(null);
+        }
         if (emp == null) {
             boolean isDev = "admin".equalsIgnoreCase(uname) || "PLATFORM_DEVELOPER".equalsIgnoreCase(principal.getRole());
             String displayName = (principal.getRealName() != null && !principal.getRealName().isEmpty())
