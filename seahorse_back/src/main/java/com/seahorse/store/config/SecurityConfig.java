@@ -57,15 +57,12 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                // 1. 网关健康检查、文档与公共探测端点
+                // 1. 网关健康检查与公共探测端点（生产关闭匿名 API 文档暴露）
                 .requestMatchers(
                     "/api",
                     "/api/",
                     "/api/health",
                     "/api/ping",
-                    "/v3/api-docs/**",
-                    "/swagger-ui/**",
-                    "/swagger-ui.html",
                     "/favicon.ico",
                     "/error"
                 ).permitAll()
@@ -81,8 +78,7 @@ public class SecurityConfig {
                     "/api/miniapp/auth/**",
                     "/api/member-portal/**"
                 ).permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/audit/log").permitAll()
-                // 3. H5/扫码点单/自助开卡/招聘公开只读端点
+                // 3. H5/扫码点单/自助开卡/门店基础公开只读端点（移除会员PII检索/预约/会话流水匿名访问）
                 .requestMatchers(HttpMethod.GET,
                     "/api/store/info",
                     "/api/store/register-config",
@@ -96,11 +92,7 @@ public class SecurityConfig {
                     "/api/product/categories",
                     "/api/card-template/list",
                     "/api/industry/**",
-                    "/api/member/search",
-                    "/api/member/levels/rules",
-                    "/api/session/*/detail",
-                    "/api/session/active-list",
-                    "/api/appointment/list"
+                    "/api/member/levels/rules"
                 ).permitAll()
                 // 4. H5/扫码点单/自助开卡/招聘/入职公开提交端点
                 .requestMatchers(HttpMethod.POST,
@@ -133,7 +125,9 @@ public class SecurityConfig {
             "https://fwpt.cn",
             "https://*.fwpt.cn",
             "http://localhost:*",
-            "http://127.0.0.1:*"
+            "http://127.0.0.1:*",
+            "tauri://localhost",
+            "https://tauri.localhost"
         ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers", "X-Tenant-Id", "X-Store-Id", "X-User-Name"));

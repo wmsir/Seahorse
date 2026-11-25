@@ -19,3 +19,10 @@ logging:
   level:
     com.seahorse.store: INFO # 生产环境海马核心业务包日志级别设为 INFO
     org.springframework.web: WARN # 生产环境 Web 框架层日志设为 WARN，拦截无关噪音
+
+# 生产环境默认禁用 OpenAPI/Swagger 接口文档暴露
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

@@ -36,6 +36,12 @@ public class MemberController {
     @Operation(summary = "会员注册开卡")
     @PostMapping("/register")
     public ApiResponse<Member> register(@RequestBody MemberRegisterCommand cmd) {
+        if (!com.seahorse.store.context.TenantContext.isAuthenticated()) {
+            // 匿名扫码自助注册强制清零初始储值/赠金及越权指定等级
+            cmd.setInitialPrincipal(java.math.BigDecimal.ZERO);
+            cmd.setInitialGift(java.math.BigDecimal.ZERO);
+            cmd.setLevel(null);
+        }
         Member member = memberAssetAppService.registerMember(cmd);
         String clientIp = AuthController.getClientIp(request);
         String clientDevice = AuthController.getClientDevice(request);
