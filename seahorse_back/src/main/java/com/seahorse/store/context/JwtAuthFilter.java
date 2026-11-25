@@ -25,6 +25,37 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private final JwtUtil jwtUtil;
     private final com.seahorse.store.infrastructure.repository.StoreRepository storeRepository;
 
+    private static final long STORE_CACHE_TTL_MS = 60_000L;
+    private static final int STORE_CACHE_MAX_SIZE = 1024;
+    private static final class CachedStore {
+        final com.seahorse.store.domain.iam.model.Store store;
+        final long expiresAt;
+        CachedStore(com.seahorse.store.domain.iam.model.Store store, long expiresAt) {
+            this.store = store;
+            this.expiresAt = expiresAt;
+        }
+    }
+    private final java.util.concurrent.ConcurrentHashMap<String, CachedStore> storeCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private java.util.Optional<com.seahorse.store.domain.iam.model.Store> findStoreCached(String storeId) {
+        if (!StringUtils.hasText(storeId)) {
+            return java.util.Optional.empty();
+        }
+        String key = storeId.trim();
+        long now = System.currentTimeMillis();
+        CachedStore cached = storeCache.get(key);
+        if (cached != null && cached.expiresAt > now) {
+            return java.util.Optional.ofNullable(cached.store);
+        }
+        java.util.Optional<com.seahorse.store.domain.iam.model.Store> loaded = storeRepository.findByStoreId(key);
+        if (storeCache.size() >= STORE_CACHE_MAX_SIZE) {
+            storeCache.clear();
+        }
+        storeCache.put(key, new CachedStore(loaded.orElse(null), now + STORE_CACHE_TTL_MS));
+        return loaded;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
@@ -65,7 +96,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 if (StringUtils.hasText(headerStoreId)) {
                     String candidateStoreId = headerStoreId.trim();
                     lookedUpStoreId = candidateStoreId;
-                    lookedUpStoreOpt = storeRepository.findByStoreId(candidateStoreId);
+                    lookedUpStoreOpt = findStoreCached(candidateStoreId);
                     if (lookedUpStoreOpt.isPresent()) {
                         com.seahorse.store.domain.iam.model.Store s = lookedUpStoreOpt.get();
                         String storeOwnerTenant = s.getTenantId();
@@ -90,7 +121,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     String trimmedStoreId = storeId.trim();
                     java.util.Optional<com.seahorse.store.domain.iam.model.Store> sOpt = trimmedStoreId.equals(lookedUpStoreId)
                             ? lookedUpStoreOpt
-                            : storeRepository.findByStoreId(trimmedStoreId);
+                            : findStoreCached(trimmedStoreId);
                     if (sOpt.isPresent()) {
                         com.seahorse.store.domain.iam.model.Store s = sOpt.get();
                         if (isPlatformAdmin && s.getTenantId() != null && !s.getTenantId().trim().isEmpty()) {
@@ -132,7 +163,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 String effIndustry = "BEAUTY";
 
                 if (StringUtils.hasText(effStore)) {
-                    java.util.Optional<com.seahorse.store.domain.iam.model.Store> sOpt = storeRepository.findByStoreId(effStore.trim());
+                    java.util.Optional<com.seahorse.store.domain.iam.model.Store> sOpt = findStoreCached(effStore.trim());
                     if (sOpt.isPresent()) {
                         com.seahorse.store.domain.iam.model.Store s = sOpt.get();
                         if (s.getTenantId() != null && !s.getTenantId().trim().isEmpty()) {
