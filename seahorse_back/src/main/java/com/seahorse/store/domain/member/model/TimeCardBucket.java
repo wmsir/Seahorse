@@ -47,6 +47,10 @@ public class TimeCardBucket {
 
     private String status; // ACTIVE(有效), EXPIRED(已过期), EXHAUSTED(已耗尽)
 
+    @Version
+    @Column(nullable = false)
+    private Long version; // JPA 乐观锁版本号
+
     @CreatedDate
     private LocalDateTime createdAt;
 

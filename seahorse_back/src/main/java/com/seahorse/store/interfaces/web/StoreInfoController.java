@@ -56,11 +56,14 @@ public class StoreInfoController {
     @Operation(summary = "更新指定门店的基础信息")
     @PostMapping("/info/update")
     public ApiResponse<Store> updateStoreInfo(@RequestBody Store updateReq) {
+        TenantContext.assertTenantAdmin();
         if (updateReq.getStoreId() == null || updateReq.getStoreId().trim().isEmpty()) {
             return ApiResponse.error(400, "门店编号不能为空");
         }
         String sId = updateReq.getStoreId().trim();
-        Store store = storeRepository.findByStoreId(sId).orElseGet(() -> Store.builder()
+        Optional<Store> existingOpt = storeRepository.findByStoreId(sId);
+        existingOpt.ifPresent(s -> TenantContext.assertTenantAccess(s.getTenantId()));
+        Store store = existingOpt.orElseGet(() -> Store.builder()
                 .storeId(sId)
                 .tenantId(TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001")
                 .status("ACTIVE")
@@ -178,15 +181,18 @@ public class StoreInfoController {
     @Operation(summary = "门店/店长保存自主开卡页面定制方案 (常态偏好与充多少送多少)")
     @PostMapping("/register-config")
     public ApiResponse<StoreRegisterConfig> saveRegisterConfig(@RequestBody SaveRegisterConfigCmd cmd) {
+        TenantContext.assertTenantAdmin();
         String targetStoreId = (cmd.getStoreId() != null && !cmd.getStoreId().trim().isEmpty())
                 ? cmd.getStoreId().trim()
                 : (TenantContext.getStoreId() != null ? TenantContext.getStoreId() : "S001");
+        storeRepository.findByStoreId(targetStoreId).ifPresent(s -> TenantContext.assertTenantAccess(s.getTenantId()));
 
-        StoreRegisterConfig config = storeRegisterConfigRepository.findByStoreId(targetStoreId)
-                .orElseGet(() -> StoreRegisterConfig.builder()
-                        .storeId(targetStoreId)
-                        .tenantId(TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001")
-                        .build());
+        Optional<StoreRegisterConfig> cfgOpt = storeRegisterConfigRepository.findByStoreId(targetStoreId);
+        cfgOpt.ifPresent(c -> TenantContext.assertTenantAccess(c.getTenantId()));
+        StoreRegisterConfig config = cfgOpt.orElseGet(() -> StoreRegisterConfig.builder()
+                .storeId(targetStoreId)
+                .tenantId(TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001")
+                .build());
 
         if (cmd.getPreferenceTags() != null) config.setPreferenceTags(cmd.getPreferenceTags());
         if (cmd.getChargeOptions() != null) config.setChargeOptions(cmd.getChargeOptions());
@@ -284,11 +290,14 @@ public class StoreInfoController {
     @Operation(summary = "门店/店长保存服务要求与特殊备注常用标签 (多端双向同步)")
     @PostMapping("/common-remarks")
     public ApiResponse<List<String>> saveCommonRemarks(@RequestBody SaveCommonRemarksCmd cmd) {
+        TenantContext.assertTenantAdmin();
         String targetStoreId = (cmd.getStoreId() != null && !cmd.getStoreId().trim().isEmpty())
                 ? cmd.getStoreId().trim()
                 : (TenantContext.getStoreId() != null ? TenantContext.getStoreId() : "S001");
 
-        Store store = storeRepository.findByStoreId(targetStoreId).orElseGet(() -> Store.builder()
+        Optional<Store> existingOpt = storeRepository.findByStoreId(targetStoreId);
+        existingOpt.ifPresent(s -> TenantContext.assertTenantAccess(s.getTenantId()));
+        Store store = existingOpt.orElseGet(() -> Store.builder()
                 .storeId(targetStoreId)
                 .tenantId(TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001")
                 .status("ACTIVE")
@@ -332,11 +341,14 @@ public class StoreInfoController {
     @Operation(summary = "保存门店服务人员对外称谓展示规则")
     @PostMapping("/staff-display-mode")
     public ApiResponse<java.util.Map<String, String>> saveStaffDisplayMode(@RequestBody StaffDisplayConfigCmd cmd) {
+        TenantContext.assertTenantAdmin();
         String targetStoreId = (cmd.getStoreId() != null && !cmd.getStoreId().trim().isEmpty())
                 ? cmd.getStoreId().trim()
                 : (TenantContext.getStoreId() != null ? TenantContext.getStoreId() : "S001");
 
-        Store store = storeRepository.findByStoreId(targetStoreId).orElseGet(() -> Store.builder()
+        Optional<Store> existingOpt = storeRepository.findByStoreId(targetStoreId);
+        existingOpt.ifPresent(s -> TenantContext.assertTenantAccess(s.getTenantId()));
+        Store store = existingOpt.orElseGet(() -> Store.builder()
                 .storeId(targetStoreId)
                 .tenantId(TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001")
                 .status("ACTIVE")

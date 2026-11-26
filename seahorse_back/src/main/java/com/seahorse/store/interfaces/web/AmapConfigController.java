@@ -54,6 +54,7 @@ public class AmapConfigController {
         if (tenantId == null || tenantId.isEmpty()) {
             tenantId = "T001";
         }
+        TenantContext.assertTenantAccess(tenantId);
         final String finalTenantId = tenantId;
         final String defaultStoreId = TenantContext.getStoreId() != null && !TenantContext.getStoreId().isEmpty()
                 ? TenantContext.getStoreId()
@@ -104,10 +105,12 @@ public class AmapConfigController {
     @Operation(summary = "保存高德地图与考勤配置")
     @PostMapping
     public ApiResponse<AmapConfigDTO> saveAmapConfig(@RequestBody AmapConfigDTO dto) {
+        TenantContext.assertTenantAdmin();
         String tenantId = TenantContext.getTenantId();
         if (tenantId == null || tenantId.isEmpty()) {
             tenantId = "T001";
         }
+        TenantContext.assertTenantAccess(tenantId);
 
         final String finalTenantId = tenantId;
         AmapConfig config = amapConfigRepository.findByTenantId(tenantId)
@@ -132,9 +135,11 @@ public class AmapConfigController {
     @Operation(summary = "测试高德Web服务Key有效性")
     @GetMapping("/test")
     public ApiResponse<Map<String, Object>> testAmapApiKey(@RequestParam(required = false) String key) {
+        TenantContext.assertTenantAdmin();
         if (key == null || key.trim().isEmpty()) {
             String tenantId = TenantContext.getTenantId();
             if (tenantId == null || tenantId.isEmpty()) tenantId = "T001";
+            TenantContext.assertTenantAccess(tenantId);
             Optional<AmapConfig> opt = amapConfigRepository.findByTenantId(tenantId);
             if (opt.isPresent()) {
                 key = opt.get().getWebApiKey();
@@ -144,10 +149,15 @@ public class AmapConfigController {
         if (key == null || key.trim().isEmpty()) {
             return ApiResponse.error(400, "高德 Web 服务 API Key 不能为空，请先在输入框填入");
         }
+        String cleanKey = key.trim();
+        if (!cleanKey.matches("^[A-Za-z0-9_-]{8,64}$")) {
+            return ApiResponse.error(400, "高德 API Key 格式无效");
+        }
 
         Map<String, Object> result = new HashMap<>();
         try {
-            String url = "https://restapi.amap.com/v3/ip?key=" + key.trim();
+            String encodedKey = java.net.URLEncoder.encode(cleanKey, java.nio.charset.StandardCharsets.UTF_8);
+            String url = "https://restapi.amap.com/v3/ip?key=" + encodedKey;
             Map resp = restTemplate.getForObject(url, Map.class);
             if (resp != null) {
                 String status = String.valueOf(resp.get("status"));
@@ -165,7 +175,7 @@ public class AmapConfigController {
                 } else if ("10009".equals(infocode)) {
                     // 10009 平台不匹配：说明该 Key 为【Web端 (JS API)】类型（如高德开放平台创建的 testJs）
                     try {
-                        String jsUrl = "https://webapi.amap.com/maps?v=2.0&key=" + key.trim();
+                        String jsUrl = "https://webapi.amap.com/maps?v=2.0&key=" + encodedKey;
                         String jsResp = restTemplate.getForObject(jsUrl, String.class);
                         if (jsResp != null && (jsResp.contains("amap") || jsResp.contains("AMap") || jsResp.length() > 500)) {
                             result.put("valid", true);

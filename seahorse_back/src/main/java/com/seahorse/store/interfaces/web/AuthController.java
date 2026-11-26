@@ -60,8 +60,12 @@ public class AuthController {
     @org.springframework.beans.factory.annotation.Value("${spring.profiles.active:dev}")
     private String activeProfile;
 
+    @org.springframework.beans.factory.annotation.Value("${seahorse.oneid.login-url:https://fwpt.cn/api/v1/auth/login}")
+    private String oneIdLoginUrl;
+
     private static final java.security.SecureRandom RESET_RANDOM = new java.security.SecureRandom();
     private final java.util.concurrent.ConcurrentHashMap<Long, ResetCodeEntry> resetCodeCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, ResetCodeEntry> memberOtpCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     private static class ResetCodeEntry {
         private final String code;
@@ -88,6 +92,13 @@ public class AuthController {
     public static class MemberLoginRequest {
         private String phone;
         private String password;
+        private String code;
+        private String otpCode;
+    }
+
+    @Data
+    public static class MemberSendCodeRequest {
+        private String phone;
     }
 
     @Data
@@ -218,37 +229,21 @@ public class AuthController {
         Employee emp = employeeRepository.findByUsername(req.getUsername())
                 .orElse(null);
 
-        // 1. 优先联动 FWPT 统一通行证中心 (OneID) 核验，确保跨系统单点登录、密码修改、冻结状态与审计大盘实时同步
+        // 1. 优先联动 FWPT 统一通行证中心 (OneID) 核验（仅限已在海马门店建档的员工，禁止未绑定账号自动创号提权）
         Map<String, Object> fwptAuth = verifyFwptAuth(req.getUsername(), req.getPassword());
         if (fwptAuth != null) {
             if (Boolean.TRUE.equals(fwptAuth.get("frozen"))) {
                 throw new ServiceException(403, "该通行证账号已被管理员冻结，请联系平台客服");
             }
+            if (emp == null || Boolean.TRUE.equals(emp.getIsDeleted())) {
+                throw new ServiceException(403, "该通行证尚未在海马门店开通或绑定员工档案，请先入驻商户或联系店长绑定");
+            }
             String fwptRealName = (String) fwptAuth.get("realName");
-            String fwptPhone = (String) fwptAuth.get("phone");
-            String displayName = (fwptRealName != null && !fwptRealName.trim().isEmpty()) ? fwptRealName.trim() : req.getUsername();
-
-            if (emp == null) {
-                emp = Employee.builder()
-                        .tenantId("T001")
-                        .storeId("S001")
-                        .username(req.getUsername().trim())
-                        .password(passwordEncoder.encode(req.getPassword()))
-                        .realName(displayName)
-                        .nickname(displayName)
-                        .phone(fwptPhone != null ? fwptPhone : "")
-                        .role(EmployeeRole.STORE_MANAGER) // 统一赋权店长/管理权限
-                        .status(CommonConstants.STATUS_ACTIVE)
-                        .build();
-                emp = employeeRepository.save(emp);
-            } else {
-                emp.setPassword(passwordEncoder.encode(req.getPassword()));
-                if (fwptRealName != null && !fwptRealName.trim().isEmpty()) {
-                    emp.setRealName(fwptRealName.trim());
-                }
+            if (fwptRealName != null && !fwptRealName.trim().isEmpty()) {
+                emp.setRealName(fwptRealName.trim());
                 emp = employeeRepository.save(emp);
             }
-        } else if (emp == null || !passwordEncoder.matches(req.getPassword(), emp.getPassword())) {
+        } else if (emp == null || Boolean.TRUE.equals(emp.getIsDeleted()) || !passwordEncoder.matches(req.getPassword(), emp.getPassword())) {
             auditLogAppService.recordLog(
                     emp != null ? emp.getTenantId() : "PLATFORM",
                     null,
@@ -288,36 +283,15 @@ public class AuthController {
         }
 
         com.seahorse.store.context.JwtAuthFilter.OneIdPrincipal principal = jwtAuthFilter.verifyAnyOneIdToken(oneIdToken);
-        if (principal == null) {
-            throw new ServiceException(401, "OneID 通行证无效或已过期");
+        if (principal == null || principal.getBoundEmployeeId() == null) {
+            throw new ServiceException(401, "OneID 通行证无效、已过期或尚未绑定海马门店员工账号");
         }
 
         String clientIp = getClientIp(request);
         String clientDevice = getClientDevice(request);
-        String uname = principal.getUsername();
-        Employee emp = null;
-        if (principal.getBoundEmployeeId() != null) {
-            emp = employeeRepository.findById(principal.getBoundEmployeeId()).orElse(null);
-        }
-        if (emp == null) {
-            emp = employeeRepository.findByUsername(uname).orElse(null);
-        }
-        if (emp == null) {
-            boolean isDev = "admin".equalsIgnoreCase(uname) || "PLATFORM_DEVELOPER".equalsIgnoreCase(principal.getRole());
-            String displayName = (principal.getRealName() != null && !principal.getRealName().isEmpty())
-                    ? principal.getRealName() : uname;
-            emp = Employee.builder()
-                    .tenantId("T001")
-                    .storeId("S001")
-                    .username(uname)
-                    .password(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
-                    .realName(displayName)
-                    .nickname(displayName)
-                    .phone("")
-                    .role(isDev ? EmployeeRole.PLATFORM_DEVELOPER : EmployeeRole.STORE_MANAGER)
-                    .status(CommonConstants.STATUS_ACTIVE)
-                    .build();
-            emp = employeeRepository.save(emp);
+        Employee emp = employeeRepository.findById(principal.getBoundEmployeeId()).orElse(null);
+        if (emp == null || Boolean.TRUE.equals(emp.getIsDeleted())) {
+            throw new ServiceException(403, "绑定的海马员工档案不存在或已注销，请联系管理员核查身份映射");
         }
 
         LoginResponseVO vo = buildLoginResponse(emp, clientIp, clientDevice, "OneID单点交换登录");
@@ -344,7 +318,10 @@ public class AuthController {
             throw new ServiceException(403, "账号已被禁用");
         }
 
-        boolean isPlatformDev = "admin".equalsIgnoreCase(emp.getUsername()) || emp.getRole() == EmployeeRole.PLATFORM_DEVELOPER;
+        boolean isPlatformDev = emp.getRole() == EmployeeRole.PLATFORM_DEVELOPER
+                || ("admin".equalsIgnoreCase(emp.getUsername())
+                && ("PLATFORM".equalsIgnoreCase(emp.getTenantId())
+                || ("T001".equalsIgnoreCase(emp.getTenantId()) && Long.valueOf(1L).equals(emp.getId()))));
         String roleStr = isPlatformDev ? EmployeeRole.PLATFORM_DEVELOPER.name() : emp.getRole().name();
 
         if (!isPlatformDev) {
@@ -457,15 +434,91 @@ public class AuthController {
         return vo;
     }
 
-    @Operation(summary = "顾客会员手机号登录")
+    @Operation(summary = "顾客会员发送登录验证码 (公开接口)")
+    @PostMapping("/member-send-code")
+    public ApiResponse<Map<String, Object>> sendMemberLoginCode(@RequestBody MemberSendCodeRequest req) {
+        if (req == null || req.getPhone() == null || req.getPhone().trim().isEmpty()) {
+            throw new ServiceException(400, "请输入会员手机号");
+        }
+        String phone = req.getPhone().trim();
+        com.seahorse.store.domain.member.model.Member member = memberRepository.findByPhone(phone)
+                .orElseThrow(() -> new ServiceException(404, "未找到该手机号绑定的会员档案"));
+        if ("DISABLED".equalsIgnoreCase(member.getStatus())) {
+            throw new ServiceException(403, "该会员档案已被冻结");
+        }
+        String code = String.format("%06d", RESET_RANDOM.nextInt(1_000_000));
+        memberOtpCache.put(phone, new ResetCodeEntry(code, java.time.Instant.now().plusSeconds(300)));
+
+        String maskedPhone = phone.length() >= 7
+                ? phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4)
+                : "已绑定手机";
+        Map<String, Object> data = new HashMap<>();
+        data.put("maskedPhone", maskedPhone);
+        data.put("expireSeconds", 300);
+        if (!"prod".equalsIgnoreCase(activeProfile)) {
+            data.put("devCode", code);
+        }
+        return ApiResponse.success("登录验证码已发送，5分钟内有效", data);
+    }
+
+    @Operation(summary = "顾客会员手机号登录 (需校验卡密/密码或短信验证码)")
     @PostMapping("/member-login")
     public ApiResponse<LoginResponseVO> memberLogin(@RequestBody MemberLoginRequest req) {
-        if (req.getPhone() == null || req.getPhone().trim().isEmpty()) {
+        if (req == null || req.getPhone() == null || req.getPhone().trim().isEmpty()) {
             throw new ServiceException(400, "请输入会员手机号");
         }
         String phone = req.getPhone().trim();
         com.seahorse.store.domain.member.model.Member member = memberRepository.findByPhone(phone)
                 .orElseThrow(() -> new ServiceException(404, "未找到该手机号绑定的会员档案，请核对手机号"));
+        if ("DISABLED".equalsIgnoreCase(member.getStatus())) {
+            throw new ServiceException(403, "该会员账号已被冻结，请联系门店处理");
+        }
+
+        String rawPwd = req.getPassword() != null ? req.getPassword().trim() : "";
+        String rawOtp = req.getOtpCode() != null && !req.getOtpCode().trim().isEmpty()
+                ? req.getOtpCode().trim()
+                : (req.getCode() != null ? req.getCode().trim() : "");
+
+        boolean authenticated = false;
+        if (!rawOtp.isEmpty()) {
+            ResetCodeEntry entry = memberOtpCache.get(phone);
+            if (entry == null || java.time.Instant.now().isAfter(entry.expireAt)) {
+                memberOtpCache.remove(phone);
+                throw new ServiceException(401, "短信验证码已过期或不存在，请重新获取");
+            }
+            entry.attempts++;
+            if (entry.attempts > 5) {
+                memberOtpCache.remove(phone);
+                throw new ServiceException(429, "验证码错误次数过多，请重新获取");
+            }
+            if (!entry.code.equals(rawOtp)) {
+                throw new ServiceException(401, "短信验证码不正确");
+            }
+            memberOtpCache.remove(phone);
+            authenticated = true;
+        } else if (!rawPwd.isEmpty()) {
+            String storedPwd = member.getCardPassword();
+            if (storedPwd == null || storedPwd.trim().isEmpty()) {
+                throw new ServiceException(401, "该会员尚未设置登录密码，请使用短信验证码登录或联系门店设置");
+            }
+            if (isBcryptHash(storedPwd)) {
+                authenticated = passwordEncoder.matches(rawPwd, storedPwd);
+            } else {
+                authenticated = java.security.MessageDigest.isEqual(
+                        rawPwd.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                        storedPwd.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                );
+                if (authenticated) {
+                    member.setCardPassword(passwordEncoder.encode(rawPwd));
+                    memberRepository.save(member);
+                }
+            }
+            if (!authenticated) {
+                throw new ServiceException(401, "会员手机号或密码错误");
+            }
+        } else {
+            throw new ServiceException(401, "请输入会员密码或短信验证码进行身份核验");
+        }
 
         Tenant tenant = tenantRepository.findByTenantId(member.getTenantId()).orElse(null);
         TenantSubscription sub = subscriptionRepository.findByTenantId(member.getTenantId()).orElse(null);
@@ -653,14 +706,15 @@ public class AuthController {
     @Operation(summary = "个人中心-修改密码")
     @PutMapping("/profile/change-password")
     public ApiResponse<String> changePassword(@RequestBody ChangePasswordRequest req) {
-        if (req.getNewPassword() == null || req.getNewPassword().length() < 6) {
+        if (req == null || req.getNewPassword() == null || req.getNewPassword().length() < 6) {
             throw new ServiceException(400, "新密码长度不能少于6位");
         }
         String username = TenantContext.getUsername();
         Employee emp = employeeRepository.findByUsername(username).orElse(null);
         if (emp != null) {
-            if (req.getOldPassword() != null && !req.getOldPassword().isEmpty()) {
-                if (!passwordEncoder.matches(req.getOldPassword(), emp.getPassword())) {
+            if (emp.getPassword() != null && !emp.getPassword().isEmpty()) {
+                if (req.getOldPassword() == null || req.getOldPassword().isEmpty()
+                        || !passwordEncoder.matches(req.getOldPassword(), emp.getPassword())) {
                     throw new ServiceException(400, "原密码输入不正确，请重新核对");
                 }
             }
@@ -670,12 +724,31 @@ public class AuthController {
         }
         com.seahorse.store.domain.member.model.Member m = memberRepository.findByPhone(username).orElse(null);
         if (m != null) {
-            m.setCardPassword(req.getNewPassword());
+            String storedPwd = m.getCardPassword();
+            if (storedPwd != null && !storedPwd.trim().isEmpty()) {
+                if (req.getOldPassword() == null || req.getOldPassword().isEmpty()) {
+                    throw new ServiceException(400, "请输入原扣卡/登录密码");
+                }
+                boolean oldOk = isBcryptHash(storedPwd)
+                        ? passwordEncoder.matches(req.getOldPassword(), storedPwd)
+                        : java.security.MessageDigest.isEqual(
+                                req.getOldPassword().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                                storedPwd.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                        );
+                if (!oldOk) {
+                    throw new ServiceException(400, "原密码输入不正确，请重新核对");
+                }
+            }
+            m.setCardPassword(passwordEncoder.encode(req.getNewPassword()));
             m.setCardPasswordEnabled(true);
             memberRepository.save(m);
             return ApiResponse.success("会员密码修改成功", "OK");
         }
         throw new ServiceException(404, "用户不存在");
+    }
+
+    private static boolean isBcryptHash(String value) {
+        return value != null && (value.startsWith("$2a$") || value.startsWith("$2b$") || value.startsWith("$2y$"));
     }
 
     @Operation(summary = "个人中心-修改手机号")
@@ -829,17 +902,22 @@ public class AuthController {
         if (username == null || password == null || username.trim().isEmpty() || password.trim().isEmpty()) {
             return null;
         }
-        String[] candidateUrls = new String[]{
-                "http://101.35.100.169:8088/api/v1/auth/login",
-                "https://fwpt.cn/api/v1/auth/login"
-        };
+        String configuredUrl = (oneIdLoginUrl != null && !oneIdLoginUrl.trim().isEmpty())
+                ? oneIdLoginUrl.trim()
+                : "https://fwpt.cn/api/v1/auth/login";
+        String[] candidateUrls = configuredUrl.equals("https://fwpt.cn/api/v1/auth/login")
+                ? new String[]{configuredUrl}
+                : new String[]{configuredUrl, "https://fwpt.cn/api/v1/auth/login"};
         for (String targetUrl : candidateUrls) {
             try {
-                java.net.URL url = new java.net.URL(targetUrl);
-                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
-                if (conn instanceof javax.net.ssl.HttpsURLConnection) {
-                    ((javax.net.ssl.HttpsURLConnection) conn).setHostnameVerifier((hostname, session) -> true);
+                java.net.URI uri = java.net.URI.create(targetUrl);
+                String scheme = uri.getScheme();
+                String host = uri.getHost();
+                boolean isLocal = "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host);
+                if (!"https".equalsIgnoreCase(scheme) && !isLocal) {
+                    continue;
                 }
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) uri.toURL().openConnection();
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "application/json;charset=UTF-8");
                 conn.setRequestProperty("User-Agent", "SeahorseBack/1.0 (FWPT-OneID-Bridge)");

@@ -118,12 +118,19 @@ public class LeaveApplicationController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String phone,
             @RequestParam(required = false) String tenantId) {
-        String effTenantId = (tenantId != null && !tenantId.trim().isEmpty()) ? tenantId.trim() : TenantContext.getTenantId();
+        String effTenantId = TenantContext.getTenantId();
+        if (tenantId != null && !tenantId.trim().isEmpty()) {
+            if (!TenantContext.isPlatformAdmin()) {
+                TenantContext.assertTenantAccess(tenantId.trim());
+            }
+            effTenantId = tenantId.trim();
+        }
         String storeId = TenantContext.getStoreId();
         if ((effTenantId == null || effTenantId.trim().isEmpty() || "T001".equalsIgnoreCase(effTenantId))
                 && storeId != null && !storeId.trim().isEmpty() && !"S001".equalsIgnoreCase(storeId)) {
             Optional<Store> sOpt = storeRepository.findByStoreId(storeId.trim());
             if (sOpt.isPresent() && sOpt.get().getTenantId() != null) {
+                TenantContext.assertTenantAccess(sOpt.get().getTenantId());
                 effTenantId = sOpt.get().getTenantId();
             }
         }
@@ -131,8 +138,7 @@ public class LeaveApplicationController {
             effTenantId = "T001";
         }
 
-        boolean canQueryGlobal = "PLATFORM".equalsIgnoreCase(TenantContext.getTenantId())
-                || "PLATFORM_DEVELOPER".equalsIgnoreCase(TenantContext.getRole());
+        boolean canQueryGlobal = TenantContext.isPlatformAdmin();
         List<LeaveApplication> entities;
         if (canQueryGlobal && ("PLATFORM".equalsIgnoreCase(effTenantId) || "ALL".equalsIgnoreCase(effTenantId))) {
             entities = leaveApplicationRepository.findAllByOrderByCreatedAtDesc();
@@ -258,6 +264,7 @@ public class LeaveApplicationController {
     @Operation(summary = "主管或店长审批请假申请")
     @PostMapping("/audit")
     public ApiResponse<LeaveApplicationDTO> auditLeave(@RequestBody AuditLeaveCommand cmd) {
+        TenantContext.assertTenantAdmin();
         if (cmd == null || cmd.getLeaveId() == null || cmd.getLeaveId().trim().isEmpty()) {
             return ApiResponse.error(400, "请假单号不能为空");
         }
@@ -267,7 +274,14 @@ public class LeaveApplicationController {
         }
 
         LeaveApplication app = targetOpt.get();
-        // 业务规则防呆：员工不得自行审批本人发起的请假申请
+        TenantContext.assertTenantAccess(app.getTenantId());
+        // 业务规则防呆：员工不得自行审批本人发起的请假申请（含登录账号校验与审批人姓名校验）
+        Long currentUserId = TenantContext.getUserId();
+        String currentUsername = TenantContext.getUsername();
+        if ((app.getStaffId() != null && currentUserId != null && app.getStaffId().equals(currentUserId))
+                || (app.getPhone() != null && !app.getPhone().isEmpty() && app.getPhone().equals(currentUsername))) {
+            return ApiResponse.error(403, "权限受限：员工不可自行审批本人发起的请假申请！请联系上级主管或管理员审批。");
+        }
         String approverName = cmd.getApprover() != null ? cmd.getApprover().trim() : "";
         if (!approverName.isEmpty() && app.getStaffName() != null && approverName.contains(app.getStaffName())) {
             return ApiResponse.error(400, "权限受限：员工不可自行审批本人发起的请假申请！请联系主管或店长审批。");
@@ -372,6 +386,7 @@ public class LeaveApplicationController {
         }
 
         LeaveApplication app = targetOpt.get();
+        TenantContext.assertTenantAccess(app.getTenantId());
         if ("APPROVED".equalsIgnoreCase(app.getStatus())) {
             return ApiResponse.error(400, "已通过的请假不可直接撤回，请走销假流程");
         }
@@ -412,6 +427,7 @@ public class LeaveApplicationController {
         }
 
         LeaveApplication app = targetOpt.get();
+        TenantContext.assertTenantAccess(app.getTenantId());
         if ("APPROVED".equalsIgnoreCase(app.getStatus())) {
             return ApiResponse.error(400, "已审核通过的假单不可直接修改");
         }
@@ -454,8 +470,10 @@ public class LeaveApplicationController {
     @Operation(summary = "清空员工请假记录脏数据")
     @PostMapping("/clean")
     public ApiResponse<Void> cleanLeaves() {
+        TenantContext.assertTenantAdmin();
         String tenantId = TenantContext.getTenantId();
         if (tenantId == null) tenantId = "T001";
+        TenantContext.assertTenantAccess(tenantId);
         List<LeaveApplication> list = leaveApplicationRepository.findByTenantIdOrderByCreatedAtDesc(tenantId);
         leaveApplicationRepository.deleteAll(list);
         return ApiResponse.success("请假单据已全部清空", null);

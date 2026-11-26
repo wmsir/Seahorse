@@ -30,9 +30,15 @@ public class AuditController {
             @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "10") int size) {
-        String effectiveTenantId = (tenantId != null && !tenantId.trim().isEmpty()) ? tenantId.trim() : TenantContext.getTenantId();
-        if ("PLATFORM".equalsIgnoreCase(TenantContext.getTenantId()) || "PLATFORM_DEVELOPER".equalsIgnoreCase(TenantContext.getRole())) {
-            effectiveTenantId = tenantId;
+        boolean isPlatformAdmin = TenantContext.isPlatformAdmin();
+        String effectiveTenantId = TenantContext.getTenantId();
+        if (tenantId != null && !tenantId.trim().isEmpty()) {
+            if (!isPlatformAdmin) {
+                TenantContext.assertTenantAccess(tenantId.trim());
+            }
+            effectiveTenantId = tenantId.trim();
+        } else if (isPlatformAdmin) {
+            effectiveTenantId = null;
         }
 
         String currentRole = TenantContext.getRole();
@@ -40,15 +46,10 @@ public class AuditController {
         boolean isTenantAdmin = isTenantOrPlatformAdmin(currentRole, TenantContext.getTenantId(), currentUsername);
 
         String effectiveUsername = username;
-        // 核心权限隔离：除租户主管理员/平台超管外，其他人只能查看自己的登录和使用日志，严禁查看他人记录
+        // 核心权限隔离：除租户主管理员/平台超管外，其他人强制仅可查看本人登录日志，禁止通过 username 参数越权窥探他人日志
         if (!isTenantAdmin) {
-            if (username != null && !username.trim().isEmpty() && !"admin".equalsIgnoreCase(username.trim())) {
-                effectiveUsername = username.trim();
-            } else if (currentUsername != null && !currentUsername.trim().isEmpty() && !"admin".equalsIgnoreCase(currentUsername.trim())) {
-                effectiveUsername = currentUsername.trim();
-            } else {
-                effectiveUsername = username;
-            }
+            effectiveUsername = (currentUsername != null && !currentUsername.trim().isEmpty())
+                    ? currentUsername.trim() : "__anonymous__";
         }
 
         return ApiResponse.success(auditLogAppService.queryLogs(effectiveTenantId, effectiveUsername, keyword, page, size));
@@ -57,12 +58,10 @@ public class AuditController {
     private boolean isTenantOrPlatformAdmin(String role, String tenantId, String username) {
         if (role != null) {
             String r = role.toUpperCase();
-            if (r.contains("PLATFORM") || r.contains("SUPER_ADMIN") || r.contains("TENANT_ADMIN") || r.contains("STORE_OWNER") || r.contains("MERCHANT_ADMIN")) {
+            if (r.contains("PLATFORM") || r.contains("SUPER_ADMIN") || r.contains("TENANT_ADMIN")
+                    || r.contains("STORE_OWNER") || r.contains("MERCHANT_ADMIN") || r.contains("STORE_MANAGER")) {
                 return true;
             }
-        }
-        if ("admin".equalsIgnoreCase(username) || "root_ops".equalsIgnoreCase(username)) {
-            return true;
         }
         return false;
     }
@@ -70,17 +69,14 @@ public class AuditController {
     @Operation(summary = "获取当前安全审计配置策略 (超级管理员专属)")
     @GetMapping("/policy")
     public ApiResponse<AuditPolicy> getPolicy() {
+        TenantContext.assertTenantAdmin();
         return ApiResponse.success(auditLogAppService.getPolicy());
     }
 
     @Operation(summary = "更新配置安全审计策略与租户/门店黑白名单 (超级管理员专属)")
     @PostMapping("/policy/save")
     public ApiResponse<AuditPolicy> savePolicy(@RequestBody AuditPolicy policy) {
-        String currentRole = TenantContext.getRole();
-        String currentUsername = TenantContext.getUsername();
-        if (!isTenantOrPlatformAdmin(currentRole, TenantContext.getTenantId(), currentUsername)) {
-            return ApiResponse.error(403, "权限不足，审计策略仅限管理员配置");
-        }
+        TenantContext.assertPlatformAdmin();
         return ApiResponse.success("安全审计策略已成功保存", auditLogAppService.savePolicy(policy));
     }
 
@@ -125,15 +121,23 @@ public class AuditController {
     @Operation(summary = "主动上报记录客户端安全敏感操作日志")
     @PostMapping("/log")
     public ApiResponse<Void> recordClientLog(@RequestBody RecordLogCmd cmd, HttpServletRequest request) {
-        String tenantId = (cmd.getTenantId() != null && !cmd.getTenantId().trim().isEmpty())
-                ? cmd.getTenantId().trim()
-                : (TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001");
+        if (!TenantContext.isAuthenticated()) {
+            return ApiResponse.error(401, "请先登录后上报操作日志");
+        }
+        boolean isPlatformAdmin = TenantContext.isPlatformAdmin();
+        String tenantId = TenantContext.getTenantId();
+        if (isPlatformAdmin && cmd.getTenantId() != null && !cmd.getTenantId().trim().isEmpty()) {
+            tenantId = cmd.getTenantId().trim();
+        } else if (cmd.getTenantId() != null && !cmd.getTenantId().trim().isEmpty()) {
+            TenantContext.assertTenantAccess(cmd.getTenantId().trim());
+        }
         String storeId = (cmd.getStoreId() != null && !cmd.getStoreId().trim().isEmpty())
                 ? cmd.getStoreId()
                 : TenantContext.getStoreId();
-        String username = (cmd.getUsername() != null && !cmd.getUsername().trim().isEmpty())
-                ? cmd.getUsername().trim()
-                : (TenantContext.getUsername() != null ? TenantContext.getUsername() : "user");
+        String username = TenantContext.getUsername() != null ? TenantContext.getUsername() : "user";
+        if (isPlatformAdmin && cmd.getUsername() != null && !cmd.getUsername().trim().isEmpty()) {
+            username = cmd.getUsername().trim();
+        }
         String realName = (cmd.getRealName() != null && !cmd.getRealName().trim().isEmpty())
                 ? cmd.getRealName().trim()
                 : username;

@@ -64,6 +64,10 @@ public class BillingOrder {
 
     private LocalDateTime settledAt;
 
+    @Version
+    @Column(nullable = false)
+    private Long version; // JPA 乐观锁版本号
+
     @CreatedDate
     private LocalDateTime createdAt;
 

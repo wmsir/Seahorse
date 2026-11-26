@@ -60,14 +60,22 @@ public class StoreSpaceController {
         String tenantId = TenantContext.getTenantId();
 
         if (targetStoreId != null && !targetStoreId.trim().isEmpty()) {
-            List<ServiceSpace> spaces = spaceRepository.findByStoreId(targetStoreId);
-            if (!spaces.isEmpty()) {
-                return ApiResponse.success(spaces);
-            }
-            // 自动校准租户后重试
             Optional<Store> sOpt = storeRepository.findByStoreId(targetStoreId);
             if (sOpt.isPresent() && sOpt.get().getTenantId() != null) {
+                if (TenantContext.isAuthenticated()) {
+                    TenantContext.assertTenantAccess(sOpt.get().getTenantId());
+                }
                 tenantId = sOpt.get().getTenantId();
+            }
+            List<ServiceSpace> spaces = spaceRepository.findByStoreId(targetStoreId);
+            if (!spaces.isEmpty()) {
+                if (TenantContext.isAuthenticated() && !TenantContext.isPlatformAdmin()) {
+                    String currentTenant = TenantContext.getTenantId();
+                    spaces = spaces.stream()
+                            .filter(sp -> sp.getTenantId() == null || currentTenant.equalsIgnoreCase(sp.getTenantId()))
+                            .toList();
+                }
+                return ApiResponse.success(spaces);
             }
             return ApiResponse.success(spaceRepository.findByTenantIdAndStoreId(tenantId, targetStoreId));
         }
@@ -75,19 +83,28 @@ public class StoreSpaceController {
         if (tenantId == null || tenantId.trim().isEmpty()) {
             tenantId = "T001";
         }
+        TenantContext.assertTenantAccess(tenantId);
         return ApiResponse.success(spaceRepository.findByTenantId(tenantId));
     }
 
     @Operation(summary = "创建或更新包厢/台位/工位")
     @PostMapping("/save")
     public ApiResponse<ServiceSpace> saveSpace(@RequestBody ServiceSpace space) {
-        if (space.getTenantId() == null || space.getTenantId().trim().isEmpty()) {
-            String tid = TenantContext.getTenantId();
+        TenantContext.assertTenantAdmin();
+        if (space.getId() != null) {
+            spaceRepository.findById(space.getId())
+                    .ifPresent(existing -> TenantContext.assertTenantAccess(existing.getTenantId()));
+        }
+        String tid = TenantContext.getTenantId();
+        if (!TenantContext.isPlatformAdmin() || space.getTenantId() == null || space.getTenantId().trim().isEmpty()) {
             space.setTenantId(tid != null && !tid.trim().isEmpty() ? tid : "T001");
         }
         if (space.getStoreId() == null || space.getStoreId().trim().isEmpty()) {
             String sid = TenantContext.getStoreId();
             space.setStoreId(sid != null && !sid.trim().isEmpty() ? sid : "S001");
+        } else {
+            storeRepository.findByStoreId(space.getStoreId().trim())
+                    .ifPresent(st -> TenantContext.assertTenantAccess(st.getTenantId()));
         }
         if (space.getSpaceCode() == null || space.getSpaceCode().trim().isEmpty()) {
             space.setSpaceCode("R" + (System.currentTimeMillis() % 1000));
@@ -110,15 +127,19 @@ public class StoreSpaceController {
     @Operation(summary = "批量创建包厢/台位")
     @PostMapping("/batch-create")
     public ApiResponse<List<ServiceSpace>> batchCreateSpaces(@RequestBody List<ServiceSpace> spaces) {
+        TenantContext.assertTenantAdmin();
         String tenantId = TenantContext.getTenantId();
         String storeId = TenantContext.getStoreId();
         int idx = 1;
         for (ServiceSpace s : spaces) {
-            if (s.getTenantId() == null || s.getTenantId().trim().isEmpty()) {
+            if (!TenantContext.isPlatformAdmin() || s.getTenantId() == null || s.getTenantId().trim().isEmpty()) {
                 s.setTenantId(tenantId != null && !tenantId.trim().isEmpty() ? tenantId : "T001");
             }
             if (s.getStoreId() == null || s.getStoreId().trim().isEmpty()) {
                 s.setStoreId(storeId != null && !storeId.trim().isEmpty() ? storeId : "S001");
+            } else {
+                storeRepository.findByStoreId(s.getStoreId().trim())
+                        .ifPresent(st -> TenantContext.assertTenantAccess(st.getTenantId()));
             }
             if (s.getSpaceCode() == null || s.getSpaceCode().trim().isEmpty()) {
                 s.setSpaceCode(String.format("R%02d", idx++));
@@ -191,14 +212,17 @@ public class StoreSpaceController {
     @GetMapping("/stores")
     public ApiResponse<List<Store>> getTenantStores() {
         String tenantId = TenantContext.getTenantId();
-        if ("PLATFORM".equalsIgnoreCase(tenantId) || "ALL".equalsIgnoreCase(tenantId)) {
+        if (TenantContext.isPlatformAdmin() && ("PLATFORM".equalsIgnoreCase(tenantId) || "ALL".equalsIgnoreCase(tenantId))) {
             return ApiResponse.success(storeRepository.findAll());
         }
         List<Store> list = storeRepository.findByTenantId(tenantId);
         if (list.isEmpty()) {
             String storeId = TenantContext.getStoreId();
             if (storeId != null && !storeId.trim().isEmpty()) {
-                storeRepository.findByStoreId(storeId.trim()).ifPresent(list::add);
+                storeRepository.findByStoreId(storeId.trim()).ifPresent(s -> {
+                    TenantContext.assertTenantAccess(s.getTenantId());
+                    list.add(s);
+                });
             }
         }
         return ApiResponse.success(list);
@@ -207,6 +231,7 @@ public class StoreSpaceController {
     @Operation(summary = "商户在套餐额度内新增门店 (跨行业模态支持)")
     @PostMapping("/store/create")
     public ApiResponse<Store> createStore(@RequestBody CreateStoreCommand cmd) {
+        TenantContext.assertTenantAdmin();
         Store store = merchantRegisterAppService.createStore(TenantContext.getTenantId(), cmd);
         return ApiResponse.success("新增门店成功", store);
     }
@@ -214,6 +239,7 @@ public class StoreSpaceController {
     @Operation(summary = "商户修改/编辑分店资料与运营参数")
     @PostMapping("/store/update")
     public ApiResponse<Store> updateStore(@RequestBody CreateStoreCommand cmd) {
+        TenantContext.assertTenantAdmin();
         String tenantId = TenantContext.getTenantId();
         if (cmd.getStoreId() == null || cmd.getStoreId().trim().isEmpty()) {
             throw new ServiceException("分店ID不可为空");
@@ -265,6 +291,7 @@ public class StoreSpaceController {
     public ApiResponse<String> saveStorePositions(
             @RequestParam("storeId") String storeId,
             @RequestBody Map<String, Object> body) {
+        TenantContext.assertTenantAdmin();
         String sId = storeId != null ? storeId.trim() : "";
         if (sId.isEmpty()) {
             return ApiResponse.error(400, "门店ID不能为空");
@@ -273,6 +300,7 @@ public class StoreSpaceController {
         if (store == null) {
             return ApiResponse.error(404, "未找到该门店信息");
         }
+        TenantContext.assertTenantAccess(store.getTenantId());
         try {
             if (body.containsKey("positions")) {
                 store.setCustomPositionsJson(objectMapper.writeValueAsString(body.get("positions")));
@@ -548,10 +576,17 @@ public class StoreSpaceController {
             @RequestParam(value = "status", required = false, defaultValue = "PENDING") String status,
             @RequestParam(value = "limit", required = false, defaultValue = "30") Integer limit) {
 
-        String effStoreId = storeId != null && !storeId.trim().isEmpty() ? storeId : TenantContext.getStoreId();
+        String effStoreId = storeId != null && !storeId.trim().isEmpty() ? storeId.trim() : TenantContext.getStoreId();
+        if (effStoreId != null && !"PLATFORM".equalsIgnoreCase(effStoreId)) {
+            storeRepository.findByStoreId(effStoreId).ifPresent(s -> TenantContext.assertTenantAccess(s.getTenantId()));
+        }
+        String currentTenant = TenantContext.getTenantId();
         List<ServiceCallEvent> list = new ArrayList<>();
         int count = 0;
         for (ServiceCallEvent sc : SERVICE_CALLS) {
+            if (!TenantContext.isPlatformAdmin() && sc.getTenantId() != null && !currentTenant.equalsIgnoreCase(sc.getTenantId())) {
+                continue;
+            }
             if (effStoreId != null && !"PLATFORM".equalsIgnoreCase(effStoreId)
                     && sc.getStoreId() != null && !sc.getStoreId().equalsIgnoreCase(effStoreId)) {
                 continue;
@@ -571,6 +606,7 @@ public class StoreSpaceController {
     public ApiResponse<String> handleServiceCall(@PathVariable("id") String id) {
         for (ServiceCallEvent sc : SERVICE_CALLS) {
             if (sc.getId().equals(id)) {
+                TenantContext.assertTenantAccess(sc.getTenantId());
                 sc.setStatus("HANDLED");
                 break;
             }
@@ -655,10 +691,17 @@ public class StoreSpaceController {
             @RequestParam(value = "status", required = false, defaultValue = "PENDING") String status,
             @RequestParam(value = "limit", required = false, defaultValue = "30") Integer limit) {
 
-        String effStoreId = storeId != null && !storeId.trim().isEmpty() ? storeId : TenantContext.getStoreId();
+        String effStoreId = storeId != null && !storeId.trim().isEmpty() ? storeId.trim() : TenantContext.getStoreId();
+        if (effStoreId != null && !"PLATFORM".equalsIgnoreCase(effStoreId)) {
+            storeRepository.findByStoreId(effStoreId).ifPresent(s -> TenantContext.assertTenantAccess(s.getTenantId()));
+        }
+        String currentTenant = TenantContext.getTenantId();
         List<OrderNotificationEvent> list = new ArrayList<>();
         int count = 0;
         for (OrderNotificationEvent on : ORDER_NOTIFICATIONS) {
+            if (!TenantContext.isPlatformAdmin() && on.getTenantId() != null && !currentTenant.equalsIgnoreCase(on.getTenantId())) {
+                continue;
+            }
             if (effStoreId != null && !"PLATFORM".equalsIgnoreCase(effStoreId)
                     && on.getStoreId() != null && !on.getStoreId().equalsIgnoreCase(effStoreId)) {
                 continue;
@@ -678,6 +721,7 @@ public class StoreSpaceController {
     public ApiResponse<String> handleOrderNotification(@PathVariable("id") String id) {
         for (OrderNotificationEvent on : ORDER_NOTIFICATIONS) {
             if (on.getId().equals(id)) {
+                TenantContext.assertTenantAccess(on.getTenantId());
                 on.setStatus("HANDLED");
                 break;
             }

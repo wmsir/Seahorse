@@ -47,11 +47,11 @@ public class ServiceSessionAppService {
 
     @Transactional(rollbackFor = Exception.class)
     public ServiceSession openSession(OpenSessionCommand cmd) {
-        String tenantId = TenantContext.getTenantId();
-        String storeId = TenantContext.getStoreId();
-
         ServiceSpace space = spaceRepository.findById(cmd.getSpaceId())
                 .orElseThrow(() -> new ServiceException("未找到该空间/工位"));
+        TenantContext.assertTenantAccess(space.getTenantId());
+        String tenantId = space.getTenantId();
+        String storeId = space.getStoreId() != null ? space.getStoreId() : TenantContext.getStoreId();
 
         if (space.getStatus() == SpaceStatus.OCCUPIED) {
             throw new ServiceException("当前空间/工位正在服务中，无法重复开单");
@@ -64,13 +64,13 @@ public class ServiceSessionAppService {
             Optional<Member> memberOpt = memberRepository.findById(cmd.getMemberId());
             if (memberOpt.isPresent()) {
                 Member m = memberOpt.get();
+                TenantContext.assertTenantAccess(m.getTenantId());
                 customerName = m.getName();
                 customerPhone = m.getPhone();
             }
         } else if (customerPhone != null && !customerPhone.trim().isEmpty()) {
             final String finalPhone = customerPhone.trim();
-            Member m = memberRepository.findByTenantIdAndPhone(tenantId, finalPhone)
-                    .orElseGet(() -> memberRepository.findByPhone(finalPhone).orElse(null));
+            Member m = memberRepository.findByTenantIdAndPhone(tenantId, finalPhone).orElse(null);
             if (m != null) {
                 cmd.setMemberId(m.getId());
                 if (customerName == null || customerName.trim().isEmpty() || "散客顾客".equals(customerName) || "散客到店".equals(customerName)) {
@@ -136,6 +136,7 @@ public class ServiceSessionAppService {
     public SessionDetailVO appendItems(AppendItemsCommand cmd) {
         ServiceSession session = sessionRepository.findById(cmd.getSessionId())
                 .orElseThrow(() -> new ServiceException("未找到对应会话"));
+        TenantContext.assertTenantAccess(session.getTenantId());
 
         if (session.getStatus() == SessionStatus.CLOSED) {
             throw new ServiceException("会话已关闭，不可追加项目");
@@ -174,6 +175,7 @@ public class ServiceSessionAppService {
             if (product == null) {
                 throw new ServiceException("商品/服务不存在: ID=" + itemParam.getProductId());
             }
+            TenantContext.assertTenantAccess(product.getTenantId());
 
             int qty = itemParam.getQuantity() != null && itemParam.getQuantity() > 0 ? itemParam.getQuantity() : 1;
             BigDecimal subtotal = product.getPrice().multiply(BigDecimal.valueOf(qty));
@@ -239,6 +241,7 @@ public class ServiceSessionAppService {
     public SessionDetailVO getSessionDetail(Long sessionId) {
         ServiceSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ServiceException("未找到该在场会话"));
+        TenantContext.assertTenantAccess(session.getTenantId());
 
         List<OrderBatch> batches = batchRepository.findBySessionIdOrderByBatchNoAsc(sessionId);
         List<SessionLineItem> lineItems = lineItemRepository.findBySessionId(sessionId);
@@ -259,12 +262,15 @@ public class ServiceSessionAppService {
     public void transferSpace(Long sessionId, Long targetSpaceId) {
         ServiceSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ServiceException("未找到在场会话"));
+        TenantContext.assertTenantAccess(session.getTenantId());
 
         ServiceSpace oldSpace = spaceRepository.findById(session.getSpaceId())
                 .orElseThrow(() -> new ServiceException("原空间不存在"));
+        TenantContext.assertTenantAccess(oldSpace.getTenantId());
 
         ServiceSpace newSpace = spaceRepository.findById(targetSpaceId)
                 .orElseThrow(() -> new ServiceException("目标空间不存在"));
+        TenantContext.assertTenantAccess(newSpace.getTenantId());
 
         if (newSpace.getStatus() != SpaceStatus.IDLE) {
             throw new ServiceException("目标空间已被占用或非空闲状态，无法转入");
@@ -290,6 +296,10 @@ public class ServiceSessionAppService {
         SessionLineItem item = lineItemRepository.findById(lineItemId)
                 .orElseThrow(() -> new ServiceException("明细项不存在"));
 
+        ServiceSession session = sessionRepository.findById(item.getSessionId())
+                .orElseThrow(() -> new ServiceException("会话不存在"));
+        TenantContext.assertTenantAccess(session.getTenantId());
+
         if (LineItemStatus.CANCELLED.name().equals(item.getStatus())) {
             throw new ServiceException("该项目已取消");
         }
@@ -297,9 +307,6 @@ public class ServiceSessionAppService {
         item.setStatus(LineItemStatus.CANCELLED.name());
         item.setCancelReason(reason);
         lineItemRepository.save(item);
-
-        ServiceSession session = sessionRepository.findById(item.getSessionId())
-                .orElseThrow(() -> new ServiceException("会话不存在"));
 
         BigDecimal newTotal = session.getTotalAmount().subtract(item.getSubtotal()).max(BigDecimal.ZERO);
         session.setTotalAmount(newTotal);

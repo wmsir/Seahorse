@@ -52,6 +52,7 @@ public class MemberAssetAppService {
     private final com.seahorse.store.infrastructure.id.DistributedMemberNoGenerator distributedMemberNoGenerator;
     private final com.seahorse.store.infrastructure.repository.MemberRechargeRecordRepository memberRechargeRecordRepository;
     private final com.seahorse.store.infrastructure.repository.StoreRepository storeRepository;
+    private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
     @Transactional(rollbackFor = Exception.class)
     public Member registerMember(MemberRegisterCommand cmd) {
@@ -184,6 +185,7 @@ public class MemberAssetAppService {
             Optional<Employee> empOpt = employeeRepository.findById(cmd.getSellerEmployeeId());
             if (empOpt.isPresent()) {
                 Employee emp = empOpt.get();
+                TenantContext.assertTenantAccess(emp.getTenantId());
                 sellerName = emp.getRealName();
                 if (p.compareTo(BigDecimal.ZERO) > 0) {
                     BigDecimal rate = emp.getDefaultCommissionRate() != null ? emp.getDefaultCommissionRate() : BigDecimal.valueOf(0.05);
@@ -268,9 +270,7 @@ public class MemberAssetAppService {
         }
         Member member = memberRepository.findById(cmd.getMemberId())
                 .orElseThrow(() -> new ServiceException("会员不存在"));
-        if (TenantContext.isAuthenticated()) {
-            TenantContext.assertTenantAccess(member.getTenantId());
-        }
+        TenantContext.assertTenantAccess(member.getTenantId());
 
         MemberPreference pref = MemberPreference.builder()
                 .memberId(member.getId())
@@ -357,17 +357,24 @@ public class MemberAssetAppService {
 
     @Transactional(readOnly = true)
     public List<Member> searchMembers(String query, String specifiedTenantId, String specifiedStoreId) {
-        String tenantId = (specifiedTenantId != null && !specifiedTenantId.trim().isEmpty())
-                ? specifiedTenantId.trim()
-                : TenantContext.getTenantId();
+        boolean isPlatformAdmin = TenantContext.isPlatformAdmin();
+        String tenantId = TenantContext.getTenantId();
+        if (specifiedTenantId != null && !specifiedTenantId.trim().isEmpty()) {
+            String candidateTenant = specifiedTenantId.trim();
+            if (!isPlatformAdmin) {
+                TenantContext.assertTenantAccess(candidateTenant);
+            }
+            tenantId = candidateTenant;
+        }
 
-        // 当租户为默认T001或空，但存在指定门店上下文时，优先校准至该门店所属真实租户
+        // 当指定门店上下文时，校验该门店确实属于当前操作者租户（严禁通过 storeId 参数越权读取其他租户会员）
         String storeId = (specifiedStoreId != null && !specifiedStoreId.trim().isEmpty())
                 ? specifiedStoreId.trim()
                 : TenantContext.getStoreId();
         if (storeId != null && !storeId.trim().isEmpty()) {
             java.util.Optional<com.seahorse.store.domain.iam.model.Store> sOpt = storeRepository.findByStoreId(storeId.trim());
             if (sOpt.isPresent() && sOpt.get().getTenantId() != null) {
+                TenantContext.assertTenantAccess(sOpt.get().getTenantId());
                 tenantId = sOpt.get().getTenantId();
             }
         }
@@ -375,10 +382,8 @@ public class MemberAssetAppService {
             tenantId = "T001";
         }
 
-        boolean canQueryGlobal = "PLATFORM".equalsIgnoreCase(TenantContext.getTenantId())
-                || "PLATFORM_DEVELOPER".equalsIgnoreCase(TenantContext.getRole());
         List<Member> list;
-        if (canQueryGlobal && ("PLATFORM".equalsIgnoreCase(tenantId) || "ALL".equalsIgnoreCase(tenantId))) {
+        if (isPlatformAdmin && ("PLATFORM".equalsIgnoreCase(tenantId) || "ALL".equalsIgnoreCase(tenantId))) {
             if (query == null || query.trim().isEmpty()) {
                 list = new java.util.ArrayList<>(memberRepository.findAll());
             } else {
@@ -386,6 +391,7 @@ public class MemberAssetAppService {
             }
         } else {
             String scopedTenantId = ("PLATFORM".equalsIgnoreCase(tenantId) || "ALL".equalsIgnoreCase(tenantId)) ? "T001" : tenantId;
+            TenantContext.assertTenantAccess(scopedTenantId);
             if (query == null || query.trim().isEmpty()) {
                 list = new java.util.ArrayList<>(memberRepository.findByTenantId(scopedTenantId));
             } else {
@@ -417,7 +423,7 @@ public class MemberAssetAppService {
                 if (!orphanMemberIds.isEmpty()) {
                     java.util.Map<Long, Member> orphanMap = new java.util.HashMap<>();
                     for (Member orphan : memberRepository.findAllById(orphanMemberIds)) {
-                        if (orphan != null && orphan.getId() != null) {
+                        if (orphan != null && orphan.getId() != null && tenantId.equalsIgnoreCase(orphan.getTenantId())) {
                             orphanMap.put(orphan.getId(), orphan);
                         }
                     }
@@ -464,7 +470,9 @@ public class MemberAssetAppService {
         if (cmd.getPhone() != null) member.setPhone(cmd.getPhone());
         if (cmd.getAvatar() != null) member.setAvatar(cmd.getAvatar());
         if (cmd.getCardNo() != null) member.setCardNo(cmd.getCardNo());
-        if (cmd.getCardPassword() != null) member.setCardPassword(cmd.getCardPassword());
+        if (cmd.getCardPassword() != null && !cmd.getCardPassword().trim().isEmpty()) {
+            member.setCardPassword(passwordEncoder.encode(cmd.getCardPassword().trim()));
+        }
         if (cmd.getCardPasswordEnabled() != null) member.setCardPasswordEnabled(cmd.getCardPasswordEnabled());
         if (cmd.getCardSignEnabled() != null) member.setCardSignEnabled(cmd.getCardSignEnabled());
         if (cmd.getGender() != null) member.setGender(cmd.getGender());
@@ -528,8 +536,8 @@ public class MemberAssetAppService {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ServiceException("未找到该会员档案"));
         TenantContext.assertTenantAccess(member.getTenantId());
-        if (cmd.getPassword() != null) {
-            member.setCardPassword(cmd.getPassword());
+        if (cmd.getPassword() != null && !cmd.getPassword().trim().isEmpty()) {
+            member.setCardPassword(passwordEncoder.encode(cmd.getPassword().trim()));
         }
         if (cmd.getEnabled() != null) {
             member.setCardPasswordEnabled(cmd.getEnabled());

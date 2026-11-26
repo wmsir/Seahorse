@@ -52,9 +52,20 @@ public class BillingCheckoutAppService {
     private final ProductRepository productRepository;
     private final ProductBomRepository bomRepository;
     private final SessionLineItemRepository sessionLineItemRepository;
+    private final StoreRepository storeRepository;
+
+    private void assertStaffOperator() {
+        if (!TenantContext.isAuthenticated()) {
+            throw new ServiceException(401, "请先登录门店员工账号再执行收银操作");
+        }
+        if ("CUSTOMER_MEMBER".equalsIgnoreCase(TenantContext.getRole())) {
+            throw new ServiceException(403, "会员账号无权发起或结算门店收银账单");
+        }
+    }
 
     @Transactional(rollbackFor = Exception.class)
     public BillingOrder requestBilling(Long sessionId) {
+        assertStaffOperator();
         ServiceSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ServiceException("未找到该在场会话"));
         TenantContext.assertTenantAccess(session.getTenantId());
@@ -113,6 +124,7 @@ public class BillingCheckoutAppService {
 
     @Transactional(rollbackFor = Exception.class)
     public BillingSummaryVO executeCheckout(CheckoutCommand cmd) {
+        assertStaffOperator();
         BillingOrder order = null;
         if (cmd.getBillingOrderId() != null) {
             order = billingOrderRepository.findById(cmd.getBillingOrderId()).orElse(null);
@@ -132,57 +144,85 @@ public class BillingCheckoutAppService {
         List<CheckoutCommand.PaymentSplitItem> rawSplits = cmd.getSplitItems() != null
                 ? cmd.getSplitItems()
                 : java.util.Collections.emptyList();
-        boolean isZeroActualRequest = cmd.getActualAmount() != null
-                && cmd.getActualAmount().compareTo(BigDecimal.ZERO) == 0;
 
-        // 若依然未找到账单，且传入了支付明细或零元免单请求，支持动态创建并持久化该账单（散客即时收银/前台快速收银自愈）
+        // 若无既有账单且为前台快速收银，必须基于服务端商品目录价格实时核算总额与会员折扣，严禁采信客户端传入金额/折扣
         if (order == null) {
-            if (!rawSplits.isEmpty() || isZeroActualRequest) {
-                String tenantId = TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001";
-                String storeId = TenantContext.getStoreId() != null ? TenantContext.getStoreId() : "S001";
-
-                BigDecimal initPlanAmount = rawSplits.stream()
-                        .map(item -> item.getAmount() != null ? item.getAmount() : BigDecimal.ZERO)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-                BigDecimal actual = cmd.getActualAmount() != null ? cmd.getActualAmount() : initPlanAmount;
-                BigDecimal total = cmd.getTotalAmount() != null ? cmd.getTotalAmount() : actual;
-                BigDecimal fee = cmd.getFeeAmount() != null ? cmd.getFeeAmount() : BigDecimal.ZERO;
-                BigDecimal discount = cmd.getDiscountAmount() != null ? cmd.getDiscountAmount() : BigDecimal.ZERO;
-                String orderNo = (cmd.getOrderNo() != null && !cmd.getOrderNo().trim().isEmpty())
-                        ? cmd.getOrderNo()
-                        : "ORD" + System.currentTimeMillis() + (int)(Math.random() * 900 + 100);
-
-                Long memberId = cmd.getMemberId();
-                if (memberId == null && cmd.getCustomerPhone() != null && !cmd.getCustomerPhone().trim().isEmpty()) {
-                    Member foundMem = memberRepository.findByTenantIdAndPhone(tenantId, cmd.getCustomerPhone().trim())
-                            .orElseGet(() -> memberRepository.findByPhone(cmd.getCustomerPhone().trim()).orElse(null));
-                    if (foundMem != null) {
-                        memberId = foundMem.getId();
-                    }
-                }
-
-                order = BillingOrder.builder()
-                        .tenantId(tenantId)
-                        .storeId(storeId)
-                        .orderNo(orderNo)
-                        .sessionId(cmd.getSessionId())
-                        .spaceId(cmd.getSpaceId())
-                        .spaceName(cmd.getSpaceName() != null ? cmd.getSpaceName() : "前台收银台")
-                        .memberId(memberId)
-                        .customerName(cmd.getCustomerName() != null ? cmd.getCustomerName() : "散客顾客")
-                        .customerPhone(cmd.getCustomerPhone() != null ? cmd.getCustomerPhone() : "")
-                        .totalAmount(total)
-                        .feeAmount(fee)
-                        .discountAmount(discount)
-                        .actualAmount(actual)
-                        .paidAmount(BigDecimal.ZERO)
-                        .status(BillingStatus.PENDING)
-                        .build();
-                order = billingOrderRepository.save(order);
-            } else {
-                throw new ServiceException("未找到对应账单");
+            if (cmd.getItems() == null || cmd.getItems().isEmpty()) {
+                throw new ServiceException(400, "未找到对应账单且未提供结算商品/服务明细");
             }
+            String tenantId = TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001";
+            String storeId = TenantContext.getStoreId() != null ? TenantContext.getStoreId() : "S001";
+
+            Long memberId = cmd.getMemberId();
+            Member foundMem = null;
+            if (memberId != null) {
+                foundMem = memberRepository.findById(memberId).orElse(null);
+                if (foundMem != null) {
+                    TenantContext.assertTenantAccess(foundMem.getTenantId());
+                } else {
+                    memberId = null;
+                }
+            } else if (cmd.getCustomerPhone() != null && !cmd.getCustomerPhone().trim().isEmpty()) {
+                foundMem = memberRepository.findByTenantIdAndPhone(tenantId, cmd.getCustomerPhone().trim()).orElse(null);
+                if (foundMem != null) {
+                    memberId = foundMem.getId();
+                }
+            }
+
+            BigDecimal total = BigDecimal.ZERO;
+            BigDecimal discountedTotal = BigDecimal.ZERO;
+            for (CheckoutCommand.CheckoutItem item : cmd.getItems()) {
+                int qty = (item.getQuantity() != null && item.getQuantity() > 0) ? item.getQuantity() : 1;
+                Product catalogProduct = resolveCatalogProduct(tenantId, storeId, item);
+                if (catalogProduct == null) {
+                    throw new ServiceException(400, "结算失败：商品/服务不存在或无权跨租户访问");
+                }
+                BigDecimal unitPrice = catalogProduct.getPrice() != null ? catalogProduct.getPrice().max(BigDecimal.ZERO) : BigDecimal.ZERO;
+                BigDecimal lineSubtotal = unitPrice.multiply(BigDecimal.valueOf(qty));
+                total = total.add(lineSubtotal);
+
+                BigDecimal discountRate = BigDecimal.ONE;
+                if (foundMem != null && foundMem.getLevel() != null) {
+                    discountRate = catalogProduct.getProductType() == ProductType.SERVICE
+                            ? foundMem.getLevel().getServiceDiscount()
+                            : foundMem.getLevel().getProductDiscount();
+                }
+                discountedTotal = discountedTotal.add(lineSubtotal.multiply(discountRate)
+                        .setScale(2, java.math.RoundingMode.HALF_UP));
+            }
+
+            BigDecimal fee = BigDecimal.ZERO;
+            if (cmd.getSpaceId() != null && total.compareTo(BigDecimal.ZERO) > 0) {
+                var storeOpt = storeRepository.findByStoreIdAndTenantId(storeId, tenantId);
+                if (storeOpt.isPresent() && Boolean.TRUE.equals(storeOpt.get().getFeeEnabled())
+                        && storeOpt.get().getDefaultFeeAmount() != null) {
+                    fee = storeOpt.get().getDefaultFeeAmount().max(BigDecimal.ZERO);
+                }
+            }
+            BigDecimal discount = total.subtract(discountedTotal).max(BigDecimal.ZERO);
+            BigDecimal actual = total.add(fee).subtract(discount).max(BigDecimal.ZERO);
+            String orderNo = (cmd.getOrderNo() != null && !cmd.getOrderNo().trim().isEmpty())
+                    ? cmd.getOrderNo()
+                    : "ORD" + System.currentTimeMillis() + (int)(Math.random() * 900 + 100);
+
+            order = BillingOrder.builder()
+                    .tenantId(tenantId)
+                    .storeId(storeId)
+                    .orderNo(orderNo)
+                    .sessionId(cmd.getSessionId())
+                    .spaceId(cmd.getSpaceId())
+                    .spaceName(cmd.getSpaceName() != null ? cmd.getSpaceName() : "前台收银台")
+                    .memberId(memberId)
+                    .customerName(foundMem != null ? foundMem.getName() : (cmd.getCustomerName() != null ? cmd.getCustomerName() : "散客顾客"))
+                    .customerPhone(foundMem != null ? foundMem.getPhone() : (cmd.getCustomerPhone() != null ? cmd.getCustomerPhone() : ""))
+                    .totalAmount(total)
+                    .feeAmount(fee)
+                    .discountAmount(discount)
+                    .actualAmount(actual)
+                    .paidAmount(BigDecimal.ZERO)
+                    .status(BillingStatus.PENDING)
+                    .build();
+            order = billingOrderRepository.save(order);
         } else {
             TenantContext.assertTenantAccess(order.getTenantId());
         }
@@ -191,33 +231,39 @@ public class BillingCheckoutAppService {
             throw new ServiceException("该账单已完成结算，不可重复支付");
         }
 
-        // 计算组合支付覆盖金额（次卡抵扣按其等额抵扣）
+        // 计算组合支付覆盖金额
         BigDecimal totalPlanAmount = rawSplits.stream()
                 .map(item -> item.getAmount() != null ? item.getAmount() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // 如果存在待结算账单（如 requestBilling 预先生成），在此对齐前台收银台实际最终提交的应收金额、总额与减免优惠
+        // 对既有 PENDING 账单：仅允许按服务端会话明细与会员等级重新核算，禁止客户端篡改总额/折扣/实收
         if (order.getStatus() == BillingStatus.PENDING) {
-            if (cmd.getActualAmount() != null && cmd.getActualAmount().compareTo(BigDecimal.ZERO) >= 0) {
-                order.setActualAmount(cmd.getActualAmount());
-            } else if (totalPlanAmount.compareTo(BigDecimal.ZERO) > 0 && totalPlanAmount.compareTo(order.getActualAmount()) < 0) {
-                // 前台未显式传实收但支付计划满足品项拆分时，平滑对齐计划支付金额
-                order.setActualAmount(totalPlanAmount);
+            if (order.getSessionId() != null) {
+                ServiceSession session = sessionRepository.findById(order.getSessionId()).orElse(null);
+                if (session != null) {
+                    TenantContext.assertTenantAccess(session.getTenantId());
+                    List<SessionLineItem> lineItems = sessionLineItemRepository.findBySessionIdAndStatus(order.getSessionId(), "ACTIVE");
+                    BigDecimal itemTotal = lineItems.stream()
+                            .map(it -> it.getSubtotal() != null ? it.getSubtotal() : (it.getPrice() != null ? it.getPrice().multiply(BigDecimal.valueOf(it.getQuantity() != null ? it.getQuantity() : 1)) : BigDecimal.ZERO))
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal serverTotal = (!lineItems.isEmpty()) ? itemTotal : (session.getTotalAmount() != null ? session.getTotalAmount() : BigDecimal.ZERO);
+                    BigDecimal serverFee = session.getFeeAmount() != null ? session.getFeeAmount() : BigDecimal.ZERO;
+                    BigDecimal serverDiscount = session.getDiscountAmount() != null ? session.getDiscountAmount() : BigDecimal.ZERO;
+                    BigDecimal serverActual = serverTotal.add(serverFee).subtract(serverDiscount).max(BigDecimal.ZERO);
+                    order.setTotalAmount(serverTotal);
+                    order.setFeeAmount(serverFee);
+                    order.setDiscountAmount(serverDiscount);
+                    order.setActualAmount(serverActual);
+                }
             }
-            if (cmd.getTotalAmount() != null && cmd.getTotalAmount().compareTo(BigDecimal.ZERO) >= 0) {
-                order.setTotalAmount(cmd.getTotalAmount());
-            }
-            if (cmd.getDiscountAmount() != null) {
-                order.setDiscountAmount(cmd.getDiscountAmount());
-            }
-            if (cmd.getFeeAmount() != null) {
-                order.setFeeAmount(cmd.getFeeAmount());
-            }
-            if (cmd.getMemberId() != null) {
-                order.setMemberId(cmd.getMemberId());
-            } else if (cmd.getCustomerPhone() != null && !cmd.getCustomerPhone().trim().isEmpty()) {
-                Member foundMem = memberRepository.findByTenantIdAndPhone(order.getTenantId(), cmd.getCustomerPhone().trim())
-                        .orElseGet(() -> memberRepository.findByPhone(cmd.getCustomerPhone().trim()).orElse(null));
+            if (cmd.getMemberId() != null && order.getMemberId() == null) {
+                Member foundMem = memberRepository.findById(cmd.getMemberId()).orElse(null);
+                if (foundMem != null) {
+                    TenantContext.assertTenantAccess(foundMem.getTenantId());
+                    order.setMemberId(foundMem.getId());
+                }
+            } else if (order.getMemberId() == null && cmd.getCustomerPhone() != null && !cmd.getCustomerPhone().trim().isEmpty()) {
+                Member foundMem = memberRepository.findByTenantIdAndPhone(order.getTenantId(), cmd.getCustomerPhone().trim()).orElse(null);
                 if (foundMem != null) {
                     order.setMemberId(foundMem.getId());
                 }
@@ -244,13 +290,10 @@ public class BillingCheckoutAppService {
         List<PaymentRecord> paymentRecords = new ArrayList<>();
         CashTenderRecord cashTenderRecord = null;
 
-        Long resolvedMemberId = order.getMemberId() != null ? order.getMemberId() : cmd.getMemberId();
-        if (resolvedMemberId == null && cmd.getCustomerPhone() != null && !cmd.getCustomerPhone().trim().isEmpty()) {
-            Member foundMem = memberRepository.findByTenantIdAndPhone(order.getTenantId(), cmd.getCustomerPhone().trim())
-                    .orElseGet(() -> memberRepository.findByPhone(cmd.getCustomerPhone().trim()).orElse(null));
-            if (foundMem != null) {
-                resolvedMemberId = foundMem.getId();
-            }
+        Long resolvedMemberId = order.getMemberId();
+        if (resolvedMemberId != null) {
+            memberRepository.findById(resolvedMemberId)
+                    .ifPresent(m -> TenantContext.assertTenantAccess(m.getTenantId()));
         }
 
         for (CheckoutCommand.PaymentSplitItem split : rawSplits) {
@@ -401,6 +444,42 @@ public class BillingCheckoutAppService {
                 .build();
     }
 
+    private Product resolveCatalogProduct(String tenantId, String storeId, CheckoutCommand.CheckoutItem item) {
+        if (item == null) {
+            return null;
+        }
+        if (item.getProductId() != null && item.getProductId() > 0) {
+            Product p = productRepository.findById(item.getProductId()).orElse(null);
+            if (p != null) {
+                TenantContext.assertTenantAccess(p.getTenantId());
+                return p;
+            }
+        }
+        List<Product> tenantProducts = productRepository.findByTenantId(tenantId);
+        if (item.getProductCode() != null && !item.getProductCode().trim().isEmpty()) {
+            String code = item.getProductCode().trim();
+            for (Product p : tenantProducts) {
+                if ((storeId == null || storeId.equals(p.getStoreId())) && code.equals(p.getProductCode())) {
+                    return p;
+                }
+            }
+            for (Product p : tenantProducts) {
+                if (code.equals(p.getProductCode())) {
+                    return p;
+                }
+            }
+        }
+        if (item.getProductName() != null && !item.getProductName().trim().isEmpty()) {
+            String name = item.getProductName().trim();
+            for (Product p : tenantProducts) {
+                if (name.equalsIgnoreCase(p.getName())) {
+                    return p;
+                }
+            }
+        }
+        return null;
+    }
+
     /**
      * 结账完成后扣减商品实物库存及服务项关联的BOM原料耗材
      */
@@ -469,10 +548,12 @@ public class BillingCheckoutAppService {
                             break;
                         }
                     }
-                    if (product == null) {
-                        product = productRepository.findByStoreIdAndProductCode(order.getStoreId(), code)
-                                .orElseGet(() -> productRepository.findByProductCode(code).orElse(null));
+                    if (product == null && storeIdOrDefault(order) != null) {
+                        product = productRepository.findByStoreIdAndProductCode(order.getStoreId(), code).orElse(null);
                     }
+                }
+                if (product != null) {
+                    TenantContext.assertTenantAccess(product.getTenantId());
                 }
                 // 3. 再次通过商品名称在租户下匹配
                 if (product == null && item.getProductName() != null && !item.getProductName().trim().isEmpty()) {
@@ -558,5 +639,9 @@ public class BillingCheckoutAppService {
         } catch (Exception e) {
             log.error("【结账商品库存扣减异常】订单号={}, 异常原因: {}", order.getOrderNo(), e.getMessage(), e);
         }
+    }
+
+    private String storeIdOrDefault(BillingOrder order) {
+        return order.getStoreId();
     }
 }

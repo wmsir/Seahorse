@@ -19,10 +19,14 @@ import java.security.KeyFactory;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.RSAPublicKeySpec;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 /**
  * FWPT 统一认证中心 (OneID 2.0) JWKS 本地零 RPC 验签器。
@@ -40,6 +44,9 @@ public class AuthCenterJwksVerifier {
 
     @Value("${seahorse.auth-center.issuer:https://fwpt.cn/auth}")
     private String expectedIssuer;
+
+    @Value("${seahorse.auth-center.allowed-audiences:seahorse-web,seahorse-app,fwpt-all}")
+    private String allowedAudiencesRaw;
 
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
@@ -66,42 +73,78 @@ public class AuthCenterJwksVerifier {
                 return null;
             }
             String kid = hdr.path("kid").asText("");
+            if (!StringUtils.hasText(kid)) {
+                log.debug("AuthCenter RS256 令牌缺少 kid 头，拒绝验签");
+                return null;
+            }
             RSAPublicKey pubKey = resolveKey(kid);
             if (pubKey == null) {
                 return null;
             }
-            return Jwts.parserBuilder()
+            Claims claims = Jwts.parserBuilder()
                     .setSigningKey(pubKey)
                     .requireIssuer(expectedIssuer)
                     .setAllowedClockSkewSeconds(10)
                     .build()
                     .parseClaimsJws(token.trim())
                     .getBody();
+            if (!hasAllowedAudience(claims)) {
+                log.debug("AuthCenter RS256 令牌 aud 校验未通过: aud={}", claims.get("aud"));
+                return null;
+            }
+            return claims;
         } catch (Exception e) {
             log.debug("AuthCenter RS256 令牌校验未通过: {}", e.getMessage());
             return null;
         }
     }
 
+    private boolean hasAllowedAudience(Claims claims) {
+        if (claims == null || !StringUtils.hasText(allowedAudiencesRaw)) {
+            return false;
+        }
+        Set<String> allowed = Arrays.stream(allowedAudiencesRaw.split(","))
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        if (allowed.isEmpty()) {
+            return false;
+        }
+        Object rawAud = claims.get("aud");
+        if (rawAud instanceof String s) {
+            return allowed.contains(s.trim());
+        }
+        if (rawAud instanceof Collection<?> col) {
+            for (Object item : col) {
+                if (item != null && allowed.contains(item.toString().trim())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        String singleAud = claims.getAudience();
+        return StringUtils.hasText(singleAud) && allowed.contains(singleAud.trim());
+    }
+
     private RSAPublicKey resolveKey(String kid) {
+        if (!StringUtils.hasText(kid)) {
+            return null;
+        }
         long now = System.currentTimeMillis();
         Map<String, RSAPublicKey> cur = keyMap;
         if (now > expiresAtMs.get() || cur.isEmpty()) {
             refreshJwks(false);
             cur = keyMap;
         }
-        if (StringUtils.hasText(kid)) {
-            RSAPublicKey found = cur.get(kid);
-            if (found != null) {
-                return found;
-            }
-            if (now - lastForceRefreshMs.get() > UNKNOWN_KID_COOLDOWN_MS) {
-                refreshJwks(true);
-                cur = keyMap;
-            }
-            return cur.get(kid);
+        RSAPublicKey found = cur.get(kid.trim());
+        if (found != null) {
+            return found;
         }
-        return cur.values().stream().findFirst().orElse(null);
+        if (now - lastForceRefreshMs.get() > UNKNOWN_KID_COOLDOWN_MS) {
+            refreshJwks(true);
+            cur = keyMap;
+        }
+        return cur.get(kid.trim());
     }
 
     private void refreshJwks(boolean force) {

@@ -316,7 +316,7 @@ public class ChannelNotificationAppService {
 
         Member member = null;
         if (targetPhone != null && !targetPhone.trim().isEmpty()) {
-            member = memberRepository.findByPhone(targetPhone.trim()).orElse(null);
+            member = memberRepository.findByTenantIdAndPhone(tenantId, targetPhone.trim()).orElse(null);
         }
 
         String memberName = member != null ? member.getName() : "测试体验用户";
@@ -353,6 +353,7 @@ public class ChannelNotificationAppService {
     public Member bindMemberChannel(Long memberId, String channel, String openId, Boolean followStatus) {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new IllegalArgumentException("未找到对应会员: " + memberId));
+        TenantContext.assertTenantAccess(member.getTenantId());
 
         if ("WECHAT".equalsIgnoreCase(channel) || "WECHAT_MP".equalsIgnoreCase(channel)) {
             member.setWechatBound(true);
@@ -378,7 +379,7 @@ public class ChannelNotificationAppService {
     @Transactional
     public Map<String, Object> simulateFollow(String phone, String channel) {
         String tenantId = getEffectiveTenantId();
-        Member member = memberRepository.findByPhone(phone.trim()).orElse(null);
+        Member member = memberRepository.findByTenantIdAndPhone(tenantId, phone.trim()).orElse(null);
         if (member == null) {
             // 自动建会员
             member = Member.builder()
@@ -459,6 +460,7 @@ public class ChannelNotificationAppService {
     public List<NotificationLog> getRecentNotificationLogs(Long memberId) {
         String tenantId = getEffectiveTenantId();
         if (memberId != null) {
+            memberRepository.findById(memberId).ifPresent(m -> TenantContext.assertTenantAccess(m.getTenantId()));
             return logRepository.findByTenantIdAndMemberIdOrderBySentAtDesc(tenantId, memberId);
         }
         return logRepository.findTop100ByTenantIdOrderBySentAtDesc(tenantId);

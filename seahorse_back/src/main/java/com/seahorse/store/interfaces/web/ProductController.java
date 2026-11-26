@@ -99,6 +99,7 @@ public class ProductController {
     @Operation(summary = "创建或修改分类 (店长/租户老板权限)")
     @PostMapping("/category/save")
     public ApiResponse<ProductCategory> saveCategory(@RequestBody ProductCategory category) {
+        TenantContext.assertTenantAdmin();
         if (category.getId() != null) {
             categoryRepository.findById(category.getId())
                     .ifPresent(existing -> TenantContext.assertTenantAccess(existing.getTenantId()));
@@ -123,6 +124,7 @@ public class ProductController {
     @Operation(summary = "删除分类")
     @DeleteMapping("/category/{id}")
     public ApiResponse<Void> deleteCategory(@PathVariable("id") Long id) {
+        TenantContext.assertTenantAdmin();
         ProductCategory existing = categoryRepository.findById(id)
                 .orElseThrow(() -> new ServiceException("分类不存在"));
         TenantContext.assertTenantAccess(existing.getTenantId());
@@ -133,6 +135,7 @@ public class ProductController {
     @Operation(summary = "创建或保存商品/服务")
     @PostMapping("/save")
     public ApiResponse<Product> saveProduct(@RequestBody Product product) {
+        TenantContext.assertTenantAdmin();
         if (product.getId() != null) {
             Product existing = productRepository.findById(product.getId()).orElse(null);
             if (existing != null) {
@@ -171,18 +174,33 @@ public class ProductController {
     @Operation(summary = "配置服务的 BOM 耗材消耗配方 (如美发烫发配药水，汽修保养配机油)")
     @PostMapping("/bom/save")
     public ApiResponse<ProductBom> saveBom(@RequestBody ProductBom bom) {
+        TenantContext.assertTenantAdmin();
+        if (bom.getServiceProductId() != null) {
+            Product svc = productRepository.findById(bom.getServiceProductId())
+                    .orElseThrow(() -> new ServiceException("服务项目不存在"));
+            TenantContext.assertTenantAccess(svc.getTenantId());
+        }
+        if (bom.getMaterialProductId() != null) {
+            Product mat = productRepository.findById(bom.getMaterialProductId())
+                    .orElseThrow(() -> new ServiceException("原料耗材商品不存在"));
+            TenantContext.assertTenantAccess(mat.getTenantId());
+        }
         return ApiResponse.success(bomRepository.save(bom));
     }
 
     @Operation(summary = "获取指定服务项关联的 BOM 原料配方")
     @GetMapping("/{serviceId}/boms")
     public ApiResponse<List<ProductBom>> getServiceBoms(@PathVariable("serviceId") Long serviceId) {
+        Product svc = productRepository.findById(serviceId)
+                .orElseThrow(() -> new ServiceException("服务项目不存在"));
+        TenantContext.assertTenantAccess(svc.getTenantId());
         return ApiResponse.success(bomRepository.findByServiceProductId(serviceId));
     }
 
     @Operation(summary = "删除商品或服务项目")
     @DeleteMapping("/{id}")
     public ApiResponse<Void> deleteProduct(@PathVariable("id") Long id) {
+        TenantContext.assertTenantAdmin();
         Product existing = productRepository.findById(id)
                 .orElseThrow(() -> new ServiceException("商品不存在"));
         TenantContext.assertTenantAccess(existing.getTenantId());

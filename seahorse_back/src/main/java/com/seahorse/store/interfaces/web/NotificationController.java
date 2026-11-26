@@ -2,6 +2,7 @@ package com.seahorse.store.interfaces.web;
 
 import com.seahorse.store.application.service.ChannelNotificationAppService;
 import com.seahorse.store.common.ApiResponse;
+import com.seahorse.store.context.TenantContext;
 import com.seahorse.store.domain.member.model.Member;
 import com.seahorse.store.domain.notification.model.NotificationConfig;
 import com.seahorse.store.domain.notification.model.NotificationLog;
@@ -25,18 +26,21 @@ public class NotificationController {
     @Operation(summary = "获取全渠道推送与公众号对接配置")
     @GetMapping("/config")
     public ApiResponse<NotificationConfig> getConfig() {
+        TenantContext.assertTenantAdmin();
         return ApiResponse.success("获取配置成功", notificationAppService.getConfig());
     }
 
     @Operation(summary = "保存/更新全渠道推送配置")
     @PostMapping("/config")
     public ApiResponse<NotificationConfig> saveConfig(@RequestBody NotificationConfig config) {
+        TenantContext.assertTenantAdmin();
         return ApiResponse.success("配置已成功保存", notificationAppService.saveConfig(config));
     }
 
     @Operation(summary = "发送测试动账/营销模板消息")
     @PostMapping("/send-test")
     public ApiResponse<NotificationLog> sendTest(@RequestBody TestNotificationRequest req) {
+        TenantContext.assertTenantAdmin();
         NotificationLog log = notificationAppService.sendTestNotification(req.getChannel(), req.getTargetPhone(), req.getMsgType());
         return ApiResponse.success("测试消息已发送 (模拟送达或官方API已提交)", log);
     }
@@ -44,6 +48,7 @@ public class NotificationController {
     @Operation(summary = "全渠道广播营销活动消息给所有已关注会员")
     @PostMapping("/broadcast-marketing")
     public ApiResponse<Map<String, Object>> broadcastMarketing(@RequestBody MarketingBroadcastRequest req) {
+        TenantContext.assertTenantAdmin();
         Map<String, Object> res = notificationAppService.broadcastMarketing(req.getCampaignTitle(), req.getContent(), req.getLinkUrl());
         return ApiResponse.success("营销活动全渠道即时推送完成", res);
     }
@@ -52,12 +57,14 @@ public class NotificationController {
     @GetMapping("/logs")
     public ApiResponse<List<NotificationLog>> getLogs(
             @RequestParam(value = "memberId", required = false) Long memberId) {
+        TenantContext.assertTenantAdmin();
         return ApiResponse.success(notificationAppService.getRecentNotificationLogs(memberId));
     }
 
     @Operation(summary = "绑定/解绑会员渠道标识 (微信OpenID/支付宝UserId/关注状态)")
     @PostMapping("/member/bind-channel")
     public ApiResponse<Member> bindMemberChannel(@RequestBody BindChannelRequest req) {
+        TenantContext.assertTenantAdmin();
         Member member = notificationAppService.bindMemberChannel(req.getMemberId(), req.getChannel(), req.getOpenId(), req.getFollowStatus());
         return ApiResponse.success("会员全渠道绑定信息更新成功", member);
     }
@@ -65,6 +72,7 @@ public class NotificationController {
     @Operation(summary = "模拟顾客手机扫码关注公众号/生活号并激活会员档案")
     @PostMapping("/member/simulate-follow")
     public ApiResponse<Map<String, Object>> simulateFollow(@RequestBody SimulateFollowRequest req) {
+        TenantContext.assertTenantAdmin();
         Map<String, Object> res = notificationAppService.simulateFollow(req.getPhone(), req.getChannel());
         return ApiResponse.success("模拟扫码关注成功", res);
     }

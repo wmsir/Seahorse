@@ -33,6 +33,15 @@ public class MemberController {
     private final com.seahorse.store.application.service.AuditLogAppService auditLogAppService;
     private final jakarta.servlet.http.HttpServletRequest request;
 
+    private void assertStaffOperator() {
+        if (!com.seahorse.store.context.TenantContext.isAuthenticated()) {
+            throw new com.seahorse.store.common.ServiceException(401, "请先登录门店员工账号");
+        }
+        if ("CUSTOMER_MEMBER".equalsIgnoreCase(com.seahorse.store.context.TenantContext.getRole())) {
+            throw new com.seahorse.store.common.ServiceException(403, "会员账号无权操作门店会员资产管理接口");
+        }
+    }
+
     @Operation(summary = "会员注册开卡")
     @PostMapping("/register")
     public ApiResponse<Member> register(@RequestBody MemberRegisterCommand cmd) {
@@ -71,6 +80,7 @@ public class MemberController {
     @Operation(summary = "会员双轨储值充值 (本金 + 赠送金)")
     @PostMapping("/recharge")
     public ApiResponse<DualBalanceAccount> recharge(@RequestBody RechargeCommand cmd) {
+        assertStaffOperator();
         DualBalanceAccount account = memberAssetAppService.rechargeDualBalance(cmd);
         String clientIp = AuthController.getClientIp(request);
         String clientDevice = AuthController.getClientDevice(request);
@@ -97,6 +107,7 @@ public class MemberController {
     @Operation(summary = "发放/售卖计量次卡")
     @PostMapping("/issue-time-card")
     public ApiResponse<TimeCardBucket> issueTimeCard(@RequestBody IssueTimeCardCommand cmd) {
+        assertStaffOperator();
         TimeCardBucket bucket = memberAssetAppService.issueTimeCard(cmd);
         String clientIp = AuthController.getClientIp(request);
         String clientDevice = AuthController.getClientDevice(request);
@@ -149,6 +160,7 @@ public class MemberController {
     @Operation(summary = "获取会员全量画像（基本资料、双轨储值、次卡、海马偏好标签）")
     @GetMapping("/{id}/profile")
     public ApiResponse<MemberProfileVO> getProfile(@PathVariable("id") Long id) {
+        assertStaffOperator();
         return ApiResponse.success(memberAssetAppService.getMemberProfile(id));
     }
 
@@ -158,12 +170,14 @@ public class MemberController {
             @RequestParam(value = "query", required = false) String query,
             @RequestParam(value = "tenantId", required = false) String tenantId,
             @RequestParam(value = "storeId", required = false) String storeId) {
+        assertStaffOperator();
         return ApiResponse.success(memberAssetAppService.searchMembers(query, tenantId, storeId));
     }
 
     @Operation(summary = "获取会员基础档案详情")
     @GetMapping("/{id}")
     public ApiResponse<Member> getMemberDetail(@PathVariable("id") Long id) {
+        assertStaffOperator();
         return ApiResponse.success(memberAssetAppService.getMemberProfile(id).getMember());
     }
 
@@ -172,6 +186,7 @@ public class MemberController {
     public ApiResponse<Member> updateMemberDetail(
             @PathVariable("id") Long id,
             @RequestBody com.seahorse.store.application.dto.member.MemberCommands.UpdateMemberDetailCommand cmd) {
+        assertStaffOperator();
         Member updated = memberAssetAppService.updateMemberDetail(id, cmd);
         String clientIp = AuthController.getClientIp(request);
         String clientDevice = AuthController.getClientDevice(request);
@@ -200,6 +215,7 @@ public class MemberController {
     public ApiResponse<Member> adjustPoints(
             @PathVariable("id") Long id,
             @RequestBody com.seahorse.store.application.dto.member.MemberCommands.AdjustPointsCommand cmd) {
+        assertStaffOperator();
         Member updated = memberAssetAppService.adjustPoints(id, cmd);
         String clientIp = AuthController.getClientIp(request);
         String clientDevice = AuthController.getClientDevice(request);
@@ -228,6 +244,7 @@ public class MemberController {
     public ApiResponse<Member> adjustRewards(
             @PathVariable("id") Long id,
             @RequestBody com.seahorse.store.application.dto.member.MemberCommands.AdjustRewardsCommand cmd) {
+        assertStaffOperator();
         Member updated = memberAssetAppService.adjustRewards(id, cmd);
         String clientIp = AuthController.getClientIp(request);
         String clientDevice = AuthController.getClientDevice(request);
@@ -256,6 +273,7 @@ public class MemberController {
     public ApiResponse<Member> setCardPassword(
             @PathVariable("id") Long id,
             @RequestBody com.seahorse.store.application.dto.member.MemberCommands.SetCardPasswordCommand cmd) {
+        assertStaffOperator();
         Member updated = memberAssetAppService.setCardPassword(id, cmd);
         return ApiResponse.success("扣卡密码设置成功", updated);
     }
@@ -263,12 +281,14 @@ public class MemberController {
     @Operation(summary = "获取会员消费订单与履约流水")
     @GetMapping("/{id}/orders")
     public ApiResponse<List<BillingOrder>> getMemberOrders(@PathVariable("id") Long id) {
+        assertStaffOperator();
         return ApiResponse.success(memberAssetAppService.getMemberOrders(id));
     }
 
     @Operation(summary = "获取会员充值流水记录 (真实本金与赠金入账明细)")
     @GetMapping("/{id}/recharges")
     public ApiResponse<List<com.seahorse.store.domain.member.model.MemberRechargeRecord>> getMemberRecharges(@PathVariable("id") Long id) {
+        assertStaffOperator();
         return ApiResponse.success(memberAssetAppService.getMemberRecharges(id));
     }
 

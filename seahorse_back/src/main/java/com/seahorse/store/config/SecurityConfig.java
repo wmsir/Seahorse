@@ -71,12 +71,12 @@ public class SecurityConfig {
                     "/api/auth/login",
                     "/api/auth/oneid-exchange",
                     "/api/auth/member-login",
+                    "/api/auth/member-send-code",
                     "/api/auth/register-merchant",
                     "/api/auth/plans",
                     "/api/auth/send-reset-code",
                     "/api/auth/reset-password",
-                    "/api/miniapp/auth/**",
-                    "/api/member-portal/**"
+                    "/api/miniapp/auth/**"
                 ).permitAll()
                 // 3. H5/扫码点单/自助开卡/门店基础公开只读端点（移除会员PII检索/预约/会话流水匿名访问）
                 .requestMatchers(HttpMethod.GET,
@@ -100,13 +100,10 @@ public class SecurityConfig {
                     "/api/member/preference",
                     "/api/space/call-service",
                     "/api/space/order-notify",
-                    "/api/session/open",
-                    "/api/session/append",
                     "/api/merchant/staff/self-register",
                     "/api/job-application/submit",
                     "/api/appointment/create"
                 ).permitAll()
-                .requestMatchers(HttpMethod.PUT, "/api/job-application/*/status").permitAll()
                 // 5. 平台开发商运营后台仅限平台超级管理员角色访问
                 .requestMatchers("/api/vendor/**").hasAuthority("ROLE_PLATFORM_DEVELOPER")
                 // 6. 其余管理后台与写接口必须携带有效 JWT 令牌

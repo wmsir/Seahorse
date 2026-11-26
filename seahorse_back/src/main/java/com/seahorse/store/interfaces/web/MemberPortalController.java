@@ -4,6 +4,7 @@ import com.seahorse.store.application.dto.member.MemberCommands;
 import com.seahorse.store.application.dto.member.MemberProfileVO;
 import com.seahorse.store.application.service.MemberSelfAppService;
 import com.seahorse.store.common.ApiResponse;
+import com.seahorse.store.common.ServiceException;
 import com.seahorse.store.context.TenantContext;
 import com.seahorse.store.domain.billing.model.BillingOrder;
 import com.seahorse.store.domain.member.model.Member;
@@ -29,44 +30,32 @@ public class MemberPortalController {
     private final MemberSelfAppService memberSelfAppService;
     private final MemberRepository memberRepository;
 
-    private Long resolveMemberId(Long memberId, String phone) {
-        String tenantId = TenantContext.getTenantId();
-
-        // 1. 优先以精准手机号匹配当前租户或系统中的真实注册会员
-        if (phone != null && !phone.trim().isEmpty()) {
-            String p = phone.trim();
-            if (tenantId != null && !"PLATFORM".equalsIgnoreCase(tenantId)) {
-                java.util.Optional<Member> m = memberRepository.findByTenantIdAndPhone(tenantId, p);
-                if (m.isPresent()) {
-                    return m.get().getId();
-                }
-            }
-            java.util.Optional<Member> m = memberRepository.findByPhone(p);
-            if (m.isPresent()) {
-                return m.get().getId();
-            }
+    private Long resolveAuthenticatedMemberId(Long requestedMemberId, String requestedPhone) {
+        if (!TenantContext.isAuthenticated()) {
+            throw new ServiceException(401, "请先登录会员账号");
+        }
+        String role = TenantContext.getRole();
+        if (!"CUSTOMER_MEMBER".equalsIgnoreCase(role)) {
+            throw new ServiceException(403, "仅限已登录会员访问会员自主中心");
         }
 
-        // 2. 若传入了 memberId，必须校验其真实存在且与传入的 phone/租户一致（防前端mock ID与后端冲突导致串号）
-        if (memberId != null && memberId > 0) {
-            java.util.Optional<Member> mOpt = memberRepository.findById(memberId);
-            if (mOpt.isPresent()) {
-                Member m = mOpt.get();
-                if (phone != null && !phone.trim().isEmpty() && !phone.trim().equals(m.getPhone())) {
-                    // ID 与手机号不一致，说明该 ID 来自前端临时序列，丢弃并返回 null
-                } else if (tenantId == null || "PLATFORM".equalsIgnoreCase(tenantId) || tenantId.equalsIgnoreCase(m.getTenantId())) {
-                    return memberId;
-                }
-            }
-        }
-
-        // 3. 从当前登录态获取
         Long uid = TenantContext.getUserId();
-        if (uid != null && uid > 0) {
-            return uid;
+        if (uid == null || uid <= 0) {
+            throw new ServiceException(401, "会员身份令牌无效，请重新登录");
         }
 
-        return null;
+        Member currentMember = memberRepository.findById(uid)
+                .orElseThrow(() -> new ServiceException(404, "未找到当前登录会员档案"));
+        TenantContext.assertTenantAccess(currentMember.getTenantId());
+
+        if (requestedMemberId != null && !requestedMemberId.equals(currentMember.getId())) {
+            throw new ServiceException(403, "无权访问或修改其他会员档案");
+        }
+        if (requestedPhone != null && !requestedPhone.trim().isEmpty()
+                && !requestedPhone.trim().equals(currentMember.getPhone())) {
+            throw new ServiceException(403, "无权访问或修改其他手机号对应会员档案");
+        }
+        return currentMember.getId();
     }
 
     @Operation(summary = "会员获取个人完整档案与资产画像")
@@ -74,10 +63,7 @@ public class MemberPortalController {
     public ApiResponse<MemberProfileVO> getMyProfile(
             @RequestParam(value = "memberId", required = false) Long memberId,
             @RequestParam(value = "phone", required = false) String phone) {
-        Long targetId = resolveMemberId(memberId, phone);
-        if (targetId == null) {
-            return ApiResponse.error(404, "未找到该会员档案");
-        }
+        Long targetId = resolveAuthenticatedMemberId(memberId, phone);
         return ApiResponse.success(memberSelfAppService.getMyProfile(targetId));
     }
 
@@ -87,10 +73,7 @@ public class MemberPortalController {
             @RequestParam(value = "memberId", required = false) Long memberId,
             @RequestParam(value = "phone", required = false) String phone,
             @RequestBody MemberCommands.UpdateMemberProfileCommand cmd) {
-        Long targetId = resolveMemberId(memberId, phone);
-        if (targetId == null) {
-            return ApiResponse.error(404, "未找到该会员档案");
-        }
+        Long targetId = resolveAuthenticatedMemberId(memberId, phone);
         return ApiResponse.success("个人信息更新成功", memberSelfAppService.updateMyProfile(targetId, cmd));
     }
 
@@ -100,10 +83,7 @@ public class MemberPortalController {
             @RequestParam(value = "memberId", required = false) Long memberId,
             @RequestParam(value = "phone", required = false) String phone,
             @RequestBody MemberCommands.SavePreferenceCommand cmd) {
-        Long targetId = resolveMemberId(memberId, phone);
-        if (targetId == null) {
-            return ApiResponse.error(404, "未找到该会员档案");
-        }
+        Long targetId = resolveAuthenticatedMemberId(memberId, phone);
         return ApiResponse.success("海马偏好特征更新成功", memberSelfAppService.saveMyPreference(targetId, cmd));
     }
 
@@ -112,10 +92,7 @@ public class MemberPortalController {
     public ApiResponse<List<BillingOrder>> getMyOrders(
             @RequestParam(value = "memberId", required = false) Long memberId,
             @RequestParam(value = "phone", required = false) String phone) {
-        Long targetId = resolveMemberId(memberId, phone);
-        if (targetId == null) {
-            return ApiResponse.error(404, "未找到该会员档案");
-        }
+        Long targetId = resolveAuthenticatedMemberId(memberId, phone);
         return ApiResponse.success(memberSelfAppService.getMyOrders(targetId));
     }
 }

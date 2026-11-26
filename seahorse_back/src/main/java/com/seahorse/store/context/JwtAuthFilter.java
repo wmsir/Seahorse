@@ -143,8 +143,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 通过统一认证中心 (OneID 2.0) JWKS 本地零 RPC 核验 RS256 令牌并映射海马门店上下文；
-     * 若非 RS256 统一令牌则回退兼容 OneID 1.0 HTTP 核验。
+     * 通过统一认证中心 (OneID 2.0) JWKS 本地零 RPC 验签 RS256 令牌并映射海马门店上下文；
+     * 仅允许在 sh_identity_binding 中完成显式绑定的账号登录，禁止未绑定账号自动提权。
      */
     public OneIdPrincipal verifyAnyOneIdToken(String token) {
         Claims acClaims = authCenterJwksVerifier.verifyToken(token);
@@ -152,30 +152,31 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             String sub = acClaims.getSubject().trim();
             String name = StringUtils.hasText(acClaims.get("name", String.class))
                     ? acClaims.get("name", String.class).trim() : sub;
-            String rawRole = acClaims.get("role", String.class);
             java.util.Optional<com.seahorse.store.domain.iam.model.IdentityBinding> bOpt = findBindingCached(sub);
+            if (bOpt.isEmpty()) {
+                Object legacyId = acClaims.get("legacy_oneid_id");
+                if (legacyId != null && StringUtils.hasText(legacyId.toString())) {
+                    bOpt = findBindingCached("usr_oneid_" + legacyId.toString().trim());
+                }
+            }
             if (bOpt.isPresent()) {
                 com.seahorse.store.domain.iam.model.IdentityBinding b = bOpt.get();
+                if (b.getEmployeeId() == null || !StringUtils.hasText(b.getRoleCode()) || !StringUtils.hasText(b.getTenantId())) {
+                    log.warn("IdentityBinding 映射记录不完整，拒绝放行: sub={}", sub);
+                    return null;
+                }
                 return new OneIdPrincipal(
                         b.getEmployeeId(),
                         b.getEmployeeId(),
                         name,
                         name,
-                        StringUtils.hasText(b.getRoleCode()) ? b.getRoleCode() : "STORE_MANAGER",
-                        StringUtils.hasText(b.getTenantId()) ? b.getTenantId() : "T001",
-                        StringUtils.hasText(b.getStoreId()) ? b.getStoreId() : "S001"
+                        b.getRoleCode().trim(),
+                        b.getTenantId().trim(),
+                        StringUtils.hasText(b.getStoreId()) ? b.getStoreId().trim() : null
                 );
             }
-            boolean isDev = "admin".equalsIgnoreCase(name)
-                    || (rawRole != null && (rawRole.equalsIgnoreCase("ADMIN") || rawRole.equalsIgnoreCase("PLATFORM_DEVELOPER")));
-            return new OneIdPrincipal(
-                    1L,
-                    name,
-                    name,
-                    isDev ? "PLATFORM_DEVELOPER" : "STORE_MANAGER",
-                    isDev ? "PLATFORM" : "T001",
-                    isDev ? "PLATFORM" : "S001"
-            );
+            log.debug("OneID 2.0 账号尚未绑定海马员工档案 (sh_identity_binding): sub={}", sub);
+            return null;
         }
         return verifyOneIdToken(token);
     }
@@ -215,23 +216,35 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         uname = data.path("sub").asText("").trim();
                     }
                     if (StringUtils.hasText(uname)) {
-                        long uid = data.path("id").isNumber() ? data.path("id").asLong(1L) : 1L;
+                        long uid = data.path("id").isNumber() ? data.path("id").asLong(-1L) : -1L;
                         String rname = data.path("realName").asText("").trim();
                         if (!StringUtils.hasText(rname)) {
                             rname = data.path("nickname").asText(uname).trim();
                         }
-                        String rawRole = data.path("role").asText("").trim();
-                        boolean isDev = "admin".equalsIgnoreCase(uname)
-                                || "ADMIN".equalsIgnoreCase(rawRole)
-                                || "PLATFORM_DEVELOPER".equalsIgnoreCase(rawRole);
-                        resolved = new OneIdPrincipal(
-                                uid,
-                                uname,
-                                rname,
-                                isDev ? "PLATFORM_DEVELOPER" : "SUPER_ADMIN",
-                                isDev ? "PLATFORM" : "T001",
-                                isDev ? "PLATFORM" : "S001"
-                        );
+                        java.util.Optional<com.seahorse.store.domain.iam.model.IdentityBinding> bOpt =
+                                uid > 0 ? findBindingCached("usr_oneid_" + uid) : java.util.Optional.empty();
+                        if (bOpt.isEmpty()) {
+                            bOpt = findBindingCached(uname);
+                        }
+                        if (bOpt.isEmpty() && uid > 0) {
+                            bOpt = findBindingCached(String.valueOf(uid));
+                        }
+                        if (bOpt.isPresent()) {
+                            com.seahorse.store.domain.iam.model.IdentityBinding b = bOpt.get();
+                            if (b.getEmployeeId() != null && StringUtils.hasText(b.getRoleCode()) && StringUtils.hasText(b.getTenantId())) {
+                                resolved = new OneIdPrincipal(
+                                        b.getEmployeeId(),
+                                        b.getEmployeeId(),
+                                        uname,
+                                        rname,
+                                        b.getRoleCode().trim(),
+                                        b.getTenantId().trim(),
+                                        StringUtils.hasText(b.getStoreId()) ? b.getStoreId().trim() : null
+                                );
+                            }
+                        } else {
+                            log.debug("OneID 1.0 账号尚未绑定 sh_identity_binding，拒绝自动提权: username={}", uname);
+                        }
                     }
                 }
             }
@@ -309,7 +322,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
         }
 
-        String effectiveRole = role != null ? role : "STORE_MANAGER";
+        String effectiveRole = StringUtils.hasText(role) ? role.trim() : "WAITER";
         TenantContext.set(TenantContext.TenantInfo.builder()
                 .userId(userId)
                 .username(username)

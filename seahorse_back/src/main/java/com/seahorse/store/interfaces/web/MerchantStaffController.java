@@ -50,6 +50,7 @@ public class MerchantStaffController {
     public ApiResponse<RolePermissionVO> updateMerchantStaffPermission(
             @PathVariable EmployeeRole roleCode,
             @RequestBody UpdateRolePermissionCommand cmd) {
+        TenantContext.assertTenantAdmin();
         String tenantId = TenantContext.getTenantId();
         RolePermissionVO vo = permissionManageAppService.updateMerchantStaffPermission(tenantId, roleCode, cmd);
         return ApiResponse.success("店员角色权限配置成功", vo);
@@ -67,26 +68,32 @@ public class MerchantStaffController {
         String tenantId = TenantContext.getTenantId();
         String effStoreId = (storeId != null && !storeId.trim().isEmpty()) ? storeId.trim() : TenantContext.getStoreId();
 
+        if (effStoreId != null && !effStoreId.isEmpty() && !"PLATFORM".equalsIgnoreCase(effStoreId)) {
+            java.util.Optional<com.seahorse.store.domain.iam.model.Store> sOpt = storeRepository.findByStoreId(effStoreId);
+            if (sOpt.isPresent() && sOpt.get().getTenantId() != null) {
+                TenantContext.assertTenantAccess(sOpt.get().getTenantId());
+                tenantId = sOpt.get().getTenantId();
+            }
+        }
+
         List<Employee> all;
-        if (effStoreId != null && !effStoreId.isEmpty()) {
+        if (effStoreId != null && !effStoreId.isEmpty() && !"PLATFORM".equalsIgnoreCase(effStoreId)) {
             all = employeeRepository.findByStoreIdAndIsDeleted(effStoreId, false);
             if (all.isEmpty()) {
-                java.util.Optional<com.seahorse.store.domain.iam.model.Store> sOpt = storeRepository.findByStoreId(effStoreId);
-                if (sOpt.isPresent() && sOpt.get().getTenantId() != null) {
-                    tenantId = sOpt.get().getTenantId();
-                }
                 all = employeeRepository.findByTenantId(tenantId);
             }
         } else {
             all = employeeRepository.findByTenantId(tenantId);
         }
 
+        final String scopedTenantId = tenantId;
         List<Employee> active = all.stream()
                 .filter(e -> !Boolean.TRUE.equals(e.getIsDeleted()))
                 .filter(e -> e.getRole() != EmployeeRole.PLATFORM_DEVELOPER)
                 .filter(e -> !"admin".equalsIgnoreCase(e.getUsername()))
                 .filter(e -> e.getRealName() == null || !e.getRealName().contains("开发维护人"))
-                .filter(e -> effStoreId == null || effStoreId.isEmpty() || effStoreId.equals(e.getStoreId()))
+                .filter(e -> TenantContext.isPlatformAdmin() || scopedTenantId.equalsIgnoreCase(e.getTenantId()))
+                .filter(e -> effStoreId == null || effStoreId.isEmpty() || "PLATFORM".equalsIgnoreCase(effStoreId) || effStoreId.equals(e.getStoreId()))
                 .toList();
         return ApiResponse.success(active);
     }
@@ -107,8 +114,12 @@ public class MerchantStaffController {
     @Operation(summary = "新增店员")
     @PostMapping
     public ApiResponse<Employee> createStaff(@RequestBody Employee staff) {
+        TenantContext.assertTenantAdmin();
         String tenantId = TenantContext.getTenantId();
         String storeId = TenantContext.getStoreId();
+        if (staff.getRole() == EmployeeRole.PLATFORM_DEVELOPER && !TenantContext.isPlatformAdmin()) {
+            return ApiResponse.error(403, "无权创建平台开发商角色");
+        }
 
         // 校验商户套餐员工名额上限
         if (tenantId != null && !"PLATFORM".equalsIgnoreCase(tenantId)) {
@@ -273,20 +284,33 @@ public class MerchantStaffController {
             @RequestParam(value = "employeeId", required = false) Long employeeId,
             @RequestParam(value = "employeeName", required = false) String employeeName,
             @RequestParam(value = "storeId", required = false) String storeId) {
-        if (employeeId != null) {
-            return ApiResponse.success(commissionRecordRepository.findByEmployeeIdOrderByCreatedAtDesc(employeeId));
+        String currentTenant = TenantContext.getTenantId();
+        if (storeId != null && !storeId.trim().isEmpty()) {
+            storeRepository.findByStoreId(storeId.trim())
+                    .ifPresent(s -> TenantContext.assertTenantAccess(s.getTenantId()));
         }
-        if (employeeName != null && !employeeName.trim().isEmpty()) {
+        List<com.seahorse.store.domain.commission.model.CommissionRecord> raw;
+        if (employeeId != null) {
+            employeeRepository.findById(employeeId).ifPresent(emp -> TenantContext.assertTenantAccess(emp.getTenantId()));
+            raw = commissionRecordRepository.findByEmployeeIdOrderByCreatedAtDesc(employeeId);
+        } else if (employeeName != null && !employeeName.trim().isEmpty()) {
             String name = employeeName.trim();
             if (storeId != null && !storeId.trim().isEmpty()) {
-                return ApiResponse.success(commissionRecordRepository.findByStoreIdAndEmployeeNameOrderByCreatedAtDesc(storeId.trim(), name));
+                raw = commissionRecordRepository.findByStoreIdAndEmployeeNameOrderByCreatedAtDesc(storeId.trim(), name);
+            } else {
+                raw = commissionRecordRepository.findByEmployeeNameOrderByCreatedAtDesc(name);
             }
-            return ApiResponse.success(commissionRecordRepository.findByEmployeeNameOrderByCreatedAtDesc(name));
+        } else if (storeId != null && !storeId.trim().isEmpty()) {
+            raw = commissionRecordRepository.findByStoreIdOrderByCreatedAtDesc(storeId.trim());
+        } else {
+            return ApiResponse.success(java.util.Collections.emptyList());
         }
-        if (storeId != null && !storeId.trim().isEmpty()) {
-            return ApiResponse.success(commissionRecordRepository.findByStoreIdOrderByCreatedAtDesc(storeId.trim()));
+        if (TenantContext.isPlatformAdmin()) {
+            return ApiResponse.success(raw);
         }
-        return ApiResponse.success(java.util.Collections.emptyList());
+        return ApiResponse.success(raw.stream()
+                .filter(r -> r.getTenantId() == null || currentTenant.equalsIgnoreCase(r.getTenantId()))
+                .toList());
     }
 
     @lombok.Data
@@ -313,6 +337,9 @@ public class MerchantStaffController {
         if (cmd.getPhone() == null || cmd.getPhone().trim().isEmpty()) {
             return ApiResponse.error(400, "请填写手机号码");
         }
+        if (cmd.getAccountPassword() == null || cmd.getAccountPassword().trim().length() < 6) {
+            return ApiResponse.error(400, "请设置至少 6 位登录密码");
+        }
 
         String storeId = cmd.getStoreId() != null && !cmd.getStoreId().trim().isEmpty() ? cmd.getStoreId().trim() : "S001";
         String tenantId = cmd.getTenantId();
@@ -334,52 +361,34 @@ public class MerchantStaffController {
         }
 
         String phone = cmd.getPhone().trim();
-        java.util.Optional<Employee> existing = employeeRepository.findByTenantIdAndPhone(tenantId, phone);
-        Employee employee;
-        if (existing.isPresent()) {
-            employee = existing.get();
-            employee.setRealName(cmd.getRealName().trim());
-            employee.setStoreId(storeId);
-            if (cmd.getDepartment() != null) employee.setDepartment(cmd.getDepartment().trim());
-            if (cmd.getPostName() != null) employee.setPostName(cmd.getPostName().trim());
-            if (cmd.getGender() != null) employee.setGender(cmd.getGender());
-            if (cmd.getExperience() != null) employee.setExperience(cmd.getExperience().trim());
-            if (cmd.getAccountPassword() != null && !cmd.getAccountPassword().trim().isEmpty()) {
-                employee.setPassword(passwordEncoder.encode(cmd.getAccountPassword().trim()));
-            }
-            employee.setAuditStatus("PENDING");
-            employee.setStatus("PENDING_REVIEW");
-            employee.setIsSelfApplied(true);
-            employee.setIsDeleted(false);
-        } else {
-            employee = new Employee();
-            employee.setTenantId(tenantId);
-            employee.setStoreId(storeId);
-            employee.setUsername(phone);
-            String rawPwd = cmd.getAccountPassword() != null && !cmd.getAccountPassword().trim().isEmpty()
-                    ? cmd.getAccountPassword().trim() : "123456";
-            employee.setPassword(passwordEncoder.encode(rawPwd));
-            employee.setRealName(cmd.getRealName().trim());
-            employee.setPhone(phone);
-            employee.setDepartment(cmd.getDepartment() != null ? cmd.getDepartment().trim() : "门店服务部");
-            employee.setPostName(cmd.getPostName() != null ? cmd.getPostName().trim() : "造型技师");
-            employee.setGender(cmd.getGender() != null ? cmd.getGender() : "MALE");
-            employee.setExperience(cmd.getExperience() != null ? cmd.getExperience().trim() : "");
-            employee.setStatus("PENDING_REVIEW");
-            employee.setAuditStatus("PENDING");
-            employee.setIsSelfApplied(true);
-            employee.setIsDeleted(false);
-
-            EmployeeRole role = EmployeeRole.TECHNICIAN;
-            if (cmd.getPostName() != null && (cmd.getPostName().contains("店长") || cmd.getPostName().contains("主管"))) {
-                role = EmployeeRole.STORE_MANAGER;
-            } else if (cmd.getPostName() != null && (cmd.getPostName().contains("收银") || cmd.getPostName().contains("前台"))) {
-                role = EmployeeRole.CASHIER;
-            }
-            employee.setRole(role);
-            employee.setBaseSalary(cmd.getBaseSalary() != null ? cmd.getBaseSalary() : new java.math.BigDecimal("4500"));
-            employee.setDefaultCommissionRate(new java.math.BigDecimal("0.15"));
+        if (employeeRepository.findByTenantIdAndPhone(tenantId, phone).isPresent()
+                || employeeRepository.findByUsername(phone).isPresent()) {
+            return ApiResponse.error(409, "该手机号已存在员工账号或已提交入职申请，禁止覆盖现有账号，请联系门店管理员处理");
         }
+
+        Employee employee = new Employee();
+        employee.setTenantId(tenantId);
+        employee.setStoreId(storeId);
+        employee.setUsername(phone);
+        employee.setPassword(passwordEncoder.encode(cmd.getAccountPassword().trim()));
+        employee.setRealName(cmd.getRealName().trim());
+        employee.setPhone(phone);
+        employee.setDepartment(cmd.getDepartment() != null ? cmd.getDepartment().trim() : "门店服务部");
+        employee.setPostName(cmd.getPostName() != null ? cmd.getPostName().trim() : "造型技师");
+        employee.setGender(cmd.getGender() != null ? cmd.getGender() : "MALE");
+        employee.setExperience(cmd.getExperience() != null ? cmd.getExperience().trim() : "");
+        employee.setStatus("PENDING_REVIEW");
+        employee.setAuditStatus("PENDING");
+        employee.setIsSelfApplied(true);
+        employee.setIsDeleted(false);
+
+        EmployeeRole role = EmployeeRole.TECHNICIAN;
+        if (cmd.getPostName() != null && (cmd.getPostName().contains("收银") || cmd.getPostName().contains("前台"))) {
+            role = EmployeeRole.CASHIER;
+        }
+        employee.setRole(role);
+        employee.setBaseSalary(cmd.getBaseSalary() != null ? cmd.getBaseSalary() : new java.math.BigDecimal("4500"));
+        employee.setDefaultCommissionRate(new java.math.BigDecimal("0.15"));
 
         Employee saved = employeeRepository.save(employee);
         return ApiResponse.success("入职申请已提交，请等待店长或租户审核", saved);
@@ -391,24 +400,26 @@ public class MerchantStaffController {
             @RequestParam(value = "tenantId", required = false) String paramTenantId,
             @RequestParam(value = "storeId", required = false) String storeId,
             @RequestParam(value = "status", required = false) String status) {
-        String tenantId = (paramTenantId != null && !paramTenantId.trim().isEmpty() && !"undefined".equalsIgnoreCase(paramTenantId))
-                ? paramTenantId.trim() : TenantContext.getTenantId();
-        if (tenantId == null || tenantId.trim().isEmpty() || "undefined".equalsIgnoreCase(tenantId) || "PLATFORM".equalsIgnoreCase(tenantId)) {
-            if (storeId != null && !storeId.trim().isEmpty()) {
-                var storeOpt = storeRepository.findByStoreId(storeId);
-                if (storeOpt.isPresent() && storeOpt.get().getTenantId() != null) {
-                    tenantId = storeOpt.get().getTenantId();
-                }
-            }
+        TenantContext.assertTenantAdmin();
+        String tenantId = TenantContext.getTenantId();
+        if (TenantContext.isPlatformAdmin() && paramTenantId != null && !paramTenantId.trim().isEmpty() && !"undefined".equalsIgnoreCase(paramTenantId)) {
+            tenantId = paramTenantId.trim();
+        } else if (paramTenantId != null && !paramTenantId.trim().isEmpty() && !"undefined".equalsIgnoreCase(paramTenantId)) {
+            TenantContext.assertTenantAccess(paramTenantId.trim());
         }
-        if (tenantId == null || tenantId.trim().isEmpty()) {
+        if (storeId != null && !storeId.trim().isEmpty()) {
+            storeRepository.findByStoreId(storeId.trim()).ifPresent(s -> TenantContext.assertTenantAccess(s.getTenantId()));
+        }
+        if (tenantId == null || tenantId.trim().isEmpty() || "PLATFORM".equalsIgnoreCase(tenantId)) {
             tenantId = "T001";
         }
-        List<Employee> all = new java.util.ArrayList<>(employeeRepository.findByTenantId(tenantId));
+        final String scopedTenantId = tenantId;
+        List<Employee> all = new java.util.ArrayList<>(employeeRepository.findByTenantId(scopedTenantId));
         if (storeId != null && !storeId.trim().isEmpty()) {
             List<Employee> storeStaff = employeeRepository.findByStoreIdAndIsDeleted(storeId, false);
             for (Employee s : storeStaff) {
-                if (all.stream().noneMatch(e -> e.getId() != null && e.getId().equals(s.getId()))) {
+                if (scopedTenantId.equalsIgnoreCase(s.getTenantId())
+                        && all.stream().noneMatch(e -> e.getId() != null && e.getId().equals(s.getId()))) {
                     all.add(s);
                 }
             }
@@ -445,6 +456,7 @@ public class MerchantStaffController {
     public ApiResponse<Employee> approveStaffAudit(
             @PathVariable Long id,
             @RequestBody(required = false) StaffAuditApproveCommand cmd) {
+        TenantContext.assertTenantAdmin();
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new com.seahorse.store.common.ServiceException("入职申请记录不存在"));
         TenantContext.assertTenantAccess(employee.getTenantId());
@@ -460,6 +472,9 @@ public class MerchantStaffController {
                 employee.setBaseSalary(cmd.getBaseSalary());
             }
             if (cmd.getRole() != null) {
+                if (cmd.getRole() == EmployeeRole.PLATFORM_DEVELOPER && !TenantContext.isPlatformAdmin()) {
+                    throw new com.seahorse.store.common.ServiceException(403, "无权授予平台开发商角色");
+                }
                 employee.setRole(cmd.getRole());
             }
         }
@@ -474,6 +489,7 @@ public class MerchantStaffController {
     public ApiResponse<Employee> rejectStaffAudit(
             @PathVariable Long id,
             @RequestParam(value = "reason", required = false) String reason) {
+        TenantContext.assertTenantAdmin();
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new com.seahorse.store.common.ServiceException("入职申请记录不存在"));
         TenantContext.assertTenantAccess(employee.getTenantId());

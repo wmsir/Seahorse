@@ -80,13 +80,18 @@ public class ServiceSessionController {
     @GetMapping("/active-list")
     public ApiResponse<List<ServiceSession>> getActiveSessions() {
         String tenantId = TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001";
+        TenantContext.assertTenantAccess(tenantId);
         String storeId = TenantContext.getStoreId();
         List<SessionStatus> activeStatuses = Arrays.asList(
                 SessionStatus.OCCUPIED_ORDERING, SessionStatus.SERVING, SessionStatus.SETTLING);
 
         List<ServiceSession> list = new ArrayList<>();
         if (storeId != null && !"PLATFORM".equalsIgnoreCase(storeId)) {
-            list.addAll(sessionRepository.findByStoreIdAndStatusIn(storeId, activeStatuses));
+            for (ServiceSession s : sessionRepository.findByStoreIdAndStatusIn(storeId, activeStatuses)) {
+                if (TenantContext.isPlatformAdmin() || tenantId.equalsIgnoreCase(s.getTenantId())) {
+                    list.add(s);
+                }
+            }
         }
 
         List<ServiceSession> tenantSessions = sessionRepository.findByTenantIdAndStatusIn(tenantId, activeStatuses);

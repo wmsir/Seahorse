@@ -127,18 +127,21 @@ public class JobApplicationController {
     @GetMapping("/list")
     public ApiResponse<List<JobApplicationDTO>> getApplicationList(
             @RequestParam(value = "tenantId", required = false) String paramTenantId) {
+        if (!TenantContext.isAuthenticated()) {
+            return ApiResponse.error(401, "请先登录");
+        }
+        TenantContext.assertTenantAdmin();
         String targetTenantId = paramTenantId;
-        if (targetTenantId == null || targetTenantId.trim().isEmpty() || "undefined".equalsIgnoreCase(targetTenantId)) {
+        if (targetTenantId == null || targetTenantId.trim().isEmpty()
+                || "undefined".equalsIgnoreCase(targetTenantId)
+                || ("DEFAULT".equalsIgnoreCase(targetTenantId.trim()) && !TenantContext.isPlatformAdmin())) {
             targetTenantId = TenantContext.getTenantId();
         }
         if (targetTenantId == null || targetTenantId.trim().isEmpty()) {
             targetTenantId = "DEFAULT";
         }
         targetTenantId = targetTenantId.trim();
-
-        if (!"DEFAULT".equalsIgnoreCase(targetTenantId)) {
-            TenantContext.assertTenantAccess(targetTenantId);
-        }
+        TenantContext.assertTenantAccess(targetTenantId);
 
         List<JobApplication> list = jobApplicationRepository.findByTenantIdOrderByIdDesc(targetTenantId);
         return ApiResponse.success(list.stream().map(this::toDto).toList());
@@ -151,6 +154,11 @@ public class JobApplicationController {
             @PathVariable("id") String id,
             @RequestBody Map<String, Object> body,
             @RequestParam(value = "tenantId", required = false) String paramTenantId) {
+        if (!TenantContext.isAuthenticated()) {
+            return ApiResponse.error(401, "未登录无权修改应聘简历状态");
+        }
+        TenantContext.assertTenantAdmin();
+
         String newStatus = body != null ? (String) body.get("status") : null;
         if (newStatus == null || newStatus.trim().isEmpty()) {
             return ApiResponse.error(400, "状态不能为空");
@@ -161,19 +169,11 @@ public class JobApplicationController {
             return ApiResponse.error(404, "未找到该简历记录");
         }
         JobApplication entity = opt.get();
-
-        if (TenantContext.isAuthenticated()) {
-            TenantContext.assertTenantAccess(entity.getTenantId());
-        } else {
-            // 未登录场景仅允许候选人扫码入职登记完成后回写 HIRED 状态，且租户需匹配
-            if (!"HIRED".equalsIgnoreCase(newStatus.trim())) {
-                return ApiResponse.error(401, "未登录无权修改该简历审核状态");
-            }
-            if (paramTenantId != null && !paramTenantId.trim().isEmpty()
-                    && !"DEFAULT".equalsIgnoreCase(entity.getTenantId())
-                    && !paramTenantId.trim().equalsIgnoreCase(entity.getTenantId())) {
-                return ApiResponse.error(403, "无权跨租户更新应聘简历状态");
-            }
+        TenantContext.assertTenantAccess(entity.getTenantId());
+        if (paramTenantId != null && !paramTenantId.trim().isEmpty()
+                && !"undefined".equalsIgnoreCase(paramTenantId.trim())
+                && !"DEFAULT".equalsIgnoreCase(paramTenantId.trim())) {
+            TenantContext.assertTenantAccess(paramTenantId.trim());
         }
 
         entity.setStatus(newStatus.trim());
@@ -194,6 +194,10 @@ public class JobApplicationController {
     @DeleteMapping("/{id}")
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<String> deleteApplication(@PathVariable("id") String id) {
+        if (!TenantContext.isAuthenticated()) {
+            return ApiResponse.error(401, "请先登录");
+        }
+        TenantContext.assertTenantAdmin();
         Optional<JobApplication> opt = jobApplicationRepository.findByApplicationNo(id);
         if (opt.isPresent()) {
             JobApplication entity = opt.get();

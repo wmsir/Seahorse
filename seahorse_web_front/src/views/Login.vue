@@ -170,8 +170,8 @@
 
               <!-- 快速体验演示账号区 -->
               <div class="quick-roles" :class="{ 'demo-mode-spotlight': isDemoModeSpotlight }">
-                <div v-if="isDemoModeSpotlight" class="demo-spotlight-tip">✨ 已为您开启多行业演示通道，点击下方任意行业即可一键免密体验</div>
-                <div class="quick-title">⚡ 快速体验不同行业预置方案：</div>
+                <div v-if="isDemoModeSpotlight" class="demo-spotlight-tip">✨ 点击下方行业账号可快捷预填体验账号，请输入密码或使用 FWPT 通行证登录</div>
+                <div class="quick-title">⚡ 快速切换行业演示账号（需凭证核验）：</div>
                 <div class="role-buttons">
                   <el-button size="small" round @click="quickLogin('beauty_boss')">💇 美业老板</el-button>
                   <el-button size="small" round @click="quickLogin('dining_boss')">🍲 餐饮老板</el-button>
@@ -1031,8 +1031,8 @@ onMounted(async () => {
     } else if (isDemo === '1' || isDemo === 'true') {
       isDemoModeSpotlight.value = true
       loginForm.value.username = 'beauty_boss'
-      loginForm.value.password = '123456'
-      ElMessage.success('✨ 欢迎体验海马智慧门店！可直接点击登录或点选下方 4 大行业老板一键体验')
+      loginForm.value.password = ''
+      ElMessage.info('✨ 已预填演示账号 beauty_boss，请输入登录密码或使用统一通行证登录')
     }
   } catch (err) {}
 
@@ -1057,11 +1057,6 @@ const handleLogin = async () => {
   }
   if (!enteredPwd) {
     ElMessage.warning('请输入登录密码')
-    return
-  }
-
-  if (['beauty_boss', 'dining_boss', 'auto_boss', 'retail_boss'].includes(enteredUname) && enteredPwd === '123456') {
-    quickLogin(enteredUname)
     return
   }
 
@@ -1126,9 +1121,9 @@ const handleLogin = async () => {
       ElMessage.error(`员工【${matchedStaff.realName}】系统账号已被暂停使用，请联系门店管理员！`)
       return
     }
-    // 校验登录密码 (默认123456)
-    const correctPwd = matchedStaff.accountPassword || '123456'
-    if (enteredPwd && enteredPwd !== correctPwd && enteredPwd !== '123456') {
+    // 校验登录密码（禁止硬编码默认密码放行）
+    const correctPwd = matchedStaff.accountPassword
+    if (correctPwd && enteredPwd !== correctPwd) {
       ElMessage.error('员工登录密码错误，请重新核对')
       return
     }
@@ -1271,30 +1266,26 @@ const completeStaffLogin = async (staff: any, storeId: string) => {
   storeConfig.currentStoreId = storeId
   storeConfig.storeName = store?.storeName || '丝艺美学·旗舰店'
 
-  const seededFallbackUser =
-    staff.role === 'STORE_MANAGER' ? 'manager' :
-    staff.role === 'CASHIER' ? 'cashier' : 'tony'
   const authRes = await acquireBackendJwt([
-    { username: String(staff.accountUsername || staff.phone || ''), password: loginForm.value.password || staff.accountPassword || '123456' },
-    { username: seededFallbackUser, password: '123456' }
+    { username: String(staff.accountUsername || staff.phone || ''), password: loginForm.value.password }
   ])
   if (!authRes?.token) {
-    ElMessage.error('无法从认证服务签发员工登录令牌，请检查后端服务连接')
+    ElMessage.error('账号或密码核验未通过，无法签发员工登录令牌')
     return
   }
 
   localStorage.removeItem('seahorse_demo_mode')
   localStorage.setItem('seahorse_token', authRes.token)
-  localStorage.setItem('seahorse_user', `${staff.realName}【${staff.postName || '员工'}】`)
-  localStorage.setItem('seahorse_username', staff.phone || staff.accountUsername || staff.username || String(staff.id))
-  localStorage.setItem('seahorse_real_name', staff.realName || '')
-  localStorage.setItem('seahorse_role', staff.role || 'TECHNICIAN')
-  localStorage.setItem('seahorse_store_id', storeId)
-  localStorage.setItem('seahorse_tenant_id', 'T001')
-  localStorage.setItem('seahorse_tenant_name', '海马智慧连锁商业')
-  localStorage.setItem('seahorse_plan', 'FLAGSHIP')
-  localStorage.setItem('seahorse_deduct_mode', 'PROPORTIONAL')
-  localStorage.setItem('seahorse_staff_id', String(staff.id))
+  localStorage.setItem('seahorse_user', `${authRes.realName || staff.realName}【${staff.postName || '员工'}】`)
+  localStorage.setItem('seahorse_username', authRes.username || staff.phone || staff.accountUsername || staff.username || String(staff.id))
+  localStorage.setItem('seahorse_real_name', authRes.realName || staff.realName || '')
+  localStorage.setItem('seahorse_role', authRes.role || 'TECHNICIAN')
+  localStorage.setItem('seahorse_store_id', authRes.storeId || storeId)
+  localStorage.setItem('seahorse_tenant_id', authRes.tenantId || '')
+  localStorage.setItem('seahorse_tenant_name', authRes.tenantName || '海马智慧门店')
+  localStorage.setItem('seahorse_plan', authRes.plan || 'TRIAL')
+  localStorage.setItem('seahorse_deduct_mode', authRes.deductMode || 'PROPORTIONAL')
+  localStorage.setItem('seahorse_staff_id', String(authRes.userId || staff.id))
 
   // 存储员工专属可见和可使用的功能页签 (保证全员默认均可查阅规章与意见箱 /regulations 及个人中心 /profile)
   const menuPaths = Array.isArray(staff.allowedMenuPaths) && staff.allowedMenuPaths.length > 0
@@ -1339,8 +1330,8 @@ const completeStaffLogin = async (staff: any, storeId: string) => {
 
 const quickMultiStoreStaffLogin = () => {
   loginForm.value.username = '13966668888'
-  loginForm.value.password = '123456'
-  handleLogin()
+  loginForm.value.password = ''
+  ElMessage.info('已预填多店兼职技师账号，请输入密码后点击登录')
 }
 
 const handleRegister = async () => {
@@ -1423,7 +1414,7 @@ const handleRegister = async () => {
       contactName: nickname || username,
       tenantName: `${nickname || username}的智慧门店`,
       initialStoreName: `${nickname || username}的门店 (总店)`,
-      smsCode: code || '123456',
+      smsCode: code || '',
       plan: 'TRIAL'
     }
 
@@ -1460,32 +1451,38 @@ const handleRegister = async () => {
 }
 
 const quickLogin = async (uname: string) => {
-  // 演示账号清除新租户纯净模式，载入行业演示数据集
+  // 演示账号清除新租户纯净模式，仅预填账号并要求通过真实口令由后端签发权限
   localStorage.removeItem('seahorse_is_new_tenant')
 
   if (uname === 'foot_spa' || uname === 'foot_spa_boss') {
     injectFootSpaMockData(systemData, storeConfig)
     loginForm.value.username = '13880019988'
-    loginForm.value.password = '123456'
-    handleLogin()
+    loginForm.value.password = ''
+    ElMessage.info('已预填足道店长演示账号，请输入登录密码')
     return
   }
   if (uname === 'foot_spa_tech') {
     injectFootSpaMockData(systemData, storeConfig)
     loginForm.value.username = '13980888801'
-    loginForm.value.password = '123456'
-    handleLogin()
+    loginForm.value.password = ''
+    ElMessage.info('已预填足道技师演示账号，请输入登录密码')
     return
   }
   if (uname === 'foot_spa_cashier') {
     injectFootSpaMockData(systemData, storeConfig)
     loginForm.value.username = '13880010106'
-    loginForm.value.password = '123456'
-    handleLogin()
+    loginForm.value.password = ''
+    ElMessage.info('已预填足道收银演示账号，请输入登录密码')
     return
   }
 
   if (['beauty_boss', 'dining_boss', 'auto_boss', 'retail_boss'].includes(uname)) {
+    const enteredPwd = (loginForm.value.password || '').trim()
+    if (!enteredPwd) {
+      loginForm.value.username = uname
+      ElMessage.info(`已预填行业体验账号 ${uname}，请输入登录密码后点击登录`)
+      return
+    }
     const indMap: Record<string, { code: 'BEAUTY' | 'RESTAURANT' | 'AUTO' | 'RETAIL'; name: string; user: string }> = {
       beauty_boss: { code: 'BEAUTY', name: '美容美发美甲', user: '美业老板 (张建华)' },
       dining_boss: { code: 'RESTAURANT', name: '餐饮轻食/正餐', user: '餐饮老板 (刘震宇)' },
@@ -1495,48 +1492,48 @@ const quickLogin = async (uname: string) => {
     const target = indMap[uname]
     loading.value = true
     const authRes = await acquireBackendJwt([
-      { username: uname, password: '123456' },
-      { username: 'manager', password: '123456' }
+      { username: uname, password: enteredPwd }
     ])
     loading.value = false
     if (!authRes?.token) {
-      ElMessage.error('无法从后端签发行业体验令牌，请确认后端服务已启动')
+      ElMessage.error('无法从后端签发行业体验令牌，请确认账号密码及后端服务状态')
       return
     }
     const pkg = systemData.switchIndustry(target.code)
 
     storeConfig.industry = target.code
     storeConfig.stores = pkg.stores as any
-    storeConfig.currentStoreId = pkg.stores[0]?.storeId || 'S001'
+    storeConfig.currentStoreId = authRes.storeId || pkg.stores[0]?.storeId || 'S001'
     storeConfig.spaceAlias = pkg.spaceAlias
     storeConfig.appendActionAlias = pkg.appendActionAlias
     storeConfig.defaultFeeName = pkg.defaultFeeName
-    storeConfig.storeName = pkg.stores[0]?.storeName || target.name
+    storeConfig.storeName = authRes.storeName || pkg.stores[0]?.storeName || target.name
     storeConfig.industryCategoryName = target.name
     storeConfig.industryCategoryGroup = target.name
 
     localStorage.setItem('seahorse_demo_mode', target.code)
     localStorage.setItem('seahorse_stores_data', JSON.stringify(pkg.stores))
     localStorage.setItem('seahorse_token', authRes.token)
-    localStorage.setItem('seahorse_user', target.user)
-    localStorage.setItem('seahorse_username', uname)
-    localStorage.setItem('seahorse_real_name', target.user)
-    localStorage.setItem('seahorse_role', 'SUPER_ADMIN')
+    localStorage.setItem('seahorse_user', authRes.realName || target.user)
+    localStorage.setItem('seahorse_username', authRes.username || uname)
+    localStorage.setItem('seahorse_real_name', authRes.realName || target.user)
+    localStorage.setItem('seahorse_role', authRes.role || 'STORE_MANAGER')
+    localStorage.setItem('seahorse_permissions', JSON.stringify(authRes.permissions || []))
     localStorage.setItem('seahorse_industry', target.code)
-    localStorage.setItem('seahorse_store_id', pkg.stores[0]?.storeId || 'S001')
-    localStorage.setItem('seahorse_store_name', pkg.stores[0]?.storeName || target.name)
-    localStorage.setItem('seahorse_tenant_id', 'T001')
-    localStorage.setItem('seahorse_tenant_name', target.name + '连锁商业集团')
-    localStorage.setItem('seahorse_plan', 'FLAGSHIP')
-    localStorage.setItem('seahorse_deduct_mode', 'PROPORTIONAL')
+    localStorage.setItem('seahorse_store_id', authRes.storeId || pkg.stores[0]?.storeId || 'S001')
+    localStorage.setItem('seahorse_store_name', authRes.storeName || pkg.stores[0]?.storeName || target.name)
+    localStorage.setItem('seahorse_tenant_id', authRes.tenantId || '')
+    localStorage.setItem('seahorse_tenant_name', authRes.tenantName || (target.name + '连锁商业集团'))
+    localStorage.setItem('seahorse_plan', authRes.plan || 'TRIAL')
+    localStorage.setItem('seahorse_deduct_mode', authRes.deductMode || 'PROPORTIONAL')
 
     reportLoginAuditLog(
-      uname,
-      target.user,
-      'SUPER_ADMIN',
-      pkg.stores[0]?.storeId || 'S001',
-      pkg.stores[0]?.storeName || (target.name + '连锁商业集团'),
-      'T001'
+      authRes.username || uname,
+      authRes.realName || target.user,
+      authRes.role || 'STORE_MANAGER',
+      authRes.storeId || pkg.stores[0]?.storeId || 'S001',
+      authRes.storeName || pkg.stores[0]?.storeName || (target.name + '连锁商业集团'),
+      authRes.tenantId || ''
     )
 
     ElMessage.success(`欢迎进入【${target.name}】真实行业体验模式！`)
@@ -1545,8 +1542,8 @@ const quickLogin = async (uname: string) => {
   }
 
   loginForm.value.username = uname
-  loginForm.value.password = '123456'
-  handleLogin()
+  loginForm.value.password = ''
+  ElMessage.info(`已预填账号 ${uname}，请输入登录密码`)
 }
 </script>
 

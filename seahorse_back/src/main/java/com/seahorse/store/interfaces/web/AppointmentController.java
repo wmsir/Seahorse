@@ -12,6 +12,7 @@ import com.seahorse.store.domain.session.model.ServiceSpace;
 import com.seahorse.store.infrastructure.repository.AppointmentRepository;
 import com.seahorse.store.infrastructure.repository.ServiceSessionRepository;
 import com.seahorse.store.infrastructure.repository.ServiceSpaceRepository;
+import com.seahorse.store.infrastructure.repository.StoreRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class AppointmentController {
     private final ServiceSessionAppService sessionAppService;
     private final ServiceSpaceRepository spaceRepository;
     private final ServiceSessionRepository sessionRepository;
+    private final StoreRepository storeRepository;
 
     @Operation(summary = "查询预约排班列表（支持单日 date 或区间 startDate~endDate）")
     @GetMapping("/list")
@@ -41,36 +43,53 @@ public class AppointmentController {
             @RequestParam(value = "date", required = false) String date,
             @RequestParam(value = "startDate", required = false) String startDate,
             @RequestParam(value = "endDate", required = false) String endDate) {
+        if (!TenantContext.isAuthenticated()) {
+            return ApiResponse.error(401, "请先登录");
+        }
 
         String currentStoreId = (storeId != null && !storeId.trim().isEmpty())
                 ? storeId.trim()
                 : (TenantContext.getStoreId() != null && !TenantContext.getStoreId().trim().isEmpty() ? TenantContext.getStoreId() : "S001");
+        storeRepository.findByStoreId(currentStoreId)
+                .ifPresent(s -> TenantContext.assertTenantAccess(s.getTenantId()));
 
+        List<Appointment> rawList;
         if (startDate != null && !startDate.trim().isEmpty()
                 && endDate != null && !endDate.trim().isEmpty()) {
-            List<Appointment> rangeList = appointmentRepository
+            rawList = appointmentRepository
                     .findByStoreIdAndAptDateBetweenOrderByAptDateAscAptTimeAsc(currentStoreId, startDate.trim(), endDate.trim());
-            return ApiResponse.success(rangeList);
+        } else {
+            String targetDate = (date != null && !date.trim().isEmpty()) ? date.trim() : LocalDate.now().toString();
+            rawList = appointmentRepository.findByStoreIdAndAptDate(currentStoreId, targetDate);
         }
-
-        String targetDate = (date != null && !date.trim().isEmpty()) ? date.trim() : LocalDate.now().toString();
-        List<Appointment> list = appointmentRepository.findByStoreIdAndAptDate(currentStoreId, targetDate);
-        return ApiResponse.success(list);
+        String currentTenant = TenantContext.getTenantId();
+        List<Appointment> filtered = TenantContext.isPlatformAdmin()
+                ? rawList
+                : rawList.stream().filter(a -> a.getTenantId() == null || currentTenant.equalsIgnoreCase(a.getTenantId())).toList();
+        return ApiResponse.success(filtered);
     }
 
     @Operation(summary = "登记新顾客预约排班")
     @PostMapping("/create")
     public ApiResponse<Appointment> createAppointment(@RequestBody Appointment appointment) {
-        String tenantId = TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001";
         String storeId = (appointment.getStoreId() != null && !appointment.getStoreId().trim().isEmpty())
-                ? appointment.getStoreId() : (TenantContext.getStoreId() != null ? TenantContext.getStoreId() : "S001");
+                ? appointment.getStoreId().trim() : (TenantContext.getStoreId() != null ? TenantContext.getStoreId() : "S001");
+        String resolvedStoreTenant = storeRepository.findByStoreId(storeId)
+                .map(com.seahorse.store.domain.iam.model.Store::getTenantId)
+                .orElse(null);
+        String tenantId = resolvedStoreTenant != null && !resolvedStoreTenant.trim().isEmpty()
+                ? resolvedStoreTenant.trim()
+                : (TenantContext.getTenantId() != null ? TenantContext.getTenantId() : "T001");
+        if (TenantContext.isAuthenticated()) {
+            TenantContext.assertTenantAccess(tenantId);
+        }
 
         appointment.setTenantId(tenantId);
         appointment.setStoreId(storeId);
         if (appointment.getAptNo() == null || appointment.getAptNo().trim().isEmpty()) {
             appointment.setAptNo("APT" + System.currentTimeMillis() + (int)(Math.random() * 900 + 100));
         }
-        if (appointment.getStatus() == null || appointment.getStatus().trim().isEmpty()) {
+        if (!TenantContext.isAuthenticated() || appointment.getStatus() == null || appointment.getStatus().trim().isEmpty()) {
             appointment.setStatus("PENDING");
         }
         if (appointment.getAptDate() == null || appointment.getAptDate().trim().isEmpty()) {

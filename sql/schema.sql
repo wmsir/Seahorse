@@ -215,6 +215,7 @@ CREATE TABLE `sh_billing_order` (
   `cashier_id` bigint DEFAULT NULL,
   `cashier_name` varchar(64) DEFAULT NULL,
   `settled_at` datetime DEFAULT NULL,
+  `version` bigint NOT NULL DEFAULT '0' COMMENT 'JPA乐观锁版本号',
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -330,6 +331,7 @@ CREATE TABLE `sh_time_card_bucket` (
   `remaining_times` int NOT NULL DEFAULT '1',
   `expire_date` date DEFAULT NULL,
   `status` varchar(32) DEFAULT 'ACTIVE',
+  `version` bigint NOT NULL DEFAULT '0' COMMENT 'JPA乐观锁版本号',
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -871,5 +873,23 @@ CREATE TABLE `sh_job_application` (
   UNIQUE KEY `uk_job_application_no` (`application_no`),
   KEY `idx_job_app_tenant_phone` (`tenant_id`, `phone`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='岗位招聘与求职简历投递表';
+
+-- 41. OneID 统一身份与海马员工显式映射表
+DROP TABLE IF EXISTS `sh_identity_binding`;
+CREATE TABLE `sh_identity_binding` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `oneid_sub` varchar(64) NOT NULL,
+  `tenant_id` varchar(64) NOT NULL,
+  `store_id` varchar(64) DEFAULT NULL,
+  `employee_id` bigint NOT NULL,
+  `role_code` varchar(32) NOT NULL,
+  `match_source` varchar(32) NOT NULL DEFAULT 'PHONE_AUTO_LINK',
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_sh_bind_emp` (`employee_id`),
+  KEY `idx_sh_bind_sub` (`oneid_sub`),
+  KEY `idx_sh_bind_tenant` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='OneID统一身份与门店员工映射表';
 
 SET FOREIGN_KEY_CHECKS = 1;

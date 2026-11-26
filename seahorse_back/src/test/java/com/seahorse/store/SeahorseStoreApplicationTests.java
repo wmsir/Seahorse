@@ -877,12 +877,24 @@ public class SeahorseStoreApplicationTests {
         Assertions.assertEquals(1, unionSummary.getPaymentRecords().size());
         Assertions.assertTrue(unionSummary.getPaymentRecords().get(0).getTradeNo().startsWith("UP"), "银联流水号应以UP开头");
 
-        // 验证 ¥0.00 全额免单核销闭环 (actualAmount = 0, 空 splitItems)
+        // 验证 ¥0.00 全额免单核销闭环 (基于服务端 0 元体验项目核算，禁止客户端篡改金额)
+        Product freeTrialItem = productRepository.save(Product.builder()
+                .tenantId("T001")
+                .storeId("S001")
+                .productCode("FREE88")
+                .name("新客免单体验券")
+                .productType(com.seahorse.store.domain.product.enums.ProductType.SERVICE)
+                .price(BigDecimal.ZERO)
+                .stock(99)
+                .unit("次")
+                .available(true)
+                .build());
         BillingSummaryVO compedSummary = checkoutAppService.executeCheckout(CheckoutCommand.builder()
-                .totalAmount(BigDecimal.valueOf(88.00))
-                .discountAmount(BigDecimal.valueOf(88.00))
-                .actualAmount(BigDecimal.ZERO)
                 .customerName("店长特批免单体验客")
+                .items(Collections.singletonList(CheckoutCommand.CheckoutItem.builder()
+                        .productId(freeTrialItem.getId())
+                        .quantity(1)
+                        .build()))
                 .splitItems(Collections.emptyList())
                 .build());
 

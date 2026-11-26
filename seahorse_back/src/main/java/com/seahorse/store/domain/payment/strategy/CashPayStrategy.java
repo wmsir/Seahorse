@@ -1,5 +1,6 @@
 package com.seahorse.store.domain.payment.strategy;
 
+import com.seahorse.store.context.TenantContext;
 import com.seahorse.store.domain.billing.enums.PaymentChannel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -18,6 +19,9 @@ public class CashPayStrategy implements PaymentChannelStrategy {
 
     @Override
     public ChannelPayResult processPay(PaymentPayContext context) {
+        if (!TenantContext.isAuthenticated() || "CUSTOMER_MEMBER".equalsIgnoreCase(TenantContext.getRole())) {
+            return ChannelPayResult.fail("无权执行现金收银操作，仅限门店员工或收银员操作");
+        }
         BigDecimal due = context.getAmount();
         BigDecimal tendered = context.getTenderedAmount() != null ? context.getTenderedAmount() : due;
 
