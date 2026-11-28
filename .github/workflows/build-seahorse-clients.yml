@@ -565,7 +565,7 @@ jobs:
           if-no-files-found: error
 
   # ============================================================================
-  # 5. Android 原生移动客户端 (双模构建：有 Keystore 走生产签名，无则回退兼容签名)
+  # 5. Android 原生移动客户端 (强制使用持久正式签名，严禁回退 Debug 签名)
   # ============================================================================
   build-android-flutter:
     name: 构建 Android 移动端 (Release APK)
@@ -589,47 +589,26 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: 配置 Android 生产签名证书 (双模自动探测)
+      - name: 解码并校验 Android 正式签名证书 (Fail-Fast)
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.SEAHORSE_ANDROID_KEYSTORE_BASE64 }}
           ANDROID_STORE_PASSWORD: ${{ secrets.SEAHORSE_ANDROID_STORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.SEAHORSE_ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.SEAHORSE_ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -n "${ANDROID_KEYSTORE_BASE64}" ] && [ -n "${ANDROID_STORE_PASSWORD}" ]; then
-            echo "检测到 SEAHORSE_ANDROID_KEYSTORE_BASE64，启用 Android 生产正式签名模式..."
-            python3 - <<'PY'
-          import base64
-          import os
-          import re
-          from pathlib import Path
-
-          b64 = re.sub(r"\s+", "", os.environ["ANDROID_KEYSTORE_BASE64"])
-          ks_path = Path("seahorse_app/android/app/upload-keystore.jks")
-          ks_path.write_bytes(base64.b64decode(b64))
-
-          store_pwd = os.environ["ANDROID_STORE_PASSWORD"]
-          key_alias = os.environ.get("ANDROID_KEY_ALIAS", "").strip() or "seahorse"
-          key_pwd = os.environ.get("ANDROID_KEY_PASSWORD", "").strip() or store_pwd
-
-          def esc(val: str) -> str:
-              return val.replace("\\", "\\\\").replace("\n", "")
-
-          props = (
-              f"storePassword={esc(store_pwd)}\n"
-              f"keyPassword={esc(key_pwd)}\n"
-              f"keyAlias={esc(key_alias)}\n"
-              "storeFile=upload-keystore.jks\n"
-          )
-          Path("seahorse_app/android/key.properties").write_text(props, encoding="utf-8")
-          print(f"[Android Signing] Decoded upload-keystore.jks ({ks_path.stat().st_size}B, alias={key_alias}).")
-          PY
-          else
-            echo "::notice::未检测到 SEAHORSE_ANDROID_KEYSTORE_BASE64 / SEAHORSE_ANDROID_STORE_PASSWORD，回退至默认兼容签名构建 APK。"
-            rm -f seahorse_app/android/key.properties seahorse_app/android/app/upload-keystore.jks
+          if [ -z "${ANDROID_KEYSTORE_BASE64}" ] || [ -z "${ANDROID_STORE_PASSWORD}" ] || [ -z "${ANDROID_KEY_ALIAS}" ] || [ -z "${ANDROID_KEY_PASSWORD}" ]; then
+            echo "::error::Missing Seahorse Android release signing secrets!"
+            exit 1
           fi
+          printf '%s' "${ANDROID_KEYSTORE_BASE64}" | tr -d ' \t\r\n' | base64 -d > "${{ runner.temp }}/seahorse-release.jks"
+          chmod 600 "${{ runner.temp }}/seahorse-release.jks"
 
       - name: 编译 Android Release APK
+        env:
+          SEAHORSE_KEYSTORE_FILE: ${{ runner.temp }}/seahorse-release.jks
+          SEAHORSE_KEYSTORE_PASSWORD: ${{ secrets.SEAHORSE_ANDROID_STORE_PASSWORD }}
+          SEAHORSE_KEY_ALIAS: ${{ secrets.SEAHORSE_ANDROID_KEY_ALIAS }}
+          SEAHORSE_KEY_PASSWORD: ${{ secrets.SEAHORSE_ANDROID_KEY_PASSWORD }}
         run: |
           cd seahorse_app
           chmod +x android/gradlew
@@ -639,10 +618,26 @@ jobs:
           cp build/app/outputs/flutter-apk/app-release.apk "../release_out/android/seahorse_app-v${SEAHORSE_VERSION}-android.apk"
           ls -lh ../release_out/android/
 
+      - name: 校验 Release APK 签名指纹 (禁止 Debug 证书)
+        run: |
+          APK_PATH="release_out/android/seahorse_app-v${SEAHORSE_VERSION}-android.apk"
+          CERT_OUT=$(keytool -printcert -jarfile "$APK_PATH")
+          echo "$CERT_OUT"
+          if echo "$CERT_OUT" | grep -qi "Android Debug"; then
+            echo "::error::APK is signed with Android Debug certificate!"
+            exit 1
+          fi
+          EXPECTED_SHA256="A6:9A:F3:24:AA:28:87:06:78:B8:46:D3:53:60:D5:90:DF:67:57:49:8A:E2:FE:A0:52:85:22:E3:FC:08:19:41"
+          if ! echo "$CERT_OUT" | grep -qi "$EXPECTED_SHA256"; then
+            echo "::error::APK SHA-256 fingerprint does not match expected release certificate ($EXPECTED_SHA256)!"
+            exit 1
+          fi
+
       - name: 清理 Android 临时签名证书
         if: always()
         run: |
-          rm -f seahorse_app/android/key.properties \
+          rm -f "${{ runner.temp }}/seahorse-release.jks" \
+                seahorse_app/android/key.properties \
                 seahorse_app/android/app/upload-keystore.jks
 
       - name: 上传构建产物 (Android APK)
